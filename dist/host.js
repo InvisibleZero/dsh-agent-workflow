@@ -37,6 +37,14 @@ var StateDetail = z.object({
   operation_detail: z.string(),
   enter_trigger: z.string().nullable()
 });
+var ACTIVE_STATE_ORDER = [
+  "discussing",
+  "implementing",
+  "verifying"
+];
+function isActiveState(state) {
+  return ACTIVE_STATE_ORDER.includes(state);
+}
 
 // src/schema/node.ts
 var AgentNode = z2.object({
@@ -296,6 +304,23 @@ var WorkflowRepository = class {
   async get(id) {
     return this.storage.load(id);
   }
+  /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
+  async getGlobalOperationDetail(id) {
+    const snapshot = await this.storage.load(id);
+    return snapshot === null ? null : snapshot.settings.global_operation_detail;
+  }
+  /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
+  async updateGlobalOperationDetail(id, raw) {
+    const snapshot = await this.storage.load(id);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    const parsed = GlobalOperationDetail.parse(raw);
+    const updated = {
+      ...snapshot,
+      settings: { ...snapshot.settings, global_operation_detail: parsed }
+    };
+    await this.storage.save(updated);
+    return parsed;
+  }
   /**
    * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
    * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
@@ -436,6 +461,22 @@ var WorkflowRepository = class {
   }
 };
 
+// src/engine/state-machine.ts
+function effectiveDetail(targetState, node, global) {
+  if (!isActiveState(targetState)) {
+    return { full_detail: global.shared_detail, enter_trigger: null };
+  }
+  const target = targetState;
+  const slot = global[target];
+  const specific = node.state_detail_overrides?.[target] ?? slot;
+  return {
+    full_detail: `${global.shared_detail}
+
+${specific.operation_detail}`,
+    enter_trigger: specific.enter_trigger
+  };
+}
+
 // src/host.ts
 var inject = [];
 function resolveDataDir() {
@@ -541,6 +582,50 @@ function apply(ctx) {
         const snapshot = await repository.get(id);
         if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
         return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/settings",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const id = query.get("id");
+        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
+        const globalOperationDetail = await repository.getGlobalOperationDetail(id);
+        if (globalOperationDetail === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+        return { globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/settings-save",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        if (body?.globalOperationDetail === void 0 || body.globalOperationDetail === null) {
+          throw new Error("\u7F3A\u5C11 globalOperationDetail");
+        }
+        const globalOperationDetail = await repository.updateGlobalOperationDetail(body.id, body.globalOperationDetail);
+        return { globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/node-detail",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const id = query.get("id");
+        const nodeId = query.get("nodeId");
+        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        const snapshot = await repository.get(id);
+        if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+        const global = snapshot.settings.global_operation_detail;
+        return {
+          node: { node_id: node.node_id, title: node.title ?? "", current_state: node.current_state },
+          global,
+          effective: effectiveDetail(node.current_state, node, global),
+          overrides: node.state_detail_overrides ?? null
+        };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

@@ -1028,6 +1028,7 @@ window.__ModuleLoader__.load({
     const react_1 = require("react");
     const workspace_kind_1 = __req("client/workspace-kind.js");
     const node_state_label_1 = __req("schema/node-state-label.js");
+    const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
     const workspace_ui_1 = __req("client/workspace-ui.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     const workspace_kind_registry_1 = __req("client/workspace-kind-registry.js");
@@ -1097,6 +1098,10 @@ window.__ModuleLoader__.load({
         const [workspaceMenuPoint, setWorkspaceMenuPoint] = (0, react_1.useState)(null);
         /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
         const [nodeMenu, setNodeMenu] = (0, react_1.useState)(null);
+        /** 全局操作细节弹窗（A/B/C/D）。 */
+        const [settingsDialogOpen, setSettingsDialogOpen] = (0, react_1.useState)(false);
+        /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
+        const [nodeDetailNodeId, setNodeDetailNodeId] = (0, react_1.useState)(null);
         /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
         const [busyNodeId, setBusyNodeId] = (0, react_1.useState)(null);
         const load = async () => {
@@ -1306,7 +1311,6 @@ window.__ModuleLoader__.load({
             }
         };
         const renderNodeRow = (node, depth) => {
-            const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
             const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
             const sessionSummary = sessionId === null ? undefined : sessionsById[sessionId];
             const sessionTitle = typeof sessionSummary?.title === 'string' ? sessionSummary.title.trim() : '';
@@ -1339,10 +1343,7 @@ window.__ModuleLoader__.load({
                                             event.currentTarget.focus({ preventScroll: true });
                                             const point = (0, workspace_ui_1.menuPointFromEvent)(event);
                                             setNodeMenu((current) => (current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }));
-                                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
-                                                if (nextState !== null)
-                                                    void transition(node.node_id, nextState);
-                                            }, style: { opacity: nextState === null ? 0.35 : 1 }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(node.node_id), children: (0, jsx_runtime_1.jsx)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: (0, jsx_runtime_1.jsx)("path", { d: "M12 6v12M6 12h12" }) }) }) })] })] }), children.map((child) => renderNodeRow(child, depth + 1))] }, node.node_id));
+                                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u64CD\u4F5C\u7EC6\u8282", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u64CD\u4F5C\u7EC6\u8282", onClick: () => setNodeDetailNodeId(node.node_id), children: (0, jsx_runtime_1.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "3" }), (0, jsx_runtime_1.jsx)("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" })] }) }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(node.node_id), children: (0, jsx_runtime_1.jsx)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: (0, jsx_runtime_1.jsx)("path", { d: "M12 6v12M6 12h12" }) }) }) })] })] }), children.map((child) => renderNodeRow(child, depth + 1))] }, node.node_id));
         };
         const rootNode = byId.get(rootId);
         /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
@@ -1359,9 +1360,14 @@ window.__ModuleLoader__.load({
                                             if (rootNextState !== null)
                                                 void transition(rootNode.node_id, rootNextState);
                                         }, style: { opacity: rootNextState === null ? 0.35 : 1 }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) })) : null, (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "8" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? ((0, jsx_runtime_1.jsx)("div", { style: { paddingBottom: 4 }, children: loading ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (rootChildNodes.map((child) => renderNodeRow(child, 1))) })) : null, workspaceMenuPoint !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(workspaceMenuPoint), items: [
+                        { id: 'settings', label: '操作细节设置', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutlineRegular, {}) },
                         { id: 'rename', label: '重命名', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutlineRegular, {}) },
                         { id: 'delete', label: '删除工作区', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTrashOutlineRegular, {}), danger: true },
                     ], onClose: () => setWorkspaceMenuPoint(null), onSelect: (id) => {
+                        if (id === 'settings') {
+                            setSettingsDialogOpen(true);
+                            return;
+                        }
                         // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
                         const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
                             ? summary.workspaceId
@@ -1401,7 +1407,7 @@ window.__ModuleLoader__.load({
                             { id: 'archive', label: '归档会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutlineRegular, {}), separatorBefore: true },
                         ];
                     return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-                })() : null] }));
+                })() : null, settingsDialogOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowSettingsDialog, { workflowId: summary.id, onClose: () => setSettingsDialogOpen(false) })) : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null) })) : null] }));
     }
     /**
      * 输入框工具条里的 workflow 状态徽标：
@@ -1409,51 +1415,93 @@ window.__ModuleLoader__.load({
      */
     function WorkflowStateBadge(props) {
         const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
-        const [nodeState, setNodeState] = (0, react_1.useState)(null);
+        const [nodeInfo, setNodeInfo] = (0, react_1.useState)(null);
+        const [advancing, setAdvancing] = (0, react_1.useState)(false);
+        const readNode = async () => {
+            try {
+                const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+                const data = await response.json().catch(() => null);
+                const node = data?.ok === true ? data.node : null;
+                setNodeInfo(node === null || node === undefined
+                    ? null
+                    : {
+                        state: String(node.current_state),
+                        workflowId: String(node.workflowId),
+                        nodeId: String(node.nodeId),
+                    });
+            }
+            catch {
+                setNodeInfo(null);
+            }
+        };
         (0, react_1.useEffect)(() => {
             if (sessionId === '') {
-                setNodeState(null);
+                setNodeInfo(null);
                 return undefined;
             }
             let cancelled = false;
-            const read = async () => {
-                try {
-                    const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
-                    const data = await response.json().catch(() => null);
-                    if (cancelled)
-                        return;
-                    const node = data?.ok === true ? data.node : null;
-                    setNodeState(node === null || node === undefined ? null : { state: String(node.current_state) });
-                }
-                catch {
-                    if (!cancelled)
-                        setNodeState(null);
-                }
+            const tick = async () => {
+                if (cancelled)
+                    return;
+                await readNode();
             };
-            void read();
+            void tick();
             // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
-            const timer = window.setInterval(read, 3000);
+            const timer = window.setInterval(tick, 3000);
             return () => {
                 cancelled = true;
                 window.clearInterval(timer);
             };
         }, [sessionId]);
-        if (nodeState === null)
+        if (nodeInfo === null)
             return null;
-        const label = node_state_label_1.NODE_STATE_LABEL[nodeState.state] ?? nodeState.state;
-        return ((0, jsx_runtime_1.jsxs)("span", { title: "workflow \u8282\u70B9\u72B6\u6001", style: {
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 22,
-                padding: '0 8px',
-                borderRadius: 6,
-                background: 'var(--dsw-alias-bg-layer-1)',
-                color: 'var(--dsw-alias-label-secondary)',
-                fontSize: 11,
-                lineHeight: '22px',
-                whiteSpace: 'nowrap',
-            }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeState.state] ?? 'transparent' } }), label] }));
+        const label = node_state_label_1.NODE_STATE_LABEL[nodeInfo.state] ?? nodeInfo.state;
+        const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
+        /** 「推进」按钮挪到了会话里（状态徽标右边）；逻辑暂时保持原样：直接写状态。 */
+        const advance = async () => {
+            if (nextState === null || advancing)
+                return;
+            setAdvancing(true);
+            try {
+                await fetch('/dsh-agent-workflow/transition', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to: nextState }),
+                });
+                await readNode();
+            }
+            catch (error) {
+                console.error('[dsh-agent-workflow] 推进状态失败：', error);
+            }
+            finally {
+                setAdvancing(false);
+            }
+        };
+        return ((0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsxs)("span", { title: "workflow \u8282\u70B9\u72B6\u6001", style: {
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        height: 22,
+                        padding: '0 8px',
+                        borderRadius: 6,
+                        background: 'var(--dsw-alias-bg-layer-1)',
+                        color: 'var(--dsw-alias-label-secondary)',
+                        fontSize: 11,
+                        lineHeight: '22px',
+                        whiteSpace: 'nowrap',
+                    }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nextState === null ? null : ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 22,
+                            height: 22,
+                            border: '1px solid var(--dsw-alias-border-l1)',
+                            borderRadius: 6,
+                            background: 'transparent',
+                            color: 'var(--dsw-alias-label-secondary)',
+                            cursor: advancing ? 'progress' : 'pointer',
+                            opacity: advancing ? 0.6 : 1,
+                        }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) }))] }));
     }
     /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
     function applyWorkflowComposerBadge(ctx) {
@@ -1504,6 +1552,179 @@ window.__ModuleLoader__.load({
         completed: '已完结',
     };
     //# sourceMappingURL=node-state-label.js.map
+    },
+    "client/workflow-dialogs.js": function(__req, module, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.WorkflowSettingsDialog = WorkflowSettingsDialog;
+    exports.WorkflowNodeDetailDialog = WorkflowNodeDetailDialog;
+    const jsx_runtime_1 = require("react/jsx-runtime");
+    // @ts-nocheck
+    /**
+     * workflow 的两个弹窗：
+     * - 全局操作细节（A 公共 + B/C/D 三态），每个 workflow 工作区各一份，存在快照的 settings 里；
+     * - 节点操作细节（只读展示 A + B/C/D，并标出该节点覆盖了哪一条）。
+     *
+     * 样式全部用主题变量内联，不依赖 CSS Module，深浅色自动跟随。
+     */
+    const react_1 = require("react");
+    const PANEL_STYLE = {
+        position: 'fixed',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 560,
+        maxWidth: '92vw',
+        maxHeight: '82vh',
+        overflow: 'auto',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: 10,
+        padding: 16,
+        boxShadow: '0 12px 32px rgba(0,0,0,.4)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: 13,
+        zIndex: 1200,
+    };
+    const OVERLAY_STYLE = {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1199,
+        background: 'rgba(0,0,0,.45)',
+    };
+    const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
+    const FIELD_STYLE = {
+        width: '100%',
+        boxSizing: 'border-box',
+        background: 'var(--dsw-alias-bg-base)',
+        color: 'var(--dsw-alias-label-primary)',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: 6,
+        padding: '6px 8px',
+        fontSize: 12,
+        lineHeight: 1.5,
+        resize: 'vertical',
+        fontFamily: 'inherit',
+    };
+    function Modal(props) {
+        return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: OVERLAY_STYLE, onClick: props.onClose }), (0, jsx_runtime_1.jsxs)("div", { style: PANEL_STYLE, role: "dialog", "aria-label": props.title, children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, children: [(0, jsx_runtime_1.jsx)("strong", { style: { fontSize: 14 }, children: props.title }), (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u5173\u95ED", onClick: props.onClose, style: { border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }, children: "\u00D7" })] }), props.children, props.footer === undefined ? null : (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }, children: props.footer })] })] }));
+    }
+    function Button(props) {
+        return ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: props.onClick, style: {
+                height: 28,
+                padding: '0 14px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+                border: props.primary === true ? 'none' : '1px solid var(--dsw-alias-border-l1)',
+                background: props.primary === true ? 'var(--dsw-alias-brand-primary)' : 'transparent',
+                color: props.primary === true ? '#fff' : 'var(--dsw-alias-label-primary)',
+            }, children: props.label }));
+    }
+    function StateDetailFields(props) {
+        const { title, detail, onChange, highlight } = props;
+        return ((0, jsx_runtime_1.jsxs)("div", { style: {
+                border: '1px solid var(--dsw-alias-border-l1)',
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 10,
+                background: highlight === true ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+            }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontWeight: 600, marginBottom: 8 }, children: [title, highlight === true ? (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null] }), (0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 54 }, value: detail.operation_detail, onChange: (event) => onChange({ ...detail, operation_detail: event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 8 }, children: "\u8FDB\u5165\u540E\u9ED8\u8BA4\u8F93\u5165\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("input", { style: FIELD_STYLE, value: detail.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846", onChange: (event) => onChange({ ...detail, enter_trigger: event.target.value === '' ? null : event.target.value }) })] }));
+    }
+    /** 全局操作细节（A + B/C/D）编辑弹窗：按 workflow 保存到该快照的 settings。 */
+    function WorkflowSettingsDialog(props) {
+        const { workflowId, onClose } = props;
+        const [detail, setDetail] = (0, react_1.useState)(null);
+        const [error, setError] = (0, react_1.useState)(null);
+        const [saving, setSaving] = (0, react_1.useState)(false);
+        (0, react_1.useEffect)(() => {
+            let cancelled = false;
+            void (async () => {
+                try {
+                    const response = await fetch(`/dsh-agent-workflow/settings?id=${encodeURIComponent(workflowId)}`);
+                    const data = await response.json().catch(() => null);
+                    if (cancelled)
+                        return;
+                    if (data?.ok === true)
+                        setDetail(data.globalOperationDetail);
+                    else
+                        setError(String(data?.error ?? '读取设置失败'));
+                }
+                catch (reason) {
+                    if (!cancelled)
+                        setError(String(reason));
+                }
+            })();
+            return () => { cancelled = true; };
+        }, [workflowId]);
+        const save = async () => {
+            if (detail === null)
+                return;
+            setSaving(true);
+            setError(null);
+            try {
+                const response = await fetch('/dsh-agent-workflow/settings-save', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ id: workflowId, globalOperationDetail: detail }),
+                });
+                const data = await response.json().catch(() => null);
+                if (data?.ok === true)
+                    onClose();
+                else
+                    setError(String(data?.error ?? '保存失败'));
+            }
+            catch (reason) {
+                setError(String(reason));
+            }
+            finally {
+                setSaving(false);
+            }
+        };
+        return ((0, jsx_runtime_1.jsxs)(Modal, { title: "\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E\uFF08\u5168\u5C40\uFF09", onClose: onClose, footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(Button, { label: "\u53D6\u6D88", onClick: onClose }), (0, jsx_runtime_1.jsx)(Button, { label: saving ? '保存中…' : '保存', onClick: () => void save(), primary: true })] })), children: [error !== null ? (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-state-error-primary)', marginBottom: 8 }, children: error }) : null, detail === null ? ((0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 8 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09" }), (0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u4E09\u6001\u901A\u7528\uFF0C\u6BCF\u4E2A\u8282\u70B9\u90FD\u4F1A\u8BFB\u5230" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 54 }, value: detail.shared_detail ?? '', onChange: (event) => setDetail({ ...detail, shared_detail: event.target.value }) })] }), (0, jsx_runtime_1.jsx)(StateDetailFields, { title: "\u8BA8\u8BBA\u4E2D\uFF08B\uFF09", detail: detail.discussing, onChange: (next) => setDetail({ ...detail, discussing: next }) }), (0, jsx_runtime_1.jsx)(StateDetailFields, { title: "\u5B9E\u73B0\u4E2D\uFF08C\uFF09", detail: detail.implementing, onChange: (next) => setDetail({ ...detail, implementing: next }) }), (0, jsx_runtime_1.jsx)(StateDetailFields, { title: "\u9A8C\u6536\u4E2D\uFF08D\uFF09", detail: detail.verifying, onChange: (next) => setDetail({ ...detail, verifying: next }) })] }))] }));
+    }
+    /** 节点操作细节弹窗：展示该节点当前生效的 A + B/C/D，并标出节点自己覆盖的条目。 */
+    function WorkflowNodeDetailDialog(props) {
+        const { workflowId, nodeId, onClose } = props;
+        const [payload, setPayload] = (0, react_1.useState)(null);
+        const [error, setError] = (0, react_1.useState)(null);
+        (0, react_1.useEffect)(() => {
+            let cancelled = false;
+            void (async () => {
+                try {
+                    const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                    const data = await response.json().catch(() => null);
+                    if (cancelled)
+                        return;
+                    if (data?.ok === true)
+                        setPayload(data);
+                    else
+                        setError(String(data?.error ?? '读取失败'));
+                }
+                catch (reason) {
+                    if (!cancelled)
+                        setError(String(reason));
+                }
+            })();
+            return () => { cancelled = true; };
+        }, [workflowId, nodeId]);
+        const overrides = payload?.overrides ?? null;
+        const currentState = payload?.node?.current_state ?? null;
+        const labels = { discussing: '讨论中（B）', implementing: '实现中（C）', verifying: '验收中（D）' };
+        return ((0, jsx_runtime_1.jsxs)(Modal, { title: `操作细节 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? ((0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", currentState, overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'] }), (0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: payload.global.shared_detail })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
+                            const global = payload.global[state];
+                            const override = overrides?.[state];
+                            const shown = override ?? global;
+                            return ((0, jsx_runtime_1.jsxs)("div", { style: {
+                                    border: '1px solid var(--dsw-alias-border-l1)',
+                                    borderRadius: 8,
+                                    padding: 10,
+                                    marginBottom: 10,
+                                    background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+                                }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: [labels[state], currentState === state ? (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null, override !== undefined ? (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)' }, children: "\u5DF2\u8986\u76D6" }) : null] }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: shown.operation_detail }), shown.enter_trigger !== null && shown.enter_trigger !== '' ? ((0, jsx_runtime_1.jsxs)("div", { style: { marginTop: 6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u8FDB\u5165\u540E\u9ED8\u8BA4\u8F93\u5165\uFF1A", shown.enter_trigger] })) : null] }, state));
+                        })] }))] }));
+    }
+    //# sourceMappingURL=workflow-dialogs.js.map
     },
     };
     var __cache = {};

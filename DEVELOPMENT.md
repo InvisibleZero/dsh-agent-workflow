@@ -58,16 +58,23 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 | --- | --- |
 | 左 | 类型图标（树）+ 展开三角 |
 | 中 | 标题（取宿主工作区标题，改名后立刻同步） |
-| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
+| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（操作细节设置 / 重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
 
 - **点整行 = 展开 / 收起节点树，不打开会话**（和 usual 工作区行一致）。
 - 根节点**不绑会话**，所以这一行没有会话菜单。
 
 ### 3.2 节点行（子节点，递归）
 
-- 左：状态色点；中：节点标题；右：状态文字 +「⋯」（宿主会话菜单）+「→」（推进状态）+「+」（加子节点）。
+- 左：状态色点；中：节点标题（优先显示会话名）；右：状态文字 +「⋯」（会话菜单）+「⚙」（该节点的操作细节）+「+」（加子节点）。
 - **点整行 = 打开该节点绑定的会话**（没有就新建并绑定）。
 - 缩进按层级递增（每层 14px）。
+- **推进按钮不在这里**：挪到了会话输入框里（见 3.4）。
+
+### 3.4 会话里的状态徽标与推进
+
+- 位置：输入框工具条、权限控件右边的 `conversation.input.left`。
+- 内容：`[状态色点 + 状态名]` + `→`（推进到下一态）。
+- 只有"当前会话被某个节点绑定"时才出现；推进逻辑暂时与原来一致（直接写状态，没有确认弹窗）。
 
 ### 3.3 数据层与渲染层的对应
 
@@ -337,6 +344,16 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
   `sidebar.workspaces + conversation.input.left`；以后再加槽位记得同步改这条断言。
 - **涉及文件**：`src/client/workflow-embedded.tsx`（`WorkflowStateBadge` / `applyWorkflowComposerBadge`）、
   `src/client/dsh-plugin.tsx`、`src/host.ts`、`src/host/workflow-repository.ts`（`findBySession`）。
+
+### D-19 同一个路径不能注册两条 exact 路由（否则整个宿主半全挂）
+
+- **现象**：加完新路由后，插件行显示 `active`，但**所有** `/dsh-agent-workflow/*` 都返回 404，像插件没加载。
+- **根因**：`webServer.register({kind:'exact', path})` 按路径唯一。我把 `GET /settings` 和 `POST /settings`
+  注册成同一个 path，第二次注册抛错，而这个错发生在 `ctx.inject(['webServer'], ...)` 的回调里，
+  整个回调中断 → 六条既有路由也一起没注册。
+- **正确做法**：一条路径一个方法，读和写用不同路径（本项目用 `/settings` 与 `/settings-save`）。
+- **验证**：改完路由后**重启插件半**，逐条 curl 一遍；只看插件行 active 不能证明路由活着。
+- **教训**：路由相关改动必须"重启 + 逐条实测"，别信 fiberPhase。
 
 ---
 

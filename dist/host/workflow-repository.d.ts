@@ -34,6 +34,10 @@ export declare class WorkflowRepository {
         hostWorkspaceId?: string;
     }): Promise<WorkflowSummary>;
     get(id: string): Promise<WorkflowSnapshot | null>;
+    /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
+    getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null>;
+    /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
+    updateGlobalOperationDetail(id: string, raw: unknown): Promise<WorkflowSnapshot['settings']['global_operation_detail']>;
     /**
      * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
      * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
-import { DEFAULT_SETTINGS, type WorkflowSnapshot } from '../schema/workflow';
+import { DEFAULT_SETTINGS, GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
 import type { AgentNode } from '../schema/node';
 
 /**
@@ -115,6 +115,28 @@ export class WorkflowRepository {
 
   async get(id: string): Promise<WorkflowSnapshot | null> {
     return this.storage.load(id);
+  }
+
+  /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
+  async getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null> {
+    const snapshot = await this.storage.load(id);
+    return snapshot === null ? null : snapshot.settings.global_operation_detail;
+  }
+
+  /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
+  async updateGlobalOperationDetail(
+    id: string,
+    raw: unknown,
+  ): Promise<WorkflowSnapshot['settings']['global_operation_detail']> {
+    const snapshot = await this.storage.load(id);
+    if (snapshot === null) throw new Error('找不到该 workflow');
+    const parsed = GlobalOperationDetail.parse(raw);
+    const updated: WorkflowSnapshot = {
+      ...snapshot,
+      settings: { ...snapshot.settings, global_operation_detail: parsed },
+    };
+    await this.storage.save(updated);
+    return parsed;
   }
 
   /**

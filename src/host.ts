@@ -10,6 +10,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from './host/workflow-repository';
+import { effectiveDetail } from './engine/state-machine';
 
 export const inject = [];
 
@@ -126,6 +127,50 @@ export function apply(ctx: any) {
         const snapshot = await repository.get(id);
         if (snapshot === null) throw new Error('找不到该 workflow');
         return { snapshot };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/settings',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const id = query.get('id');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        const globalOperationDetail = await repository.getGlobalOperationDetail(id);
+        if (globalOperationDetail === null) throw new Error('找不到该 workflow');
+        return { globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/settings-save',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (body?.globalOperationDetail === undefined || body.globalOperationDetail === null) {
+          throw new Error('缺少 globalOperationDetail');
+        }
+        const globalOperationDetail = await repository.updateGlobalOperationDetail(body.id, body.globalOperationDetail);
+        return { globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/node-detail',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const id = query.get('id');
+        const nodeId = query.get('nodeId');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
+        const snapshot = await repository.get(id);
+        if (snapshot === null) throw new Error('找不到该 workflow');
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined) throw new Error('找不到节点');
+        const global = snapshot.settings.global_operation_detail;
+        return {
+          node: { node_id: node.node_id, title: node.title ?? '', current_state: node.current_state },
+          global,
+          effective: effectiveDetail(node.current_state, node, global),
+          overrides: node.state_detail_overrides ?? null,
+        };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

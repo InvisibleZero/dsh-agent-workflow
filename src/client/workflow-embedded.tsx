@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { WorkflowSettingsDialog, WorkflowNodeDetailDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import {
   Menu,
@@ -99,6 +100,10 @@ function WorkflowWorkspaceItem(props: {
   const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState<{ x: number; y: number } | null>(null);
   /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  /** 全局操作细节弹窗（A/B/C/D）。 */
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
+  const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
@@ -302,7 +307,6 @@ function WorkflowWorkspaceItem(props: {
   };
 
   const renderNodeRow = (node: any, depth: number): any => {
-    const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
     const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
     const sessionSummary = sessionId === null ? undefined : sessionsById[sessionId];
     const sessionTitle = typeof sessionSummary?.title === 'string' ? sessionSummary.title.trim() : '';
@@ -374,21 +378,17 @@ function WorkflowWorkspaceItem(props: {
             >
               <IconEllipsisOutlineRegular />
             </button>
-            {/* 推进到下一阶段：向右方向键（位于「…」和「+」中间）；已完结时禁用。 */}
-            <Tooltip label={nextState === null ? '已完结' : `推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="bottom" align="end" delayMs={500} portal>
+            {/* 操作细节：小齿轮。推进按钮已挪到会话里（状态徽标右侧）。 */}
+            <Tooltip label="操作细节" side="bottom" align="end" delayMs={500} portal>
               <button
                 type="button"
                 className={rowsClass('iconButton')}
-                aria-label="推进到下一阶段"
-                disabled={nextState === null}
-                onClick={() => {
-                  if (nextState !== null) void transition(node.node_id, nextState);
-                }}
-                style={{ opacity: nextState === null ? 0.35 : 1 }}
+                aria-label="操作细节"
+                onClick={() => setNodeDetailNodeId(node.node_id)}
               >
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
-                  <path d="M5 12h13" />
-                  <path d="m12.5 6 6 6-6 6" />
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" />
                 </svg>
               </button>
             </Tooltip>
@@ -495,11 +495,16 @@ function WorkflowWorkspaceItem(props: {
           portal
           getAnchorRect={() => menuAnchorRect(workspaceMenuPoint)}
           items={[
+            { id: 'settings', label: '操作细节设置', icon: <IconEditOutlineRegular /> },
             { id: 'rename', label: '重命名', icon: <IconEditOutlineRegular /> },
             { id: 'delete', label: '删除工作区', icon: <IconTrashOutlineRegular />, danger: true },
           ]}
           onClose={() => setWorkspaceMenuPoint(null)}
           onSelect={(id: string) => {
+            if (id === 'settings') {
+              setSettingsDialogOpen(true);
+              return;
+            }
             // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
             const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
               ? summary.workspaceId
@@ -561,6 +566,17 @@ function WorkflowWorkspaceItem(props: {
           />
         );
       })() : null}
+
+      {settingsDialogOpen ? (
+        <WorkflowSettingsDialog workflowId={summary.id} onClose={() => setSettingsDialogOpen(false)} />
+      ) : null}
+      {nodeDetailNodeId !== null ? (
+        <WorkflowNodeDetailDialog
+          workflowId={summary.id}
+          nodeId={nodeDetailNodeId}
+          onClose={() => setNodeDetailNodeId(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -571,55 +587,116 @@ function WorkflowWorkspaceItem(props: {
  */
 function WorkflowStateBadge(props: { sessionId?: string }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
-  const [nodeState, setNodeState] = useState<{ state: string } | null>(null);
+  const [nodeInfo, setNodeInfo] = useState<{ state: string; workflowId: string; nodeId: string } | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+
+  const readNode = async () => {
+    try {
+      const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+      const data = await response.json().catch(() => null);
+      const node = data?.ok === true ? data.node : null;
+      setNodeInfo(node === null || node === undefined
+        ? null
+        : {
+          state: String(node.current_state),
+          workflowId: String(node.workflowId),
+          nodeId: String(node.nodeId),
+        });
+    } catch {
+      setNodeInfo(null);
+    }
+  };
 
   useEffect(() => {
     if (sessionId === '') {
-      setNodeState(null);
+      setNodeInfo(null);
       return undefined;
     }
     let cancelled = false;
-    const read = async () => {
-      try {
-        const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
-        const data = await response.json().catch(() => null);
-        if (cancelled) return;
-        const node = data?.ok === true ? data.node : null;
-        setNodeState(node === null || node === undefined ? null : { state: String(node.current_state) });
-      } catch {
-        if (!cancelled) setNodeState(null);
-      }
+    const tick = async () => {
+      if (cancelled) return;
+      await readNode();
     };
-    void read();
+    void tick();
     // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
-    const timer = window.setInterval(read, 3000);
+    const timer = window.setInterval(tick, 3000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
   }, [sessionId]);
 
-  if (nodeState === null) return null;
-  const label = NODE_STATE_LABEL[nodeState.state as keyof typeof NODE_STATE_LABEL] ?? nodeState.state;
+  if (nodeInfo === null) return null;
+  const label = NODE_STATE_LABEL[nodeInfo.state as keyof typeof NODE_STATE_LABEL] ?? nodeInfo.state;
+  const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
+
+  /** 「推进」按钮挪到了会话里（状态徽标右边）；逻辑暂时保持原样：直接写状态。 */
+  const advance = async () => {
+    if (nextState === null || advancing) return;
+    setAdvancing(true);
+    try {
+      await fetch('/dsh-agent-workflow/transition', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to: nextState }),
+      });
+      await readNode();
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 推进状态失败：', error);
+    } finally {
+      setAdvancing(false);
+    }
+  };
+
   return (
-    <span
-      title="workflow 节点状态"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        height: 22,
-        padding: '0 8px',
-        borderRadius: 6,
-        background: 'var(--dsw-alias-bg-layer-1)',
-        color: 'var(--dsw-alias-label-secondary)',
-        fontSize: 11,
-        lineHeight: '22px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeState.state] ?? 'transparent' }} />
-      {label}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span
+        title="workflow 节点状态"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          height: 22,
+          padding: '0 8px',
+          borderRadius: 6,
+          background: 'var(--dsw-alias-bg-layer-1)',
+          color: 'var(--dsw-alias-label-secondary)',
+          fontSize: 11,
+          lineHeight: '22px',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' }} />
+        {label}
+      </span>
+      {nextState === null ? null : (
+        <Tooltip label={`推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="top" delayMs={400} portal>
+          <button
+            type="button"
+            aria-label="推进到下一阶段"
+            disabled={advancing}
+            onClick={() => void advance()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 22,
+              height: 22,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              borderRadius: 6,
+              background: 'transparent',
+              color: 'var(--dsw-alias-label-secondary)',
+              cursor: advancing ? 'progress' : 'pointer',
+              opacity: advancing ? 0.6 : 1,
+            }}
+          >
+            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
+              <path d="M5 12h13" />
+              <path d="m12.5 6 6 6-6 6" />
+            </svg>
+          </button>
+        </Tooltip>
+      )}
     </span>
   );
 }

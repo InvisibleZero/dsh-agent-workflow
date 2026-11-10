@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
-import { DEFAULT_SETTINGS } from '../schema/workflow';
+import { DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
 /** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 not_started）。 */
 export function buildRootNode(id, maxDepth, maxSteps) {
     return {
@@ -93,6 +93,24 @@ export class WorkflowRepository {
     }
     async get(id) {
         return this.storage.load(id);
+    }
+    /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
+    async getGlobalOperationDetail(id) {
+        const snapshot = await this.storage.load(id);
+        return snapshot === null ? null : snapshot.settings.global_operation_detail;
+    }
+    /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
+    async updateGlobalOperationDetail(id, raw) {
+        const snapshot = await this.storage.load(id);
+        if (snapshot === null)
+            throw new Error('找不到该 workflow');
+        const parsed = GlobalOperationDetail.parse(raw);
+        const updated = {
+            ...snapshot,
+            settings: { ...snapshot.settings, global_operation_detail: parsed },
+        };
+        await this.storage.save(updated);
+        return parsed;
     }
     /**
      * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
