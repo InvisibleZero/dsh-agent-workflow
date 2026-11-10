@@ -26,7 +26,14 @@ export declare class WorkflowRepository {
     private readonly storage;
     /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
     private readonly manualMetaCache;
+    /** 每个工作区的写队列（串行化读-改-写，避免并发覆盖丢更新）。 */
+    private readonly writeQueues;
     constructor(baseDir: string);
+    /**
+     * 按 key（通常是 workflowId 或工作目录）串行执行写操作。
+     * 前一个任务无论成功失败，后面的都会接着跑；返回本次任务的真实结果。
+     */
+    private serial;
     /** 列出所有 workflow 工作区，按最后修改时间倒序。单个损坏文件跳过，不影响整体。 */
     list(): Promise<WorkflowSummary[]>;
     /** 新建一个 workflow 工作区：自动建根节点，标题缺省用目录名。 */

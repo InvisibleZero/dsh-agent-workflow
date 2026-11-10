@@ -3,21 +3,14 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { WorkflowSnapshot } from '../schema/workflow';
 import { migrateSnapshot } from '../schema/migration';
-import type { TraceLog } from '../schema/trace';
 import type { WorkflowStoragePort } from './port';
 
-/** 基于 JSON 文件的存储实现：原子写 + 追加式 trace + 每节点快照。 */
+/** 基于 JSON 文件的存储实现：原子写（随机临时文件 + rename）。 */
 export class JsonStorageAdapter implements WorkflowStoragePort {
   constructor(private readonly baseDir: string) {}
 
   private snapshotPath(workspaceId: string): string {
     return path.join(this.baseDir, 'workflows', `${workspaceId}.json`);
-  }
-  private tracePath(traceId: string): string {
-    return path.join(this.baseDir, 'traces', `${traceId}.jsonl`);
-  }
-  private checkpointPath(nodeId: string): string {
-    return path.join(this.baseDir, 'checkpoints', `${nodeId}.json`);
   }
 
   async load(workspaceId: string): Promise<WorkflowSnapshot | null> {
@@ -51,27 +44,6 @@ export class JsonStorageAdapter implements WorkflowStoragePort {
         await fs.rm(tmp, { force: true }).catch(() => {});
         throw error;
       }
-    }
-  }
-
-  async appendTrace(log: TraceLog): Promise<void> {
-    const p = this.tracePath(log.trace_id);
-    await fs.mkdir(path.dirname(p), { recursive: true });
-    await fs.appendFile(p, `${JSON.stringify(log)}\n`, 'utf8');
-  }
-
-  async saveCheckpoint(nodeId: string, snapshot: unknown): Promise<void> {
-    const p = this.checkpointPath(nodeId);
-    await fs.mkdir(path.dirname(p), { recursive: true });
-    await fs.writeFile(p, JSON.stringify(snapshot), 'utf8');
-  }
-
-  async loadCheckpoint(nodeId: string): Promise<unknown | null> {
-    try {
-      return JSON.parse(await fs.readFile(this.checkpointPath(nodeId), 'utf8'));
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw e;
     }
   }
 }

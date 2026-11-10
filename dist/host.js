@@ -6,11 +6,12 @@ import { spawn } from "node:child_process";
 // src/host/workflow-repository.ts
 import { promises as fs2 } from "node:fs";
 import { basename, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/adapter/json-storage.ts
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 // src/schema/workflow.ts
 import { z as z3 } from "zod";
@@ -211,12 +212,6 @@ var JsonStorageAdapter = class {
   snapshotPath(workspaceId) {
     return path.join(this.baseDir, "workflows", `${workspaceId}.json`);
   }
-  tracePath(traceId) {
-    return path.join(this.baseDir, "traces", `${traceId}.jsonl`);
-  }
-  checkpointPath(nodeId) {
-    return path.join(this.baseDir, "checkpoints", `${nodeId}.json`);
-  }
   async load(workspaceId) {
     try {
       const raw = await fs.readFile(this.snapshotPath(workspaceId), "utf8");
@@ -229,27 +224,22 @@ var JsonStorageAdapter = class {
   async save(snapshot) {
     const p = this.snapshotPath(snapshot.workspace_id);
     await fs.mkdir(path.dirname(p), { recursive: true });
-    const tmp = `${p}.tmp`;
+    const tmp = `${p}.${randomUUID()}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(snapshot, null, 2), "utf8");
-    await fs.rename(tmp, p);
-  }
-  async appendTrace(log) {
-    const p = this.tracePath(log.trace_id);
-    await fs.mkdir(path.dirname(p), { recursive: true });
-    await fs.appendFile(p, `${JSON.stringify(log)}
-`, "utf8");
-  }
-  async saveCheckpoint(nodeId, snapshot) {
-    const p = this.checkpointPath(nodeId);
-    await fs.mkdir(path.dirname(p), { recursive: true });
-    await fs.writeFile(p, JSON.stringify(snapshot), "utf8");
-  }
-  async loadCheckpoint(nodeId) {
-    try {
-      return JSON.parse(await fs.readFile(this.checkpointPath(nodeId), "utf8"));
-    } catch (e) {
-      if (e.code === "ENOENT") return null;
-      throw e;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await fs.rename(tmp, p);
+        return;
+      } catch (error) {
+        const code = error.code;
+        if ((code === "EPERM" || code === "EACCES") && attempt < 6) {
+          await new Promise((resolve) => setTimeout(resolve, 8 * (attempt + 1)));
+          continue;
+        }
+        await fs.rm(tmp, { force: true }).catch(() => {
+        });
+        throw error;
+      }
     }
   }
 };
@@ -388,6 +378,19 @@ var WorkflowRepository = class {
   storage;
   /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
   manualMetaCache = /* @__PURE__ */ new Map();
+  /** 每个工作区的写队列（串行化读-改-写，避免并发覆盖丢更新）。 */
+  writeQueues = /* @__PURE__ */ new Map();
+  /**
+   * 按 key（通常是 workflowId 或工作目录）串行执行写操作。
+   * 前一个任务无论成功失败，后面的都会接着跑；返回本次任务的真实结果。
+   */
+  serial(key, task) {
+    const previous = this.writeQueues.get(key) ?? Promise.resolve();
+    const current = previous.then(task, task);
+    this.writeQueues.set(key, current.catch(() => {
+    }));
+    return current;
+  }
   /** 列出所有 workflow 工作区，按最后修改时间倒序。单个损坏文件跳过，不影响整体。 */
   async list() {
     const dir = join(this.baseDir, "workflows");
@@ -422,7 +425,7 @@ var WorkflowRepository = class {
   }
   /** 新建一个 workflow 工作区：自动建根节点，标题缺省用目录名。 */
   async create(input) {
-    const id = randomUUID();
+    const id = randomUUID2();
     const trimmedTitle = input.title?.trim() ?? "";
     const title = trimmedTitle !== "" ? trimmedTitle : basename(input.path);
     const hostWorkspaceId = typeof input.hostWorkspaceId === "string" && input.hostWorkspaceId !== "" ? input.hostWorkspaceId : void 0;
@@ -493,27 +496,29 @@ var WorkflowRepository = class {
    * 传空串 = 删除该状态的附加说明；三个都空则把字段整个去掉。
    */
   async setNodeNote(input) {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
-    const state = input.state;
-    if (!["global", "discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
-    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-    if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
-    const text = input.text.trim();
-    const updated = {
-      ...snapshot,
-      nodes: snapshot.nodes.map((node) => {
-        if (node.node_id !== input.nodeId) return node;
-        const next = { ...node.additional_detail ?? {} };
-        if (text === "") delete next[state];
-        else next[state] = text;
-        const hasAny = Object.keys(next).length > 0;
-        const { additional_detail: _previous, ...rest } = node;
-        return hasAny ? { ...rest, additional_detail: next } : rest;
-      })
-    };
-    await this.storage.save(updated);
-    return updated;
+    return this.serial(input.id, async () => {
+      const snapshot = await this.storage.load(input.id);
+      if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+      const state = input.state;
+      if (!["global", "discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
+      const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+      if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const text = input.text.trim();
+      const updated = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((node) => {
+          if (node.node_id !== input.nodeId) return node;
+          const next = { ...node.additional_detail ?? {} };
+          if (text === "") delete next[state];
+          else next[state] = text;
+          const hasAny = Object.keys(next).length > 0;
+          const { additional_detail: _previous, ...rest } = node;
+          return hasAny ? { ...rest, additional_detail: next } : rest;
+        })
+      };
+      await this.storage.save(updated);
+      return updated;
+    });
   }
   /**
    * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
@@ -639,25 +644,27 @@ var WorkflowRepository = class {
   }
   /** 把某个节点推进到下一状态；附状态迁移时间线（history）。 */
   async transitionNode(input) {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
-    const validStates = ["not_started", "discussing", "implementing", "verifying", "completed"];
-    if (!validStates.includes(input.to)) throw new Error("\u975E\u6CD5\u72B6\u6001");
-    const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
-    if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
-    const from = node.current_state;
-    const updated = {
-      ...snapshot,
-      nodes: snapshot.nodes.map(
-        (candidate) => candidate.node_id === input.nodeId ? {
-          ...candidate,
-          current_state: input.to,
-          history: [...candidate.history ?? [], { at: (/* @__PURE__ */ new Date()).toISOString(), from, to: input.to }]
-        } : candidate
-      )
-    };
-    await this.storage.save(updated);
-    return updated;
+    return this.serial(input.id, async () => {
+      const snapshot = await this.storage.load(input.id);
+      if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+      const validStates = ["not_started", "discussing", "implementing", "verifying", "completed"];
+      if (!validStates.includes(input.to)) throw new Error("\u975E\u6CD5\u72B6\u6001");
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const from = node.current_state;
+      const updated = {
+        ...snapshot,
+        nodes: snapshot.nodes.map(
+          (candidate) => candidate.node_id === input.nodeId ? {
+            ...candidate,
+            current_state: input.to,
+            history: [...candidate.history ?? [], { at: (/* @__PURE__ */ new Date()).toISOString(), from, to: input.to }]
+          } : candidate
+        )
+      };
+      await this.storage.save(updated);
+      return updated;
+    });
   }
   /**
    * 把节点绑定到一个 dsh 会话（点节点时打开）。
@@ -729,7 +736,7 @@ var WorkflowRepository = class {
   async ensureWorkflow(workingDirectory, title) {
     const existing = await this.findByWorkingDirectory(workingDirectory);
     if (existing !== null) return existing;
-    const id = randomUUID();
+    const id = randomUUID2();
     const snapshot = {
       version: 1,
       workspace_id: id,
@@ -749,32 +756,34 @@ var WorkflowRepository = class {
   async ensureNode(input) {
     const workingDirectory = input.workingDirectory.trim();
     if (workingDirectory === "") throw new Error("\u7F3A\u5C11\u5DE5\u4F5C\u76EE\u5F55");
-    const snapshot = await this.ensureWorkflow(workingDirectory, "");
-    const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
-    if (existing !== void 0) {
-      return {
-        workflowId: snapshot.workspace_id,
-        nodeId: existing.node_id,
-        title: existing.title ?? "",
-        current_state: existing.current_state
+    return this.serial(`dir:${workingDirectory}`, async () => {
+      const snapshot = await this.ensureWorkflow(workingDirectory, "");
+      const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
+      if (existing !== void 0) {
+        return {
+          workflowId: snapshot.workspace_id,
+          nodeId: existing.node_id,
+          title: existing.title ?? "",
+          current_state: existing.current_state
+        };
+      }
+      const nodeId = randomUUID2();
+      const title = "\u65B0\u4F1A\u8BDD";
+      const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+      await fs2.mkdir(wfDir, { recursive: true });
+      await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
+      const child = {
+        ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
+        parent_id: null,
+        title,
+        node_type: "task",
+        session_id: input.sessionId,
+        depth: 0
       };
-    }
-    const nodeId = randomUUID();
-    const title = "\u65B0\u4F1A\u8BDD";
-    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
-    await fs2.mkdir(wfDir, { recursive: true });
-    await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
-    const child = {
-      ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
-      parent_id: null,
-      title,
-      node_type: "task",
-      session_id: input.sessionId,
-      depth: 0
-    };
-    const updated = { ...snapshot, nodes: [...snapshot.nodes, child] };
-    await this.storage.save(updated);
-    return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
+      const updated = { ...snapshot, nodes: [...snapshot.nodes, child] };
+      await this.storage.save(updated);
+      return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
+    });
   }
   /** 读会话手册全文 + 实施清单（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
   async readNodeManual(workflowId, nodeId) {
