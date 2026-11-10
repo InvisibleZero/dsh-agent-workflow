@@ -34,6 +34,8 @@ export declare class WorkflowRepository {
         hostWorkspaceId?: string;
     }): Promise<WorkflowSummary>;
     get(id: string): Promise<WorkflowSnapshot | null>;
+    /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
+    remove(id: string): Promise<void>;
     /**
      * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
      * 已写过就不重复写；传空串等于清空。

@@ -141,6 +141,15 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
+      path: '/dsh-agent-workflow/delete',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        await repository.remove(body.id);
+        return { deleted: body.id };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
       path: '/dsh-agent-workflow/link-workspace',
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');

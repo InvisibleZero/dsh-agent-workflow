@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
-import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, IconEditOutlineRegular, IconTrashOutlineRegular, } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
 /** 五态单向推进表。 */
 const NEXT_NODE_STATE = {
@@ -81,24 +81,6 @@ function WorkflowWorkspaceItem(props) {
     const [nodeMenu, setNodeMenu] = useState(null);
     /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
     const [busyNodeId, setBusyNodeId] = useState(null);
-    /** 置顶 / 取消置顶：写我们自己的 workflow 快照，然后让侧栏重拉列表重排。 */
-    const togglePinned = async () => {
-        try {
-            const response = await fetch('/dsh-agent-workflow/pin', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: summary.id, pinned: summary.pinned !== true }),
-            });
-            const data = await response.json();
-            if (data?.ok === true)
-                onChanged?.();
-            else
-                console.error('[dsh-agent-workflow] 置顶 workflow 失败：', data);
-        }
-        catch (error) {
-            console.error('[dsh-agent-workflow] 置顶 workflow 失败：', error);
-        }
-    };
     const load = async () => {
         if (snapshot !== null)
             return;
@@ -281,16 +263,23 @@ function WorkflowWorkspaceItem(props) {
                                     const point = menuPointFromEvent(event);
                                     setWorkspaceMenuPoint((current) => (current === null ? point : null));
                                 }, children: _jsx(IconEllipsisOutlineRegular, {}) }), _jsx(Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("circle", { cx: "12", cy: "12", r: "8" }), _jsx("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? (_jsx("div", { style: { paddingBottom: 4 }, children: loading ? (_jsx("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : rootNode ? (renderNodeRow(rootNode, 0)) : null })) : null, workspaceMenuPoint !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(workspaceMenuPoint), items: [
-                    { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
-                    { id: 'child', label: '新建子会话' },
-                    { id: 'reload', label: '刷新' },
+                    { id: 'rename', label: '重命名', icon: _jsx(IconEditOutlineRegular, {}) },
+                    { id: 'delete', label: '删除工作区', icon: _jsx(IconTrashOutlineRegular, {}), danger: true },
                 ], onClose: () => setWorkspaceMenuPoint(null), onSelect: (id) => {
-                    if (id === 'pin')
-                        void togglePinned();
-                    else if (id === 'child')
-                        void addChildTo(rootId);
-                    else if (id === 'reload')
-                        void load();
+                    // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
+                    const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
+                        ? summary.workspaceId
+                        : (typeof runtime?.findWorkspaceIdByPath === 'function' && typeof summary.path === 'string'
+                            ? runtime.findWorkspaceIdByPath(summary.path)
+                            : null);
+                    if (workspaceId === null || workspaceId === '') {
+                        console.error('[dsh-agent-workflow] 找不到对应的宿主工作区，无法执行该操作');
+                        return;
+                    }
+                    if (id === 'rename')
+                        runtime?.requestRenameWorkspace?.(workspaceId, summary.title ?? '');
+                    else if (id === 'delete')
+                        runtime?.requestDeleteWorkspace?.(workspaceId);
                 } })) : null, nodeMenu !== null ? (() => {
                 const menuNode = byId.get(nodeMenu.nodeId);
                 if (menuNode === undefined)

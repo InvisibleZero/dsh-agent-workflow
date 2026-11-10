@@ -379,7 +379,18 @@ function WorkspaceBrowser(props) {
         return null;
     };
     /** 交给非 usual 类型插件的运行环境（模块间只通过它拿数据和服务）。 */
-    const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
+    const workspaceKindRuntime = {
+        ctx,
+        currentSessionId,
+        findWorkspaceIdByPath,
+        requestRenameWorkspace: (workspaceId, currentTitle) => {
+            setRenameTarget({ kind: 'workspace', id: workspaceId, title: currentTitle });
+            setRenameDraft(currentTitle);
+        },
+        requestDeleteWorkspace: (workspaceId) => {
+            void deleteWorkspaceWithClaims(workspaceId);
+        },
+    };
     const uiWorkspace = getService(ctx, 'uiWorkspace');
     const workspacesSvc = getService(ctx, 'workspaces');
     const backfilledWorkflowIds = useRef(new Set());
@@ -533,6 +544,27 @@ function WorkspaceBrowser(props) {
             console.error('[dsh-agent-workflow] 删除工作区失败：', error);
         }
     };
+    /**
+     * 删除宿主工作区，并顺带清掉认领它的类型数据（否则会留下一条打不开的孤儿行）。
+     * 认领关系按 workspaceId 查；查不到就只删宿主工作区。
+     */
+    const deleteWorkspaceWithClaims = async (workspaceId) => {
+        const claim = workspaceClaims.byWorkspace.get(`id:${workspaceId}`);
+        await deleteWorkspace(workspaceId);
+        if (claim === undefined)
+            return;
+        try {
+            await fetch('/dsh-agent-workflow/delete', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: claim.summary.id }),
+            });
+        }
+        catch (error) {
+            console.error('[dsh-agent-workflow] 删除 workflow 数据失败：', error);
+        }
+        await loadPluginLists();
+    };
     /** 重命名会话：照抄宿主 renameSession（sessions.using → binding.session.rename）。 */
     const renameSession = async (sessionId, title) => {
         try {
@@ -662,7 +694,11 @@ function WorkspaceBrowser(props) {
                                     const plugin = getWorkspaceKindPlugin(claim.kind);
                                     if (plugin !== undefined) {
                                         const key = `${claim.kind}:${claim.summary.id}`;
-                                        return (_jsx("div", { children: plugin.renderItem(claim.summary, collapsedPlugin.has(key), () => {
+                                        // 标题跟随宿主工作区（重命名走宿主，行文案不用二次同步）。
+                                        const summary = typeof ws.title === 'string' && ws.title !== ''
+                                            ? { ...claim.summary, title: ws.title, workspaceId: ws.workspaceId ?? claim.summary.workspaceId }
+                                            : claim.summary;
+                                        return (_jsx("div", { children: plugin.renderItem(summary, collapsedPlugin.has(key), () => {
                                                 setCollapsedPlugin((previous) => {
                                                     const next = new Set(previous);
                                                     if (next.has(key))

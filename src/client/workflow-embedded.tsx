@@ -15,6 +15,8 @@ import {
   Tooltip,
   IconEllipsisOutlineRegular,
   IconTriangleRightFillRegular,
+  IconEditOutlineRegular,
+  IconTrashOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
 import type { WorkspaceKindPlugin } from './workspace-kind-registry';
@@ -93,23 +95,6 @@ function WorkflowWorkspaceItem(props: {
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
-
-  /** 置顶 / 取消置顶：写我们自己的 workflow 快照，然后让侧栏重拉列表重排。 */
-  const togglePinned = async () => {
-    try {
-      const response = await fetch('/dsh-agent-workflow/pin', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: summary.id, pinned: summary.pinned !== true }),
-      });
-      const data = await response.json();
-      if (data?.ok === true) onChanged?.();
-      else console.error('[dsh-agent-workflow] 置顶 workflow 失败：', data);
-    } catch (error) {
-      console.error('[dsh-agent-workflow] 置顶 workflow 失败：', error);
-    }
-  };
-
 
   const load = async () => {
     if (snapshot !== null) return;
@@ -393,15 +378,23 @@ function WorkflowWorkspaceItem(props: {
           portal
           getAnchorRect={() => menuAnchorRect(workspaceMenuPoint)}
           items={[
-            { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
-            { id: 'child', label: '新建子会话' },
-            { id: 'reload', label: '刷新' },
+            { id: 'rename', label: '重命名', icon: <IconEditOutlineRegular /> },
+            { id: 'delete', label: '删除工作区', icon: <IconTrashOutlineRegular />, danger: true },
           ]}
           onClose={() => setWorkspaceMenuPoint(null)}
           onSelect={(id: string) => {
-            if (id === 'pin') void togglePinned();
-            else if (id === 'child') void addChildTo(rootId);
-            else if (id === 'reload') void load();
+            // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
+            const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
+              ? summary.workspaceId
+              : (typeof runtime?.findWorkspaceIdByPath === 'function' && typeof summary.path === 'string'
+                ? runtime.findWorkspaceIdByPath(summary.path)
+                : null);
+            if (workspaceId === null || workspaceId === '') {
+              console.error('[dsh-agent-workflow] 找不到对应的宿主工作区，无法执行该操作');
+              return;
+            }
+            if (id === 'rename') runtime?.requestRenameWorkspace?.(workspaceId, summary.title ?? '');
+            else if (id === 'delete') runtime?.requestDeleteWorkspace?.(workspaceId);
           }}
         />
       ) : null}

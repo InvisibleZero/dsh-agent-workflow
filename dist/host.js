@@ -296,6 +296,16 @@ var WorkflowRepository = class {
   async get(id) {
     return this.storage.load(id);
   }
+  /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
+  async remove(id) {
+    const path2 = join(this.baseDir, "workflows", `${id}.json`);
+    try {
+      await fs2.unlink(path2);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+  }
   /**
    * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
    * 已写过就不重复写；传空串等于清空。
@@ -509,6 +519,15 @@ function apply(ctx) {
         if (typeof body?.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
         const snapshot = await repository.bindSession({ id: body.id, nodeId: body.nodeId, sessionId: body.sessionId });
         return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/delete",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        await repository.remove(body.id);
+        return { deleted: body.id };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

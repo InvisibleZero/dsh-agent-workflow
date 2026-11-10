@@ -222,6 +222,7 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
   就 `POST /dsh-agent-workflow/link-workspace { id, hostWorkspaceId }` 写回快照（客户端用 ref 记录已处理项，只跑一次）。
   写回后认领不再依赖路径比对；传空串 `hostWorkspaceId` 可清除绑定。
 - **侧栏渲染顺序**：先遍历宿主 `useWorkspaces()`，命中被认领的交给 `plugin.renderItem`；没被认领的类型项再单独渲染（兼容旧数据/建工作区失败的孤儿）。
+- **改名/删除走宿主**：认领行不自己维护标题——渲染时用宿主工作区标题覆盖；「重命名」调用宿主对话框，「删除工作区」先删宿主工作区、**再删对应的类型快照**（否则会留下打不开的孤儿行，`POST /dsh-agent-workflow/delete`）。
 - **验证**：侧栏同一目录只有一行；新建 workflow 后立刻只出现一行（树图标），不会多出同名文件夹行；点节点建会话不再产生新行。
 - **涉及文件**：`workspace-kind-registry.ts`（`matchWorkspace` / `normalizeWorkspacePath`）、`workflow-embedded.tsx`、`workspace-browser.tsx`、`src/host/workflow-repository.ts`（`host_workspace_id`）、`src/host.ts`（create 路由）。
 

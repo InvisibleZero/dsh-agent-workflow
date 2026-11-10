@@ -422,7 +422,18 @@ window.__ModuleLoader__.load({
             return null;
         };
         /** 交给非 usual 类型插件的运行环境（模块间只通过它拿数据和服务）。 */
-        const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
+        const workspaceKindRuntime = {
+            ctx,
+            currentSessionId,
+            findWorkspaceIdByPath,
+            requestRenameWorkspace: (workspaceId, currentTitle) => {
+                setRenameTarget({ kind: 'workspace', id: workspaceId, title: currentTitle });
+                setRenameDraft(currentTitle);
+            },
+            requestDeleteWorkspace: (workspaceId) => {
+                void deleteWorkspaceWithClaims(workspaceId);
+            },
+        };
         const uiWorkspace = getService(ctx, 'uiWorkspace');
         const workspacesSvc = getService(ctx, 'workspaces');
         const backfilledWorkflowIds = (0, react_1.useRef)(new Set());
@@ -576,6 +587,27 @@ window.__ModuleLoader__.load({
                 console.error('[dsh-agent-workflow] 删除工作区失败：', error);
             }
         };
+        /**
+         * 删除宿主工作区，并顺带清掉认领它的类型数据（否则会留下一条打不开的孤儿行）。
+         * 认领关系按 workspaceId 查；查不到就只删宿主工作区。
+         */
+        const deleteWorkspaceWithClaims = async (workspaceId) => {
+            const claim = workspaceClaims.byWorkspace.get(`id:${workspaceId}`);
+            await deleteWorkspace(workspaceId);
+            if (claim === undefined)
+                return;
+            try {
+                await fetch('/dsh-agent-workflow/delete', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ id: claim.summary.id }),
+                });
+            }
+            catch (error) {
+                console.error('[dsh-agent-workflow] 删除 workflow 数据失败：', error);
+            }
+            await loadPluginLists();
+        };
         /** 重命名会话：照抄宿主 renameSession（sessions.using → binding.session.rename）。 */
         const renameSession = async (sessionId, title) => {
             try {
@@ -705,7 +737,11 @@ window.__ModuleLoader__.load({
                                         const plugin = (0, workspace_kind_registry_1.getWorkspaceKindPlugin)(claim.kind);
                                         if (plugin !== undefined) {
                                             const key = `${claim.kind}:${claim.summary.id}`;
-                                            return ((0, jsx_runtime_1.jsx)("div", { children: plugin.renderItem(claim.summary, collapsedPlugin.has(key), () => {
+                                            // 标题跟随宿主工作区（重命名走宿主，行文案不用二次同步）。
+                                            const summary = typeof ws.title === 'string' && ws.title !== ''
+                                                ? { ...claim.summary, title: ws.title, workspaceId: ws.workspaceId ?? claim.summary.workspaceId }
+                                                : claim.summary;
+                                            return ((0, jsx_runtime_1.jsx)("div", { children: plugin.renderItem(summary, collapsedPlugin.has(key), () => {
                                                     setCollapsedPlugin((previous) => {
                                                         const next = new Set(previous);
                                                         if (next.has(key))
@@ -1044,24 +1080,6 @@ window.__ModuleLoader__.load({
         const [nodeMenu, setNodeMenu] = (0, react_1.useState)(null);
         /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
         const [busyNodeId, setBusyNodeId] = (0, react_1.useState)(null);
-        /** 置顶 / 取消置顶：写我们自己的 workflow 快照，然后让侧栏重拉列表重排。 */
-        const togglePinned = async () => {
-            try {
-                const response = await fetch('/dsh-agent-workflow/pin', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ id: summary.id, pinned: summary.pinned !== true }),
-                });
-                const data = await response.json();
-                if (data?.ok === true)
-                    onChanged?.();
-                else
-                    console.error('[dsh-agent-workflow] 置顶 workflow 失败：', data);
-            }
-            catch (error) {
-                console.error('[dsh-agent-workflow] 置顶 workflow 失败：', error);
-            }
-        };
         const load = async () => {
             if (snapshot !== null)
                 return;
@@ -1244,16 +1262,23 @@ window.__ModuleLoader__.load({
                                         const point = (0, workspace_ui_1.menuPointFromEvent)(event);
                                         setWorkspaceMenuPoint((current) => (current === null ? point : null));
                                     }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "8" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? ((0, jsx_runtime_1.jsx)("div", { style: { paddingBottom: 4 }, children: loading ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : rootNode ? (renderNodeRow(rootNode, 0)) : null })) : null, workspaceMenuPoint !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(workspaceMenuPoint), items: [
-                        { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
-                        { id: 'child', label: '新建子会话' },
-                        { id: 'reload', label: '刷新' },
+                        { id: 'rename', label: '重命名', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutlineRegular, {}) },
+                        { id: 'delete', label: '删除工作区', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTrashOutlineRegular, {}), danger: true },
                     ], onClose: () => setWorkspaceMenuPoint(null), onSelect: (id) => {
-                        if (id === 'pin')
-                            void togglePinned();
-                        else if (id === 'child')
-                            void addChildTo(rootId);
-                        else if (id === 'reload')
-                            void load();
+                        // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
+                        const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
+                            ? summary.workspaceId
+                            : (typeof runtime?.findWorkspaceIdByPath === 'function' && typeof summary.path === 'string'
+                                ? runtime.findWorkspaceIdByPath(summary.path)
+                                : null);
+                        if (workspaceId === null || workspaceId === '') {
+                            console.error('[dsh-agent-workflow] 找不到对应的宿主工作区，无法执行该操作');
+                            return;
+                        }
+                        if (id === 'rename')
+                            runtime?.requestRenameWorkspace?.(workspaceId, summary.title ?? '');
+                        else if (id === 'delete')
+                            runtime?.requestDeleteWorkspace?.(workspaceId);
                     } })) : null, nodeMenu !== null ? (() => {
                     const menuNode = byId.get(nodeMenu.nodeId);
                     if (menuNode === undefined)

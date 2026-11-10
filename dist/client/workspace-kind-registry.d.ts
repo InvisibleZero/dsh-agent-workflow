@@ -37,6 +37,10 @@ export interface WorkspaceKindRuntime {
     currentSessionId: string | null;
     /** 按目录路径找宿主「目录工作区」的 id；找不到返回 null。 */
     findWorkspaceIdByPath(path: string): string | null;
+    /** 打开宿主的「重命名工作区」对话框（与 usual 行一致）。 */
+    requestRenameWorkspace(workspaceId: string, currentTitle: string): void;
+    /** 删除宿主工作区；若该工作区被某个类型认领，连带删除它的类型数据。 */
+    requestDeleteWorkspace(workspaceId: string): void;
 }
 export interface WorkspaceKindPlugin {
     kind: WorkspaceKind;

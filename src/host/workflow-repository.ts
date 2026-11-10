@@ -117,6 +117,17 @@ export class WorkflowRepository {
     return this.storage.load(id);
   }
 
+  /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
+  async remove(id: string): Promise<void> {
+    const path = join(this.baseDir, 'workflows', `${id}.json`);
+    try {
+      await fs.unlink(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+  }
+
   /**
    * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
    * 已写过就不重复写；传空串等于清空。
