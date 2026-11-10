@@ -645,7 +645,7 @@ window.__ModuleLoader__.load({
                                         // 先关掉当前弹窗，再让上层打开设置：避免两层遮罩叠在一起。
                                         onOpenSettings?.();
                                         onClose();
-                                    }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.notesDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
+                                    }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E" }), manualData !== null && manualData.notesDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
                                         void fetch('/dsh-agent-workflow/open-folder', {
                                             method: 'POST',
                                             headers: { 'content-type': 'application/json' },

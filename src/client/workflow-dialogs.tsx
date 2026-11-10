@@ -450,7 +450,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                 onClose();
               }}
               style={TEXT_LINK_STYLE}
-            >打开操作细节设置 →</button>
+            >打开操作细节设置</button>
             {manualData !== null && manualData.notesDir !== '' ? (
               <button
                 type="button"
