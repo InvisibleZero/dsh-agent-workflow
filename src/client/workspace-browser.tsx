@@ -1065,7 +1065,8 @@ function WorkspaceBrowser(props: any) {
             ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' }
             : { position: 'relative', flex: 'none', width: 64, height: 28 }}
         >
-          <div style={{ position: 'absolute', top: 0, right: 36, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* 三个按钮中心等距：搜索中心在容器左边界外 18px、新建中心在 48px，视图选项取中点 → right = 64-14-15 = 35 */}
+          <div style={{ position: 'absolute', top: 0, right: 35, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ViewOptionsMenu
               groupBy={viewOptions.groupBy}
               orderBy={viewOptions.orderBy}
