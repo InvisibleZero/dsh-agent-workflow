@@ -1110,6 +1110,8 @@ window.__ModuleLoader__.load({
         const [nodeDetailNodeId, setNodeDetailNodeId] = (0, react_1.useState)(null);
         /** 全局操作细节弹窗（从节点弹窗跳过来时单独开一层，不和节点弹窗叠加）。 */
         const [settingsOpen, setSettingsOpen] = (0, react_1.useState)(false);
+        /** 从节点弹窗跳去设置时记住是谁，设置关掉后自动回到它。 */
+        const returnToNodeRef = (0, react_1.useRef)(null);
         /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
         const [busyNodeId, setBusyNodeId] = (0, react_1.useState)(null);
         const load = async () => {
@@ -1410,7 +1412,17 @@ window.__ModuleLoader__.load({
                             { id: 'archive', label: '归档会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutlineRegular, {}), separatorBefore: true },
                         ];
                     return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-                })() : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null), onOpenSettings: () => setSettingsOpen(true) })) : null, settingsOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowSettingsDialog, { onClose: () => setSettingsOpen(false) })) : null] }));
+                })() : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null), onOpenSettings: () => {
+                        // 记住是哪个节点的弹窗，设置关掉后自动回来。
+                        returnToNodeRef.current = nodeDetailNodeId;
+                        setSettingsOpen(true);
+                    } })) : null, settingsOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowSettingsDialog, { onClose: () => {
+                        setSettingsOpen(false);
+                        const back = returnToNodeRef.current;
+                        returnToNodeRef.current = null;
+                        if (back !== null)
+                            setNodeDetailNodeId(back);
+                    } })) : null] }));
     }
     /**
      * 输入框工具条里的 workflow 状态徽标：

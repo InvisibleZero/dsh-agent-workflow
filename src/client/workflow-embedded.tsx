@@ -6,7 +6,7 @@
  * 不 import `workspace-browser`；共享的只有 `workspace-kind`（枚举）、`workspace-ui`（CSS/图标原语）、
  * `../schema/node-state-label`（状态中文名）。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
@@ -104,6 +104,8 @@ function WorkflowWorkspaceItem(props: {
   const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
   /** 全局操作细节弹窗（从节点弹窗跳过来时单独开一层，不和节点弹窗叠加）。 */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 从节点弹窗跳去设置时记住是谁，设置关掉后自动回到它。 */
+  const returnToNodeRef = useRef<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
@@ -567,11 +569,20 @@ function WorkflowWorkspaceItem(props: {
           workflowId={summary.id}
           nodeId={nodeDetailNodeId}
           onClose={() => setNodeDetailNodeId(null)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => {
+            // 记住是哪个节点的弹窗，设置关掉后自动回来。
+            returnToNodeRef.current = nodeDetailNodeId;
+            setSettingsOpen(true);
+          }}
         />
       ) : null}
       {settingsOpen ? (
-        <WorkflowSettingsDialog onClose={() => setSettingsOpen(false)} />
+        <WorkflowSettingsDialog onClose={() => {
+          setSettingsOpen(false);
+          const back = returnToNodeRef.current;
+          returnToNodeRef.current = null;
+          if (back !== null) setNodeDetailNodeId(back);
+        }} />
       ) : null}
     </div>
   );
