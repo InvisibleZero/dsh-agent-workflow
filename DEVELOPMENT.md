@@ -90,7 +90,10 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
   注入块里**不要**再带它——模型看到也无事可做，纯属浪费 token。
 - **半自动填写**：输入框组件的写入方法（`InputActions`）在这一版没有类型声明，客户端按候选名逐个探测
   （`setText` / `setDraft` / `replaceText` / `insertText` / `appendText` / `setValue` / `insert` / `append`），
-  全都匹配不上时只在控制台告警并列出可用方法名，不影响推进本身。
+  全都匹配不上时只在控制台告警并列出可用方法名，不影响推进本身。**实测已命中**（列表里至少一个可用），
+  探测逻辑保留，用于兼容 DSH 版本差异。
+- **「未开始」故意没有默认输入**（设计决定，不是遗漏）：进入未开始态时应该由**用户自己发起第一句**，
+  因为没人知道用户要做什么。默认输入只在讨论中 / 实现中 / 验收中三个状态有意义。
 - **节点级覆盖**：节点行的小齿轮打开只读弹窗，展示该节点生效的 A + B/C/D，并标出「当前态」「已覆盖」。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
