@@ -384,7 +384,9 @@ function ViewOptionsMenu(props: {
       <Tooltip label="视图选项" side="bottom" delayMs={500} portal>
         <button
           type="button"
-          className={rowsClass('iconButton')}
+          // 必须用浏览器模块自己的 iconButton（GAkraW_），rowsClass() 解析到的是 Rows 模块前缀，
+          // 那个类在表头里不存在，会导致悬停没有高亮。
+          className={joinClasses(C.iconButton, C.wide)}
           aria-label="视图选项"
           aria-haspopup="menu"
           aria-expanded={point !== null}

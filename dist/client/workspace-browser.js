@@ -247,7 +247,10 @@ function ViewOptionsMenu(props) {
         { id: 'show-archived', label: '显示已归档', icon: _jsx(IconQueueOutlineRegular, {}) },
         { id: 'only-archived', label: '只看已归档', icon: _jsx(IconArchiveCheckOutlineRegular, {}) },
     ];
-    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", 
+                    // 必须用浏览器模块自己的 iconButton（GAkraW_），rowsClass() 解析到的是 Rows 模块前缀，
+                    // 那个类在表头里不存在，会导致悬停没有高亮。
+                    className: joinClasses(C.iconButton, C.wide), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
                         event.currentTarget.focus({ preventScroll: true });
                         const next = menuPointFromEvent(event);
                         setPoint((current) => (current === null ? next : null));

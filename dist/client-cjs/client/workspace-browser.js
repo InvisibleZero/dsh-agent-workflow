@@ -250,7 +250,10 @@ function ViewOptionsMenu(props) {
         { id: 'show-archived', label: '显示已归档', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconQueueOutlineRegular, {}) },
         { id: 'only-archived', label: '只看已归档', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveCheckOutlineRegular, {}) },
     ];
-    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", 
+                    // 必须用浏览器模块自己的 iconButton（GAkraW_），rowsClass() 解析到的是 Rows 模块前缀，
+                    // 那个类在表头里不存在，会导致悬停没有高亮。
+                    className: (0, workspace_ui_1.joinClasses)(C.iconButton, C.wide), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
                         event.currentTarget.focus({ preventScroll: true });
                         const next = (0, workspace_ui_1.menuPointFromEvent)(event);
                         setPoint((current) => (current === null ? next : null));
