@@ -217,6 +217,16 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
+      path: '/dsh-agent-workflow/sidebar-nodes',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const path = query.get('path');
+        if (typeof path !== 'string' || path === '') return { nodes: {} };
+        const nodes = await repository.getNodeStatesByDirectory(path);
+        return { nodes };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
       path: '/dsh-agent-workflow/bind-session',
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');

@@ -1,1 +1,1 @@
-{"version":3,"file":"dsh-plugin.d.ts","sourceRoot":"","sources":["../../src/client/dsh-plugin.tsx"],"names":[],"mappings":"AACA;;;;;;;GAOG;AAKH,eAAO,MAAM,IAAI,8BAA8B,CAAC;AAEhD,eAAO,MAAM,MAAM,UAAY,CAAC;AAEhC,wBAAgB,KAAK,CAAC,GAAG,EAAE,GAAG,QAc7B"}
+{"version":3,"file":"dsh-plugin.d.ts","sourceRoot":"","sources":["../../src/client/dsh-plugin.tsx"],"names":[],"mappings":"AACA;;;;;;;GAOG;AAMH,eAAO,MAAM,IAAI,8BAA8B,CAAC;AAEhD,eAAO,MAAM,MAAM,UAAY,CAAC;AAEhC,wBAAgB,KAAK,CAAC,GAAG,EAAE,GAAG,QAqB7B"}

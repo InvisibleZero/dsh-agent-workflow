@@ -529,6 +529,17 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   但它不在 Inspect 的受支持 token 列表里，谨慎使用。
 - 主题 token 的权威清单：`cordis_inspect_query(platform=client, provider=Theme, method=listTokens)`。
 
+### D-28 会话行两个「状态点」槽位的区别：leading 仅空闲、trailing 常驻
+
+- `sidebar.session.row.leading`：标题左边 16px 格，**只在会话主状态空闲时**才挂载插件；
+  正在输出 / 新消息 / 待交互时被宿主状态点顶掉，归档行也空着。适合放"空闲时可见"的装饰，不适合常显状态。
+- `sidebar.session.row.trailing`：时间标签右边、置顶标记之前的**非交互图标位**，非悬停时**常驻**；
+  悬停该行 / 聚焦 / 打开菜单时宿主自动隐藏（让位给悬停按钮），空白会话不渲染。
+  适合放"始终可见"的 workflow 状态点。ownerProps 只给 `sessionId`；必须非交互、不得 bind/retain 会话。
+- 数据走批量接口 `/sidebar-nodes?path=…`（返回 `{ nodes: { [sessionId]: current_state } }`），
+  客户端模块内 promise 缓存 5s TTL 去重；徽标推进后派发 `window` 事件 `dsh-workflow-state-changed` 清缓存刷新。
+- 宿主 HTTP 端口是动态的（本次运行在 1606，早前在 4712/2870/14595 里），e2e 前先 `netstat -ano` 找 DSH 进程的监听端口。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```

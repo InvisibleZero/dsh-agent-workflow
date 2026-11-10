@@ -705,6 +705,18 @@ var WorkflowRepository = class {
     }
     return null;
   }
+  /** 侧栏批量用：返回某工作区所有会话节点的状态映射（sessionId → current_state）。 */
+  async getNodeStatesByDirectory(workingDirectory) {
+    const snapshot = await this.findByWorkingDirectory(workingDirectory);
+    if (snapshot === null) return {};
+    const map = {};
+    for (const node of snapshot.nodes) {
+      if (typeof node.session_id === "string" && node.session_id !== "") {
+        map[node.session_id] = node.current_state;
+      }
+    }
+    return map;
+  }
   /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
   async ensureGlobalManual(workingDirectory) {
     if (typeof workingDirectory !== "string" || workingDirectory === "") return;
@@ -1141,6 +1153,16 @@ function apply(ctx) {
           enterTrigger = typeof effective.enter_trigger === "string" ? effective.enter_trigger : "";
         }
         return { node: { ...node, enter_trigger: enterTrigger } };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/sidebar-nodes",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const path2 = query.get("path");
+        if (typeof path2 !== "string" || path2 === "") return { nodes: {} };
+        const nodes = await repository.getNodeStatesByDirectory(path2);
+        return { nodes };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

@@ -150,6 +150,7 @@ const expectedSlots = [
   'conversation.input.left',
   'settings.section',
   'settings.section.icon',
+  'sidebar.session.row.trailing',
 ];
 const actualSlots = registered.map((item) => item.slot).sort();
 

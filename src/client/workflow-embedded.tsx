@@ -184,6 +184,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
       });
+      // 通知侧栏会话行的状态点刷新（清缓存并重取）。
+      window.dispatchEvent(new Event('dsh-workflow-state-changed'));
       const info = await readNode();
       if (info !== null && info.enterTrigger !== '') pushDraft(info.enterTrigger);
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);

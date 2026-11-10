@@ -110,6 +110,8 @@ export declare class WorkflowRepository {
     }): Promise<WorkflowSnapshot>;
     /** 按工作目录反查 workflow 快照。 */
     private findByWorkingDirectory;
+    /** 侧栏批量用：返回某工作区所有会话节点的状态映射（sessionId → current_state）。 */
+    getNodeStatesByDirectory(workingDirectory: string): Promise<Record<string, string>>;
     /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
     private ensureGlobalManual;
     /** 确保某目录是一个 workflow 工作区（没有快照就建，含根节点），返回快照。 */
