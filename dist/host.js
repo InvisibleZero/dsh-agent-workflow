@@ -313,6 +313,22 @@ function parseChecklist(manual) {
   }
   return items;
 }
+function parseHasPlan(manual) {
+  const lines = manual.split(/\r?\n/);
+  let inPlan = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("## \u65B9\u6848")) {
+      inPlan = true;
+      continue;
+    }
+    if (inPlan && trimmed.startsWith("## ")) break;
+    if (!inPlan) continue;
+    if (trimmed === "" || trimmed.startsWith("### ") || trimmed.startsWith("<!--")) continue;
+    return true;
+  }
+  return false;
+}
 async function writeIfMissing(path2, content) {
   try {
     await fs2.access(path2);
@@ -353,6 +369,8 @@ var WorkflowRepository = class {
     this.storage = new JsonStorageAdapter(baseDir);
   }
   storage;
+  /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
+  manualMetaCache = /* @__PURE__ */ new Map();
   /** 列出所有 workflow 工作区，按最后修改时间倒序。单个损坏文件跳过，不影响整体。 */
   async list() {
     const dir = join(this.baseDir, "workflows");
@@ -707,6 +725,33 @@ var WorkflowRepository = class {
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") return "";
     return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
+  }
+  /**
+   * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
+   * 文件没变就不重新读盘/解析。
+   */
+  async getManualMeta(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) return null;
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0) return null;
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return null;
+    const file = join(workingDir, WORKFLOW_SUBDIR, manualFileName(nodeId));
+    let mtimeMs = 0;
+    try {
+      mtimeMs = (await fs2.stat(file)).mtimeMs;
+    } catch {
+    }
+    const key = `${workflowId}:${nodeId}`;
+    const cached = this.manualMetaCache.get(key);
+    if (cached !== void 0 && cached.mtimeMs === mtimeMs) {
+      return { checklist: cached.checklist, hasPlan: cached.hasPlan };
+    }
+    const manual = await readTextCapped(file, MANUAL_MAX_BYTES);
+    const meta = { mtimeMs, checklist: parseChecklist(manual), hasPlan: parseHasPlan(manual) };
+    this.manualMetaCache.set(key, meta);
+    return { checklist: meta.checklist, hasPlan: meta.hasPlan };
   }
 };
 
@@ -1122,6 +1167,22 @@ function apply(ctx) {
         const manual = await repository.readNodeManual(id, nodeId);
         const parentSummary = await repository.readParentSummary(id, nodeId);
         return { manual, parentSummary };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/node-checklist",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const id = query.get("id");
+        const nodeId = query.get("nodeId");
+        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        const meta = await repository.getManualMeta(id, nodeId);
+        return {
+          exists: meta !== null,
+          checklist: meta?.checklist ?? [],
+          hasPlan: meta?.hasPlan ?? false
+        };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

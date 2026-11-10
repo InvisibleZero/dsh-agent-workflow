@@ -77,6 +77,26 @@ function parseChecklist(manual) {
     }
     return items;
 }
+/** 判断「方案」小节是否已经写了实质内容（非标题、非注释、非空行）。 */
+function parseHasPlan(manual) {
+    const lines = manual.split(/\r?\n/);
+    let inPlan = false;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('## 方案')) {
+            inPlan = true;
+            continue;
+        }
+        if (inPlan && trimmed.startsWith('## '))
+            break;
+        if (!inPlan)
+            continue;
+        if (trimmed === '' || trimmed.startsWith('### ') || trimmed.startsWith('<!--'))
+            continue;
+        return true;
+    }
+    return false;
+}
 async function writeIfMissing(path, content) {
     try {
         await fs.access(path);
@@ -121,6 +141,8 @@ async function appendGitignore(workingDir) {
 export class WorkflowRepository {
     baseDir;
     storage;
+    /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
+    manualMetaCache = new Map();
     constructor(baseDir) {
         this.baseDir = baseDir;
         this.storage = new JsonStorageAdapter(baseDir);
@@ -542,6 +564,38 @@ export class WorkflowRepository {
         if (typeof workingDir !== 'string' || workingDir === '')
             return '';
         return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
+    }
+    /**
+     * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
+     * 文件没变就不重新读盘/解析。
+     */
+    async getManualMeta(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            return null;
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined)
+            return null;
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            return null;
+        const file = join(workingDir, WORKFLOW_SUBDIR, manualFileName(nodeId));
+        let mtimeMs = 0;
+        try {
+            mtimeMs = (await fs.stat(file)).mtimeMs;
+        }
+        catch {
+            // 文件不存在：mtime 保持 0，下面读到空串。
+        }
+        const key = `${workflowId}:${nodeId}`;
+        const cached = this.manualMetaCache.get(key);
+        if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+            return { checklist: cached.checklist, hasPlan: cached.hasPlan };
+        }
+        const manual = await readTextCapped(file, MANUAL_MAX_BYTES);
+        const meta = { mtimeMs, checklist: parseChecklist(manual), hasPlan: parseHasPlan(manual) };
+        this.manualMetaCache.set(key, meta);
+        return { checklist: meta.checklist, hasPlan: meta.hasPlan };
     }
 }
 //# sourceMappingURL=workflow-repository.js.map

@@ -1480,17 +1480,24 @@ window.__ModuleLoader__.load({
         const [nodeInfo, setNodeInfo] = (0, react_1.useState)(null);
         const [advancing, setAdvancing] = (0, react_1.useState)(false);
         const [checklist, setChecklist] = (0, react_1.useState)([]);
+        const [hasPlan, setHasPlan] = (0, react_1.useState)(true);
         const [checklistMenu, setChecklistMenu] = (0, react_1.useState)(null);
         const readChecklist = async (workflowId, nodeId) => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                 const data = await response.json().catch(() => null);
-                const items = data?.ok === true && Array.isArray(data.manual?.checklist) ? data.manual.checklist : [];
-                setChecklist(items);
+                if (data?.ok === true) {
+                    const items = Array.isArray(data.checklist) ? data.checklist : [];
+                    const plan = data.hasPlan !== false;
+                    setChecklist(items);
+                    setHasPlan(plan);
+                    return { checklist: items, hasPlan: plan };
+                }
             }
             catch {
                 setChecklist([]);
             }
+            return { checklist: [], hasPlan: true };
         };
         const readNode = async () => {
             try {
@@ -1570,6 +1577,15 @@ window.__ModuleLoader__.load({
         const advance = async () => {
             if (nextState === null || advancing)
                 return;
+            // 软提醒：进入实现中之前，如果方案还没写进工作手册，先确认一次（不阻断）。
+            if (nextState === 'implementing') {
+                const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
+                if (!meta.hasPlan) {
+                    const confirmed = window.confirm('这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n点「确定」仍进入实现中；点「取消」回讨论中继续完善方案。');
+                    if (!confirmed)
+                        return;
+                }
+            }
             setAdvancing(true);
             try {
                 await fetch('/dsh-agent-workflow/transition', {

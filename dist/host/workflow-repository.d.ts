@@ -24,6 +24,8 @@ export declare function buildRootNode(id: string, maxDepth: number, maxSteps: nu
 export declare class WorkflowRepository {
     readonly baseDir: string;
     private readonly storage;
+    /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
+    private readonly manualMetaCache;
     constructor(baseDir: string);
     /** 列出所有 workflow 工作区，按最后修改时间倒序。单个损坏文件跳过，不影响整体。 */
     list(): Promise<WorkflowSummary[]>;
@@ -131,5 +133,16 @@ export declare class WorkflowRepository {
     } | null>;
     /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     readParentSummary(workflowId: string, nodeId: string): Promise<string>;
+    /**
+     * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
+     * 文件没变就不重新读盘/解析。
+     */
+    getManualMeta(workflowId: string, nodeId: string): Promise<{
+        checklist: Array<{
+            label: string;
+            done: boolean;
+        }>;
+        hasPlan: boolean;
+    } | null>;
 }
 //# sourceMappingURL=workflow-repository.d.ts.map

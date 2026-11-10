@@ -464,7 +464,14 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   只认 `- [ ]` / `- [x]`，读到下一个 `## ` 停；解析不到返回空数组。
 - **模板**：`MANUAL_TEMPLATE` 预置「方案（目标与验收/对外契约/结构与依赖/数据与状态/表现与文案）+
   决策记录 + 实施顺序 + 要点」，让新节点的清单可解析、模型有骨架可填。
-- **接口**：`/node-manual` 现在额外返回 `checklist: [{label, done}]`。
+- **接口**：`/node-manual` 返回 `checklist: [{label, done}]`（供弹窗）；新增轻量 `/node-checklist`（供 3s 轮询），
+  返回 `{ exists, checklist, hasPlan }`。
+- **清单缓存**：`getManualMeta()` 按 `workflowId:nodeId` 缓存 checklist + hasPlan，以文件 mtime 失效——
+  轮询时文件没变就不重新读盘/解析，避免每 3s 读 200KB。
+- **软提醒**：推进「讨论中 → 实现中」前，客户端先拉 `hasPlan`；`hasPlan=false` 时 `window.confirm` 提醒
+  「方案还没写进手册」，可继续或取消。用原生 confirm 是因为输入区容器带 transform，自绘 fixed 弹窗会跑偏。
+- **hasPlan 判定**：`parseHasPlan()` 看「方案」小节里有没有非标题、非 `<!-- -->` 注释、非空行的实质内容；
+  模板的占位注释不算，模型填了真文字才算。
 - **客户端**：状态徽标在 `implementing` 态下每 3s 拉一次 `/node-manual`，显示「实施 n/m」胶囊；点开用 `Menu` 展开勾选（只读）。
 - **约束**：勾选只改 `- [ ]`↔`- [x]`，模型不能重排/改写这一节——靠 B/C 操作细节里的文案锁死；违反时 UI 降级成"清单解析失败"，不影响功能。
 - **涉及文件**：`host/workflow-repository.ts`（MANUAL_TEMPLATE、parseChecklist、readNodeManual 返回 checklist）、

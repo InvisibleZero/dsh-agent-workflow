@@ -302,6 +302,22 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
+      path: '/dsh-agent-workflow/node-checklist',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const id = query.get('id');
+        const nodeId = query.get('nodeId');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
+        const meta = await repository.getManualMeta(id, nodeId);
+        return {
+          exists: meta !== null,
+          checklist: meta?.checklist ?? [],
+          hasPlan: meta?.hasPlan ?? false,
+        };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
       path: '/dsh-agent-workflow/open-folder',
       handler: makeHandler(repository, 'POST', async (body) => {
         const target = body?.path;
