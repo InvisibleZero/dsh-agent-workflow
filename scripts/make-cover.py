@@ -1,9 +1,9 @@
-﻿"""生成插件封面（1200x800）。
+﻿"""生成插件封面（1200x800）——扁平模型版。
 
-左侧：与插件一致的侧栏树，三层结构（工作区 → 子节点 → 孙节点）。
-右侧：说明「同一节点、不同状态 → 注入的上下文不一样」。
+左：一个工作区（项目）下的**会话列表**（每个会话 = 一个 workflow 单元，不再有树）。
+右：状态机 + 两层手册（项目手册 / 会话手册）。
 
-改文案/改树后重跑本脚本即可覆盖 assets/cover.png。
+改文案后重跑本脚本即可覆盖 assets/cover.png。
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -28,7 +28,6 @@ STATE_SUCCESS = (63, 185, 80)
 
 CODE_BG = (15, 19, 25)
 CODE_BORDER = (44, 52, 66)
-CHIP_INACTIVE = (30, 36, 48)
 
 FONT_REG = "C:/Windows/Fonts/msyh.ttc"
 FONT_BOLD = "C:/Windows/Fonts/msyhbd.ttc"
@@ -44,125 +43,118 @@ def gradient_canvas():
     return canvas
 
 
-def draw_search(d, x, y, color):
-    d.ellipse([(x, y), (x + 11, y + 11)], outline=color, width=2)
-    d.line([(x + 10, y + 10), (x + 15, y + 15)], fill=color, width=2)
+def draw_arrow(d, x, y, color):
+    d.line([(x, y), (x + 9, y)], fill=color, width=2)
+    d.polygon([(x + 9, y - 4), (x + 14, y), (x + 9, y + 4)], fill=color)
 
 
-def draw_sliders(d, x, y, color):
-    for i, dy in enumerate((0, 9)):
-        d.line([(x, y + dy + 2), (x + 15, y + dy + 2)], fill=color, width=2)
-        cx = x + 4 if i == 0 else x + 11
-        d.ellipse([(cx - 3, y + dy - 1), (cx + 3, y + dy + 5)], fill=color)
-
-
-def draw_folder_plus(d, x, y, color):
-    d.line([(x, y + 3), (x + 9, y + 3), (x + 11, y + 6), (x + 16, y + 6)], fill=color, width=2)
-    d.line([(x, y + 3), (x, y + 14), (x + 16, y + 14), (x + 16, y + 9)], fill=color, width=2)
-    d.line([(x + 10, y + 8), (x + 10, y + 13)], fill=color, width=2)
-    d.line([(x + 7.5, y + 10.5), (x + 12.5, y + 10.5)], fill=color, width=2)
-
-
-def draw_tree_panel(canvas, x0, y0, w, h):
+def draw_sessions_panel(canvas, x0, y0, w, h):
     panel = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(panel)
     d.rounded_rectangle([(0, 0), (w - 1, h - 1)], radius=14, fill=PANEL_BG, outline=PANEL_BORDER, width=1)
 
     header_font = ImageFont.truetype(FONT_REG, 15)
+    title_font = ImageFont.truetype(FONT_BOLD, 17)
     row_font = ImageFont.truetype(FONT_REG, 17)
     state_font = ImageFont.truetype(FONT_REG, 13)
+    note_font = ImageFont.truetype(FONT_REG, 13)
 
-    d.text((16, 16), "工作区", font=header_font, fill=TEXT_MUTED)
-    draw_search(d, w - 104, 17, STATE_IDLE)
-    draw_sliders(d, w - 72, 16, STATE_IDLE)
-    draw_folder_plus(d, w - 42, 15, STATE_IDLE)
+    d.text((18, 16), "工作区", font=header_font, fill=TEXT_MUTED)
+    d.text((18, 42), "电商系统改造", font=title_font, fill=TEXT_PRIMARY)
 
     rows = [
-        (0, "电商系统改造", "讨论中", STATE_WARN, False, True),
-        (1, "登录模块", "实现中", STATE_BRAND, False, True),
-        (2, "接口字段设计", "已完结", STATE_SUCCESS, False, False),
-        (2, "表单校验重构", "实现中", STATE_BRAND, True, False),
-        (1, "订单状态机", "未开始", STATE_IDLE, False, True),
-        (2, "库存扣减", "未开始", STATE_IDLE, False, False),
-        (1, "支付回调加固", "未开始", STATE_IDLE, False, False),
+        ("登录模块", "实现中", STATE_BRAND, True),
+        ("支付回调加固", "已完结", STATE_SUCCESS, False),
+        ("订单状态机", "讨论中", STATE_WARN, False),
+        ("退货流程", "未开始", STATE_IDLE, False),
+        ("发票系统", "未开始", STATE_IDLE, False),
     ]
 
-    y = 54
-    for depth, title, state, color, selected, expanded in rows:
+    y = 88
+    for title, state, color, selected in rows:
         if selected:
             d.rounded_rectangle([(10, y - 6), (w - 10, y + 34)], radius=7, fill=ROW_SELECTED)
-        text_x = 16 + depth * 20
-        if depth == 0:
-            if expanded:
-                d.polygon([(text_x + 1, y + 8), (text_x + 9, y + 8), (text_x + 5, y + 14)], fill=TEXT_MUTED)
-            else:
-                d.polygon([(text_x + 2, y + 6), (text_x + 8, y + 11), (text_x + 2, y + 16)], fill=TEXT_MUTED)
-            fx = text_x + 14
-            d.line([(fx, y + 6), (fx + 8, y + 6), (fx + 10, y + 9), (fx + 15, y + 9)], fill=ACCENT, width=2)
-            d.line([(fx, y + 6), (fx, y + 17), (fx + 15, y + 17), (fx + 15, y + 9)], fill=ACCENT, width=2)
-            d.text((text_x + 40, y + 2), title, font=row_font, fill=ROW_TITLE)
-        elif depth == 1:
-            if expanded:
-                d.polygon([(text_x + 1, y + 8), (text_x + 9, y + 8), (text_x + 5, y + 14)], fill=TEXT_MUTED)
-            else:
-                d.polygon([(text_x + 2, y + 6), (text_x + 8, y + 11), (text_x + 2, y + 16)], fill=TEXT_MUTED)
-            d.text((text_x + 20, y + 2), title, font=row_font, fill=ROW_TITLE)
-        else:
-            d.ellipse([(text_x + 4, y + 7), (text_x + 12, y + 15)], fill=color if selected else STATE_IDLE)
-            d.text((text_x + 22, y + 2), title, font=row_font, fill=ROW_TITLE if selected else ROW_CHILD_TITLE)
+        d.ellipse([(20, y + 7), (28, y + 15)], fill=color)
+        d.text((38, y + 2), title, font=row_font, fill=ROW_TITLE if selected else ROW_CHILD_TITLE)
         tw = d.textlength(state, font=state_font)
-        d.text((w - 16 - tw, y + 4), state, font=state_font, fill=color)
-        y += 46
+        d.text((w - 18 - tw, y + 4), state, font=state_font, fill=color)
+        y += 52
+
+    d.text((18, h - 40), "每个会话 = 一个 workflow 单元", font=note_font, fill=TEXT_MUTED)
 
     canvas.paste(panel, (x0, y0), panel)
 
 
-def draw_context_panel(canvas, x0, y0, w, h):
+def draw_flow_panel(canvas, x0, y0, w, h):
     panel = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(panel)
     d.rounded_rectangle([(0, 0), (w - 1, h - 1)], radius=14, fill=PANEL_BG, outline=PANEL_BORDER, width=1)
 
     title_font = ImageFont.truetype(FONT_BOLD, 20)
-    node_font = ImageFont.truetype(FONT_REG, 15)
-    label_font = ImageFont.truetype(FONT_BOLD, 16)
-    code_font = ImageFont.truetype(FONT_REG, 15)
-    dim_font = ImageFont.truetype(FONT_REG, 13)
+    label_font = ImageFont.truetype(FONT_REG, 14)
+    pill_font = ImageFont.truetype(FONT_REG, 12)
+    code_font = ImageFont.truetype(FONT_REG, 14)
+    file_font = ImageFont.truetype(FONT_REG, 15)
+    dim_font = ImageFont.truetype(FONT_REG, 12)
 
-    d.text((20, 18), "状态决定注入的上下文", font=title_font, fill=TEXT_PRIMARY)
-    d.text((20, 52), "节点：表单校验重构", font=node_font, fill=TEXT_MUTED)
+    d.text((20, 16), "状态机 + 两层手册", font=title_font, fill=TEXT_PRIMARY)
 
-    bx0, bx1 = 20, w - 20
+    # 五态流程
+    d.text((20, 52), "每个会话走五态状态机", font=label_font, fill=TEXT_MUTED)
+    states = [
+        ("未开始", STATE_IDLE, False),
+        ("讨论中", STATE_WARN, False),
+        ("实现中", STATE_BRAND, True),
+        ("验收中", STATE_WARN, False),
+        ("已完结", STATE_SUCCESS, False),
+    ]
+    pill_w, pill_h = 86, 30
+    x = 20
+    y = 78
+    for index, (label, color, active) in enumerate(states):
+        fill = (40, 52, 84) if active else CODE_BG
+        outline = color if active else CODE_BORDER
+        d.rounded_rectangle([(x, y), (x + pill_w, y + pill_h)], radius=8, fill=fill, outline=outline, width=1)
+        tw = d.textlength(label, font=pill_font)
+        d.text((x + (pill_w - tw) / 2, y + 7), label, font=pill_font, fill=(255, 255, 255) if active else color)
+        x += pill_w
+        if index < len(states) - 1:
+            draw_arrow(d, x + 6, y + pill_h // 2, STATE_IDLE)
+            x += 26
 
-    def section(label, color, top, lines, active=False):
-        d.text((bx0, top), label, font=label_font, fill=color)
-        if active:
-            lw = d.textlength(label, font=label_font)
-            d.text((bx0 + lw + 10, top + 2), "当前态", font=dim_font, fill=ACCENT)
-        box_top = top + 24
-        box_h = 16 + len(lines) * 28 + 8
-        d.rounded_rectangle(
-            [(bx0, box_top), (bx1, box_top + box_h)],
-            radius=9,
-            fill=CODE_BG,
-            outline=(58, 86, 150) if active else CODE_BORDER,
-            width=1,
-        )
-        ly = box_top + 12
-        for line in lines:
-            d.text((bx0 + 16, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
-            ly += 28
-        return box_top + box_h
+    # 注入块
+    d.text((20, 132), "当前状态决定注入什么", font=label_font, fill=TEXT_MUTED)
+    box_top, box_h = 156, 96
+    d.rounded_rectangle([(20, box_top), (w - 20, box_top + box_h)], radius=9, fill=CODE_BG, outline=CODE_BORDER, width=1)
+    lines = [
+        "A 公共 + 当前状态的操作细节",
+        "会话手册（方案 + 实施顺序）",
+        "项目手册（总览 / 决策 / 要点）",
+    ]
+    ly = box_top + 14
+    for line in lines:
+        d.text((38, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
+        ly += 24
 
-    bottom = section("讨论中", STATE_WARN, 92, ["只讨论不动手：给方案、取舍与待确认点。"])
-    section("实现中", STATE_BRAND, bottom + 22, [
-        "本阶段按已确认的方案落地。",
-        "先读后改：只改相关文件，改动越少越好。",
-        "完成后给出验证方式与通过标准。",
-    ], active=True)
-
-    d.text((bx0, 366), "同一个节点：状态一切换，注入内容随之改变。", font=dim_font, fill=TEXT_MUTED)
+    # 两层手册
+    d.text((20, 276), "两层手册（AI 自留）", font=label_font, fill=TEXT_MUTED)
+    files = [
+        ("项目手册.md", "总览 / 决策 / 要点 · 跨会话共享"),
+        ("会话手册-<id>.md", "方案（5 层）+ 实施顺序 · 每会话一份"),
+    ]
+    fy = 302
+    for name, desc in files:
+        d.rounded_rectangle([(20, fy), (w - 20, fy + 58)], radius=9, fill=CODE_BG, outline=CODE_BORDER, width=1)
+        # 文件图标
+        fx, fyy = 38, fy + 16
+        d.line([(fx, fyy), (fx + 10, fyy), (fx + 13, fyy + 3), (fx + 18, fyy + 3)], fill=ACCENT, width=2)
+        d.line([(fx, fyy), (fx, fyy + 20), (fx + 18, fyy + 20), (fx + 18, fyy + 5)], fill=ACCENT, width=2)
+        d.text((fx + 28, fy + 10), name, font=file_font, fill=TEXT_PRIMARY)
+        d.text((fx + 28, fy + 34), desc, font=dim_font, fill=TEXT_MUTED)
+        fy += 68
 
     canvas.paste(panel, (x0, y0), panel)
+
 
 canvas = gradient_canvas()
 
@@ -183,8 +175,8 @@ draw.text((72, 156), "dsh-agent-workflow", font=title_font, fill=TEXT_PRIMARY)
 draw.text((72, 222), "Agent 编排与 Workflow 状态机", font=sub_font, fill=TEXT_SECONDARY)
 draw.text((72, 262), "DeepSeek Harness 插件 · v0.2.0", font=meta_font, fill=TEXT_MUTED)
 
-draw_tree_panel(canvas, 64, 320, 470, 430)
-draw_context_panel(canvas, 580, 320, 556, 430)
+draw_sessions_panel(canvas, 64, 320, 470, 430)
+draw_flow_panel(canvas, 580, 320, 556, 430)
 
 canvas.convert("RGB").save(OUT, "PNG")
 print("written", OUT, canvas.size)
