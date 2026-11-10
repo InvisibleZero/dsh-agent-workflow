@@ -82,7 +82,8 @@ def draw_tree_panel(canvas, x0, y0, w, h):
         (1, "登录模块", "实现中", STATE_BRAND, False, True),
         (2, "接口字段设计", "已完结", STATE_SUCCESS, False, False),
         (2, "表单校验重构", "实现中", STATE_BRAND, True, False),
-        (1, "订单状态机", "未开始", STATE_IDLE, False, False),
+        (1, "订单状态机", "未开始", STATE_IDLE, False, True),
+        (2, "库存扣减", "未开始", STATE_IDLE, False, False),
         (1, "支付回调加固", "未开始", STATE_IDLE, False, False),
     ]
 
@@ -149,7 +150,10 @@ def draw_context_panel(canvas, x0, y0, w, h):
     for line in lines:
         d.text((cb_x + 16, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
         ly += 28
-    d.text((cb_x + 16, ly + 4), "↳ 这些会进这个会话的系统上下文", font=dim_font, fill=TEXT_MUTED)
+    # 小箭头用线条画，避免字体缺字变成方框
+    ax, ay = cb_x + 18, ly + 8
+    d.line([(ax, ay), (ax + 5, ay + 5), (ax, ay + 10)], fill=TEXT_MUTED, width=2)
+    d.text((ax + 12, ly + 4), "这些会进这个会话的系统上下文", font=dim_font, fill=TEXT_MUTED)
 
     # 对比：讨论中会注入什么
     d.text((20, 330), "同一个节点，切到「讨论中」则注入：", font=dim_font, fill=TEXT_MUTED)
