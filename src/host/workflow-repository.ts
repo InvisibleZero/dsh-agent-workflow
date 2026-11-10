@@ -117,6 +117,46 @@ export class WorkflowRepository {
     return this.storage.load(id);
   }
 
+  /**
+   * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
+   * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
+   */
+  async findBySession(sessionId: string): Promise<{
+    workflowId: string;
+    nodeId: string;
+    title: string;
+    current_state: string;
+  } | null> {
+    const dir = join(this.baseDir, 'workflows');
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const id = name.slice(0, -'.json'.length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot === null) continue;
+        const node = snapshot.nodes.find((candidate) => candidate.session_id === sessionId);
+        if (node !== undefined) {
+          return {
+            workflowId: id,
+            nodeId: node.node_id,
+            title: node.title ?? '',
+            current_state: node.current_state,
+          };
+        }
+      } catch {
+        // 单个快照损坏时跳过，不影响其它 workflow。
+      }
+    }
+    return null;
+  }
+
   /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
   async remove(id: string): Promise<void> {
     const path = join(this.baseDir, 'workflows', `${id}.json`);

@@ -130,6 +130,16 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
+      path: '/dsh-agent-workflow/node-by-session',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const sessionId = query.get('sessionId');
+        if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
+        const node = await repository.findBySession(sessionId);
+        return { node };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
       path: '/dsh-agent-workflow/bind-session',
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');

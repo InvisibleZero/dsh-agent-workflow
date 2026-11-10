@@ -34,6 +34,13 @@ window.__ModuleLoader__.load({
         catch (error) {
             console.error('[dsh-agent-workflow] 伪装层注册失败：', error);
         }
+        // 输入框工具条里的 workflow 状态徽标（权限控件右边）。挂不上不影响侧栏主功能。
+        try {
+            (0, workflow_embedded_1.applyWorkflowComposerBadge)(ctx);
+        }
+        catch (error) {
+            console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+        }
     }
     //# sourceMappingURL=dsh-plugin.js.map
     },
@@ -1008,6 +1015,7 @@ window.__ModuleLoader__.load({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.workflowKindPlugin = void 0;
+    exports.applyWorkflowComposerBadge = applyWorkflowComposerBadge;
     const jsx_runtime_1 = require("react/jsx-runtime");
     // @ts-nocheck
     /**
@@ -1394,6 +1402,67 @@ window.__ModuleLoader__.load({
                         ];
                     return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
                 })() : null] }));
+    }
+    /**
+     * 输入框工具条里的 workflow 状态徽标：
+     * 当前会话若是某个 workflow 节点绑定的会话，就在权限控件右边显示该节点的状态。
+     */
+    function WorkflowStateBadge(props) {
+        const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
+        const [nodeState, setNodeState] = (0, react_1.useState)(null);
+        (0, react_1.useEffect)(() => {
+            if (sessionId === '') {
+                setNodeState(null);
+                return undefined;
+            }
+            let cancelled = false;
+            const read = async () => {
+                try {
+                    const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+                    const data = await response.json().catch(() => null);
+                    if (cancelled)
+                        return;
+                    const node = data?.ok === true ? data.node : null;
+                    setNodeState(node === null || node === undefined ? null : { state: String(node.current_state) });
+                }
+                catch {
+                    if (!cancelled)
+                        setNodeState(null);
+                }
+            };
+            void read();
+            // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
+            const timer = window.setInterval(read, 3000);
+            return () => {
+                cancelled = true;
+                window.clearInterval(timer);
+            };
+        }, [sessionId]);
+        if (nodeState === null)
+            return null;
+        const label = node_state_label_1.NODE_STATE_LABEL[nodeState.state] ?? nodeState.state;
+        return ((0, jsx_runtime_1.jsxs)("span", { title: "workflow \u8282\u70B9\u72B6\u6001", style: {
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                height: 22,
+                padding: '0 8px',
+                borderRadius: 6,
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-secondary)',
+                fontSize: 11,
+                lineHeight: '22px',
+                whiteSpace: 'nowrap',
+            }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeState.state] ?? 'transparent' } }), label] }));
+    }
+    /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
+    function applyWorkflowComposerBadge(ctx) {
+        ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+            name: 'conversation.input.left',
+            id: 'dsh-agent-workflow.state',
+            order: 10,
+            label: 'workflow 状态',
+        }, WorkflowStateBadge));
     }
     exports.workflowKindPlugin = {
         kind: workspace_kind_1.WorkspaceKind.Workflow,

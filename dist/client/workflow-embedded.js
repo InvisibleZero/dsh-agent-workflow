@@ -385,6 +385,67 @@ function WorkflowWorkspaceItem(props) {
                 return (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
             })() : null] }));
 }
+/**
+ * 输入框工具条里的 workflow 状态徽标：
+ * 当前会话若是某个 workflow 节点绑定的会话，就在权限控件右边显示该节点的状态。
+ */
+function WorkflowStateBadge(props) {
+    const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
+    const [nodeState, setNodeState] = useState(null);
+    useEffect(() => {
+        if (sessionId === '') {
+            setNodeState(null);
+            return undefined;
+        }
+        let cancelled = false;
+        const read = async () => {
+            try {
+                const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+                const data = await response.json().catch(() => null);
+                if (cancelled)
+                    return;
+                const node = data?.ok === true ? data.node : null;
+                setNodeState(node === null || node === undefined ? null : { state: String(node.current_state) });
+            }
+            catch {
+                if (!cancelled)
+                    setNodeState(null);
+            }
+        };
+        void read();
+        // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
+        const timer = window.setInterval(read, 3000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [sessionId]);
+    if (nodeState === null)
+        return null;
+    const label = NODE_STATE_LABEL[nodeState.state] ?? nodeState.state;
+    return (_jsxs("span", { title: "workflow \u8282\u70B9\u72B6\u6001", style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            height: 22,
+            padding: '0 8px',
+            borderRadius: 6,
+            background: 'var(--dsw-alias-bg-layer-1)',
+            color: 'var(--dsw-alias-label-secondary)',
+            fontSize: 11,
+            lineHeight: '22px',
+            whiteSpace: 'nowrap',
+        }, children: [_jsx("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeState.state] ?? 'transparent' } }), label] }));
+}
+/** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
+export function applyWorkflowComposerBadge(ctx) {
+    ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+        name: 'conversation.input.left',
+        id: 'dsh-agent-workflow.state',
+        order: 10,
+        label: 'workflow 状态',
+    }, WorkflowStateBadge));
+}
 export const workflowKindPlugin = {
     kind: WorkspaceKind.Workflow,
     list: listWorkflows,

@@ -34,6 +34,16 @@ export declare class WorkflowRepository {
         hostWorkspaceId?: string;
     }): Promise<WorkflowSummary>;
     get(id: string): Promise<WorkflowSnapshot | null>;
+    /**
+     * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
+     * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
+     */
+    findBySession(sessionId: string): Promise<{
+        workflowId: string;
+        nodeId: string;
+        title: string;
+        current_state: string;
+    } | null>;
     /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
     remove(id: string): Promise<void>;
     /**

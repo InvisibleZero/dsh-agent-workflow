@@ -29,5 +29,12 @@ function apply(ctx) {
     catch (error) {
         console.error('[dsh-agent-workflow] 伪装层注册失败：', error);
     }
+    // 输入框工具条里的 workflow 状态徽标（权限控件右边）。挂不上不影响侧栏主功能。
+    try {
+        (0, workflow_embedded_1.applyWorkflowComposerBadge)(ctx);
+    }
+    catch (error) {
+        console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+    }
 }
 //# sourceMappingURL=dsh-plugin.js.map

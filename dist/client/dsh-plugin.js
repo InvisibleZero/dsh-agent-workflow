@@ -7,7 +7,7 @@
  * 在侧栏工作区区域内原地渲染（每种类型一个可嵌入渲染器）。
  */
 import { applyWorkspaceBrowser } from './workspace-browser';
-import { workflowKindPlugin } from './workflow-embedded';
+import { workflowKindPlugin, applyWorkflowComposerBadge } from './workflow-embedded';
 import { registerWorkspaceKindPlugin } from './workspace-kind-registry';
 export const name = 'dsh-agent-workflow-client';
 // `remote` + `remote.workspace`：置顶桥要直连 workspaceController 的 Remote 端点。
@@ -24,6 +24,13 @@ export function apply(ctx) {
     }
     catch (error) {
         console.error('[dsh-agent-workflow] 伪装层注册失败：', error);
+    }
+    // 输入框工具条里的 workflow 状态徽标（权限控件右边）。挂不上不影响侧栏主功能。
+    try {
+        applyWorkflowComposerBadge(ctx);
+    }
+    catch (error) {
+        console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
     }
 }
 //# sourceMappingURL=dsh-plugin.js.map

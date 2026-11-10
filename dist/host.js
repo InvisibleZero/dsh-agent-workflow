@@ -296,6 +296,39 @@ var WorkflowRepository = class {
   async get(id) {
     return this.storage.load(id);
   }
+  /**
+   * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
+   * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
+   */
+  async findBySession(sessionId) {
+    const dir = join(this.baseDir, "workflows");
+    let names = [];
+    try {
+      names = await fs2.readdir(dir);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const id = name.slice(0, -".json".length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot === null) continue;
+        const node = snapshot.nodes.find((candidate) => candidate.session_id === sessionId);
+        if (node !== void 0) {
+          return {
+            workflowId: id,
+            nodeId: node.node_id,
+            title: node.title ?? "",
+            current_state: node.current_state
+          };
+        }
+      } catch {
+      }
+    }
+    return null;
+  }
   /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
   async remove(id) {
     const path2 = join(this.baseDir, "workflows", `${id}.json`);
@@ -508,6 +541,16 @@ function apply(ctx) {
         const snapshot = await repository.get(id);
         if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
         return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/node-by-session",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const sessionId = query.get("sessionId");
+        if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
+        const node = await repository.findBySession(sessionId);
+        return { node };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

@@ -151,9 +151,12 @@ try {
 
 const workspaceBrowser = registered.find((item) => item.slot === 'sidebar.workspaces');
 
+const expectedSlots = ['conversation.input.left', 'sidebar.workspaces'];
+const actualSlots = registered.map((item) => item.slot).sort();
+
 check(
-  registered.length === 1,
-  `应只注册 1 个槽（伪装层 sidebar.workspaces），实际 ${registered.length} 个：${registered.map((item) => item.slot).join(', ')}`,
+  actualSlots.length === expectedSlots.length && actualSlots.every((slot, index) => slot === expectedSlots[index]),
+  `应注册 ${expectedSlots.join(' + ')}，实际 ${actualSlots.join(', ')}`,
 );
 check(workspaceBrowser !== undefined, '没有注册伪装层 sidebar.workspaces');
 check(registered.every((item) => item.slot !== 'sidebar.panellist'), '左侧导航项应已撤掉');

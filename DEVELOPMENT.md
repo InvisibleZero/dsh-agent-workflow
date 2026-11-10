@@ -41,6 +41,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 | 行选中样式 | 宿主类 `selected`（`rowsClass('selected')`）+ `aria-selected` |
 | 弹出菜单 | `Menu` + `getAnchorRect()`（**不要**传 anchor 元素，见 D-01） |
 | 宿主 CSS 类名 | 运行时反查前缀（`rowsClass()`），不硬编码哈希 |
+| 输入框旁的状态徽标 | 注册 `conversation.input.left`（session 作用域，权限控件右侧）+ `/node-by-session?sessionId=` |
 | 客户端包纯净度 | 只允许 `react` 家族、`@deepseek-ai/dsh-client-ui-primitives`、`../schema/node-state-label` |
 
 ---
@@ -323,6 +324,19 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 - **代价**：宿主菜单里**其它插件**提供的项（「在文件夹显示」「放入回收站」）拿不到，只能不要。
 - **验证**：节点「⋯」只有四项且没有「分叉会话」；置顶后行上出现星标并排到同级最前；归档后行变淡。
 - **涉及文件**：`src/client/workflow-embedded.tsx`（`runSessionMenuAction`）。
+
+### D-18 输入框旁的 workflow 状态徽标：槽位选型与刷新方式
+
+- **需求**：当前会话若是 workflow 节点绑定的，就在输入框工具条（权限控件右边）显示该节点状态。
+- **槽位**：`conversation.input.left`（list、session 作用域），说明是"工具行左侧的紧凑控件"，正好排在权限控件之后；
+  `props.sessionId` 就是当前会话 id（hero 态为 `undefined`，此时必须直接返回 `null`，否则会拿空 id 去请求）。
+- **取状态**：宿主没有 workflow 事件，新增 `GET /dsh-agent-workflow/node-by-session?sessionId=`，
+  扫一遍 workflows/*.json 找到绑定该会话的节点，返回 `{ workflowId, nodeId, title, current_state }`。
+- **为什么轮询**：状态可能被侧栏的「推进」改掉，我们没有事件通道，所以每 3 秒读一次这个本地小接口（成本可忽略）。
+- **冒烟脚本**：`scripts/smoke-client.mjs` 里"注册了几个槽"的断言已改为允许
+  `sidebar.workspaces + conversation.input.left`；以后再加槽位记得同步改这条断言。
+- **涉及文件**：`src/client/workflow-embedded.tsx`（`WorkflowStateBadge` / `applyWorkflowComposerBadge`）、
+  `src/client/dsh-plugin.tsx`、`src/host.ts`、`src/host/workflow-repository.ts`（`findBySession`）。
 
 ---
 

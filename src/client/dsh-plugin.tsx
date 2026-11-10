@@ -8,7 +8,7 @@
  */
 
 import { applyWorkspaceBrowser } from './workspace-browser';
-import { workflowKindPlugin } from './workflow-embedded';
+import { workflowKindPlugin, applyWorkflowComposerBadge } from './workflow-embedded';
 import { registerWorkspaceKindPlugin } from './workspace-kind-registry';
 
 export const name = 'dsh-agent-workflow-client';
@@ -28,5 +28,12 @@ export function apply(ctx: any) {
     applyWorkspaceBrowser(ctx);
   } catch (error) {
     console.error('[dsh-agent-workflow] 伪装层注册失败：', error);
+  }
+
+  // 输入框工具条里的 workflow 状态徽标（权限控件右边）。挂不上不影响侧栏主功能。
+  try {
+    applyWorkflowComposerBadge(ctx);
+  } catch (error) {
+    console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
   }
 }
