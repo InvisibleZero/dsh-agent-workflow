@@ -381,6 +381,21 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 
 - **教训**：任何带中文的写接口，测试时别用 PS 5.1 的 `Invoke-WebRequest`；只读 GET 用它可以。
 
+### D-21 按状态注入上下文：走 `systemPrompt.context()`，别往会话里塞消息
+
+- **目标**：会话只加载"当前节点状态"对应的操作细节；状态一变，旧内容自动失效。
+- **通道选择**：注册 `ctx.systemPrompt.context({ name, order, text })` —— 这是系统提示里的**动态上下文段**，
+  每次装配重新求值，所以"状态变了文本自然变"，不需要像 agent-instructions 那样做"替换/作废旧消息"的记账，
+  也不会写进会话日志（没有消息 source 判别联合的兼容风险）。
+- **硬约束**：`text()` 是**同步求值**，不能读盘。所以真实文本在 `agent/pre-step`（异步）里算好放进内存缓存，
+  `text()` 只读缓存；未命中时返回空并排一次刷新，下一步起生效。
+- **作用域**：主通道在 `agent/created` 里用 `this.systemPrompt.context(...)` 注册（按 agent 作用域，闭包拿到 sessionId）；
+  另注册一份全局同名的做兜底——**同名会被作用域那份覆盖**，不会重复注入。
+- **调试**：`GET /state-context?sessionId=` 返回"将要注入的文本"，不依赖模型就能验证拼装是否正确。
+- **验证注入是否真的进了提示**：在绑定会话里发一句话，然后看会话日志（`~/.dsh/sessions/.../session-*.jsonl`）里
+  是否出现 `<workflow-state>` 段。
+- **涉及文件**：`src/host/workflow-state-context.ts`、`src/host.ts`。
+
 ---
 
 ## 6. 记录格式（新增条目照抄）

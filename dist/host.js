@@ -19,6 +19,17 @@ import { z as z2 } from "zod";
 
 // src/schema/node-state.ts
 import { z } from "zod";
+
+// src/schema/node-state-label.ts
+var NODE_STATE_LABEL = {
+  not_started: "\u672A\u5F00\u59CB",
+  discussing: "\u8BA8\u8BBA\u4E2D",
+  implementing: "\u5B9E\u73B0\u4E2D",
+  verifying: "\u9A8C\u6536\u4E2D",
+  completed: "\u5DF2\u5B8C\u7ED3"
+};
+
+// src/schema/node-state.ts
 var NodeState = z.enum([
   "not_started",
   // 未开始（保留态）
@@ -499,6 +510,105 @@ ${specific.operation_detail}`,
   };
 }
 
+// src/host/workflow-state-context.ts
+var MAX_TEXT_BYTES = 3200;
+function registerWorkflowStateContext(ctx, repository) {
+  const cache = /* @__PURE__ */ new Map();
+  const pending = /* @__PURE__ */ new Set();
+  const buildText = async (sessionId) => {
+    const found = await repository.findBySession(sessionId);
+    if (found === null || found === void 0) {
+      cache.delete(sessionId);
+      return "";
+    }
+    const snapshot = await repository.get(found.workflowId);
+    if (snapshot === null) {
+      cache.delete(sessionId);
+      return "";
+    }
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === found.nodeId);
+    if (node === void 0) {
+      cache.delete(sessionId);
+      return "";
+    }
+    const global = await repository.getAppGlobalOperationDetail();
+    const effective = effectiveDetail(node.current_state, node, global);
+    const label = NODE_STATE_LABEL[node.current_state] ?? node.current_state;
+    const parts = [
+      "<workflow-state>",
+      `\u8282\u70B9\uFF1A${node.title || "(\u672A\u547D\u540D)"}\u3000workflow\uFF1A${snapshot.title}`,
+      `\u5F53\u524D\u72B6\u6001\uFF1A${label}`
+    ];
+    if (typeof effective.full_detail === "string" && effective.full_detail.trim() !== "") {
+      parts.push("", effective.full_detail.trim());
+    }
+    if (typeof effective.enter_trigger === "string" && effective.enter_trigger.trim() !== "") {
+      parts.push("", `\u8FDB\u5165\u672C\u72B6\u6001\u65F6\u7684\u9ED8\u8BA4\u8F93\u5165\uFF1A${effective.enter_trigger.trim()}`);
+    }
+    parts.push("</workflow-state>");
+    let text = parts.join("\n");
+    if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
+      text = `${text.slice(0, MAX_TEXT_BYTES)}\u2026\uFF08\u5DF2\u622A\u65AD\uFF09`;
+    }
+    cache.set(sessionId, { text, nodeId: node.node_id, state: node.current_state });
+    return text;
+  };
+  const refresh = (sessionId) => {
+    if (typeof sessionId !== "string" || sessionId === "" || pending.has(sessionId)) return;
+    pending.add(sessionId);
+    void buildText(sessionId).catch((error) => {
+      ctx.logger?.warn?.("workflow state context refresh failed: %o", error);
+    }).finally(() => pending.delete(sessionId));
+  };
+  const readText = (sessionId) => {
+    if (typeof sessionId !== "string" || sessionId === "") return "";
+    const entry = cache.get(sessionId);
+    if (entry !== void 0) return entry.text;
+    refresh(sessionId);
+    return "";
+  };
+  ctx.on("agent/pre-step", async (_payload, next) => {
+    const payload = _payload ?? {};
+    const sessionId = payload.agent?.session?.id;
+    if (typeof sessionId === "string") refresh(sessionId);
+    return next();
+  });
+  ctx.on("agent/created", function(payload) {
+    const sessionId = payload?.agent?.session?.id;
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    refresh(sessionId);
+    if (typeof this?.systemPrompt?.context !== "function") return;
+    this.systemPrompt.context({
+      name: "workflow:state",
+      order: 150,
+      text: () => readText(sessionId)
+    });
+  });
+  ctx.inject(["systemPrompt"], (scoped) => {
+    scoped.effect(() => scoped.systemPrompt.context({
+      name: "workflow:state",
+      order: 150,
+      text: (assemblyContext) => readText(pickSessionId(assemblyContext))
+    }));
+  });
+  return {
+    peek: async (sessionId) => buildText(sessionId)
+  };
+}
+function pickSessionId(context) {
+  const candidates = [
+    context?.sessionId,
+    context?.session?.id,
+    context?.agent?.session?.id,
+    context?.scope?.session?.id,
+    context?.scope?.agent?.session?.id
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate !== "") return candidate;
+  }
+  return "";
+}
+
 // src/host.ts
 var inject = [];
 function resolveDataDir() {
@@ -574,6 +684,7 @@ function makeHandler(repository, method, run) {
 }
 function apply(ctx) {
   const repository = new WorkflowRepository(resolveDataDir());
+  const stateContext = registerWorkflowStateContext(ctx, repository);
   ctx.inject(["webServer"], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
@@ -604,6 +715,15 @@ function apply(ctx) {
         const snapshot = await repository.get(id);
         if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
         return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/state-context",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const sessionId = query.get("sessionId");
+        if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
+        return { text: await stateContext.peek(sessionId) };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

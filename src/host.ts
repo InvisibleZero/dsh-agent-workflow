@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from './host/workflow-repository';
 import { effectiveDetail } from './engine/state-machine';
+import { registerWorkflowStateContext } from './host/workflow-state-context';
 
 export const inject = [];
 
@@ -96,6 +97,8 @@ function makeHandler(repository: WorkflowRepository, method: string, run: (body:
 
 export function apply(ctx: any) {
   const repository = new WorkflowRepository(resolveDataDir());
+  // 按状态注入操作细节（系统提示里的动态上下文，不写会话记录）。
+  const stateContext = registerWorkflowStateContext(ctx, repository);
 
   ctx.inject(['webServer'], (webCtx: any) => {
     webCtx.effect(() => webCtx.webServer.register({
@@ -130,6 +133,15 @@ export function apply(ctx: any) {
       }),
     }));
     // 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/state-context',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const sessionId = query.get('sessionId');
+        if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
+        return { text: await stateContext.peek(sessionId) };
+      }),
+    }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: '/dsh-agent-workflow/global-settings',
