@@ -16,7 +16,7 @@ import { Component, useEffect, useRef, useState } from 'react';
 import { WorkspaceKind, WORKSPACE_KINDS } from './workspace-kind';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import { getWorkspaceKindPlugin, nonUsualWorkspaceKinds, normalizeWorkspacePath } from './workspace-kind-registry';
-import { StateDot, IconPinFillRegular, IconEllipsisOutlineRegular, IconArchiveOutlineRegular, IconTriangleRightFillRegular, IconNewChatOutlineRegular, IconSlidersTwoOutlineRegular, IconFolderOpenRegular, IconFolderCloseRegular, IconEditOutlineRegular, IconTrashOutlineRegular, Menu, HoverCard, Tooltip, relativeTime, } from '@deepseek-ai/dsh-client-ui-primitives';
+import { StateDot, IconPinFillRegular, IconEllipsisOutlineRegular, IconArchiveOutlineRegular, IconTriangleRightFillRegular, IconNewChatOutlineRegular, IconSlidersTwoOutlineRegular, IconSearchOutlineRegular, IconCloseFillRegular, IconProjectAddOutlineRegular, IconChevronsUpDownOutlineRegular, IconClockOutlineRegular, IconWorkspaceTreeOutlineRegular, IconFlatListOutlineRegular, IconArchiveOffOutlineRegular, IconQueueOutlineRegular, IconArchiveCheckOutlineRegular, IconFolderOpenRegular, IconFolderCloseRegular, IconEditOutlineRegular, IconTrashOutlineRegular, Menu, HoverCard, Tooltip, relativeTime, } from '@deepseek-ai/dsh-client-ui-primitives';
 /** 错误边界：槽位条目渲染失败只让那一块消失，不能让整个浏览器炸掉。 */
 class EntryBoundary extends Component {
     constructor(props) {
@@ -95,14 +95,23 @@ const C = {
     rail: 'GAkraW_rail',
     sectionHeader: 'GAkraW_sectionHeader',
     sectionLabel: 'GAkraW_sectionLabel',
+    sectionLabelHidden: 'GAkraW_sectionLabelHidden',
+    searchSlot: 'GAkraW_searchSlot',
+    searchSlotExpanded: 'GAkraW_searchSlotExpanded',
     search: 'GAkraW_search',
+    searchExpanded: 'GAkraW_searchExpanded',
+    searchButton: 'GAkraW_searchButton',
     searchInput: 'GAkraW_searchInput',
+    clearButton: 'GAkraW_clearButton',
+    searchSpacingMotion: 'GAkraW_searchSpacingMotion',
     listArea: 'GAkraW_listArea',
     list: 'GAkraW_list',
     treeBody: 'GAkraW_treeBody',
     emptyState: 'GAkraW_emptyState',
     empty: 'GAkraW_empty',
     headerActions: 'GAkraW_headerActions',
+    headerActionsHidden: 'GAkraW_headerActionsHidden',
+    viewOptionsMenu: 'GAkraW_viewOptionsMenu',
 };
 /** 翻译表：沿用宿主 t() 的语义，值换成本地中文。 */
 const ZH = {
@@ -224,23 +233,25 @@ function ViewOptionsMenu(props) {
         only: 'only-archived',
     };
     const items = [
-        { id: 'workspace', label: '按工作区分组' },
-        { id: 'workspace-tree', label: '工作区树' },
-        { id: 'flat', label: '平铺' },
+        { type: 'label', id: 'group-by', text: '分组方式' },
+        { id: 'workspace', label: '按工作区分组', icon: _jsx(IconFolderCloseRegular, {}) },
+        { id: 'workspace-tree', label: '工作区树', icon: _jsx(IconWorkspaceTreeOutlineRegular, {}) },
+        { id: 'flat', label: '平铺', icon: _jsx(IconFlatListOutlineRegular, {}) },
         { type: 'separator', id: 'sep-order' },
-        { id: 'manual', label: '手动排序' },
-        { id: 'updated', label: '按更新时间' },
+        { type: 'label', id: 'order-by', text: '排序方式' },
+        { id: 'manual', label: '手动排序', icon: _jsx(IconChevronsUpDownOutlineRegular, {}) },
+        { id: 'updated', label: '按更新时间', icon: _jsx(IconClockOutlineRegular, {}) },
         { type: 'separator', id: 'sep-filter' },
         { type: 'label', id: 'filter-by', text: '归档过滤' },
-        { id: 'hide-archived', label: '隐藏已归档' },
-        { id: 'show-archived', label: '显示已归档' },
-        { id: 'only-archived', label: '只看已归档' },
+        { id: 'hide-archived', label: '隐藏已归档', icon: _jsx(IconArchiveOffOutlineRegular, {}) },
+        { id: 'show-archived', label: '显示已归档', icon: _jsx(IconQueueOutlineRegular, {}) },
+        { id: 'only-archived', label: '只看已归档', icon: _jsx(IconArchiveCheckOutlineRegular, {}) },
     ];
     return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
                         event.currentTarget.focus({ preventScroll: true });
                         const next = menuPointFromEvent(event);
                         setPoint((current) => (current === null ? next : null));
-                    }, children: _jsx(IconSlidersTwoOutlineRegular, {}) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", dense: true, getAnchorRect: () => menuAnchorRect(point), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onClose: () => setPoint(null), onSelect: (id) => {
+                    }, children: _jsx(IconSlidersTwoOutlineRegular, {}) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", dense: true, listClassName: C.viewOptionsMenu, getAnchorRect: () => menuAnchorRect(point), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onClose: () => setPoint(null), onSelect: (id) => {
                     setPoint(null);
                     if (id === 'workspace' || id === 'workspace-tree' || id === 'flat')
                         props.onChange({ groupBy: id });
@@ -262,11 +273,11 @@ function AddWorkspaceMenu(props) {
         label: kind.label,
         icon: _jsx(WorkspaceKindIcon, { kind: kind.id, size: 14 }),
     }));
-    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: C.iconButton, "aria-label": "\u6DFB\u52A0\u5DE5\u4F5C\u533A", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: C.iconButton, "aria-label": "\u65B0\u5EFA\u5DE5\u4F5C\u533A", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
                         event.currentTarget.focus({ preventScroll: true });
                         const next = menuPointFromEvent(event);
                         setPoint((current) => (current === null ? next : null));
-                    }, children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" }), _jsx("path", { d: "M11.5 11v4M9.5 13h4" })] }) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(point), items: items, onClose: () => setPoint(null), onSelect: (id) => {
+                    }, children: _jsx(IconProjectAddOutlineRegular, { size: 16 }) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(point), items: items, onClose: () => setPoint(null), onSelect: (id) => {
                     setPoint(null);
                     props.onSelectKind(id);
                 } })) : null] }));
@@ -314,6 +325,9 @@ function WorkspaceBrowser(props) {
     const { ctx, wide, renderSlot, useWorkspaces, useSessions } = props;
     const [searchOpen, setSearchOpen] = useState(false);
     const [query, setQuery] = useState('');
+    /** 搜索框容器与输入框：点击容器展开并聚焦，和宿主一致。 */
+    const searchRootRef = useRef(null);
+    const searchInputRef = useRef(null);
     const [collapsedWorkspaces, setCollapsedWorkspaces] = useState(() => new Set());
     const [viewOptions, setViewOptions] = useState({
         groupBy: 'workspace',
@@ -657,47 +671,28 @@ function WorkspaceBrowser(props) {
         });
     };
     const flatSessions = workspaceItems.flatMap((ws) => buildWorkspaceSessions(ws));
-    return (_jsxs("div", { className: joinClasses(C.root, wide ? C.wide : C.rail), style: { position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }, children: [_jsxs("div", { style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '6px 8px',
-                    minHeight: 34,
-                    boxSizing: 'border-box',
-                }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: "\u5DE5\u4F5C\u533A" }), _jsxs("div", { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }, children: [_jsx(Tooltip, { label: searchOpen ? '关闭搜索' : '搜索', side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: C.iconButton, "aria-label": searchOpen ? '关闭搜索' : '搜索', onClick: () => {
-                                        if (searchOpen) {
-                                            setQuery('');
-                                            setSearchOpen(false);
-                                        }
-                                        else {
-                                            setSearchOpen(true);
-                                        }
-                                    }, children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("circle", { cx: "11", cy: "11", r: "6.5" }), _jsx("path", { d: "m16 16 4.5 4.5" })] }) }) }), _jsx(ViewOptionsMenu, { groupBy: viewOptions.groupBy, orderBy: viewOptions.orderBy, archivedFilter: viewOptions.archivedFilter, onChange: (patch) => setViewOptions((previous) => ({ ...previous, ...patch })) }), _jsx(AddWorkspaceMenu, { onSelectKind: (kind) => void addWorkspace(kind) })] })] }), searchOpen ? (_jsxs("div", { style: {
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    margin: '0 8px 6px',
-                    padding: '0 8px',
-                    height: 32,
-                    boxSizing: 'border-box',
-                    borderRadius: 9,
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                    background: 'var(--dsw-alias-bg-layer-2)',
-                }, children: [_jsxs("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "var(--dsw-alias-label-secondary)", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { flex: 'none' }, children: [_jsx("circle", { cx: "11", cy: "11", r: "6.5" }), _jsx("path", { d: "m16 16 4.5 4.5" })] }), _jsx("input", { autoFocus: true, value: query, placeholder: "\u641C\u7D22\u4F1A\u8BDD\u540D\u79F0", onChange: (event) => setQuery(event.target.value), onKeyDown: (event) => {
-                            if (event.key === 'Escape') {
-                                setQuery('');
-                                setSearchOpen(false);
-                            }
-                        }, style: {
-                            flex: 1,
-                            minWidth: 0,
-                            border: 'none',
-                            outline: 'none',
-                            background: 'transparent',
-                            color: 'var(--dsw-alias-label-primary)',
-                            font: 'inherit',
-                            fontSize: 13,
-                        } }), query !== '' ? (_jsx("button", { type: "button", "aria-label": "\u6E05\u9664\u641C\u7D22", onClick: () => setQuery(''), style: { flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' }, children: _jsx("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, children: _jsx("path", { d: "M6 6l12 12M18 6L6 18" }) }) })) : null] })) : null, _jsx("div", { className: C.listArea, style: { flex: 1, overflow: 'auto', minHeight: 0 }, children: flatSessions.length === 0 && Object.values(pluginItems).every((items) => items.length === 0) ? (_jsx("div", { className: C.emptyState, children: _jsx("div", { className: C.empty, children: keyword === '' ? '还没有工作区' : '没有匹配的会话' }) })) : (_jsx("div", { className: C.list, children: viewOptions.groupBy === 'flat' ? (flatSessions.map(renderSessionRow)) : (_jsxs(_Fragment, { children: [workspaceItems.map((ws) => {
+    return (_jsxs("div", { className: joinClasses(C.root, wide ? C.wide : C.rail), style: { position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }, children: [_jsxs("div", { className: joinClasses(C.sectionHeader, wide ? C.searchSpacingMotion : undefined), children: [wide ? (_jsx("span", { className: joinClasses(C.sectionLabel, C.wide, searchOpen ? C.sectionLabelHidden : undefined), children: "\u5DE5\u4F5C\u533A" })) : null, wide ? (_jsx("div", { className: joinClasses(C.searchSlot, searchOpen ? C.searchSlotExpanded : undefined), children: _jsxs("div", { ref: searchRootRef, className: joinClasses(C.search, searchOpen ? C.searchExpanded : undefined), onClick: () => {
+                                setSearchOpen(true);
+                                searchInputRef.current?.focus();
+                            }, children: [_jsx(Tooltip, { label: "\u641C\u7D22", side: "bottom", delayMs: 500, disabled: searchOpen, portal: true, children: _jsx("button", { type: "button", className: C.searchButton, "aria-label": "\u641C\u7D22\u4F1A\u8BDD", "aria-expanded": searchOpen, onClick: () => {
+                                            if (searchOpen) {
+                                                setQuery('');
+                                                setSearchOpen(false);
+                                            }
+                                            else {
+                                                setSearchOpen(true);
+                                                searchInputRef.current?.focus();
+                                            }
+                                        }, children: _jsx(IconSearchOutlineRegular, { size: searchOpen ? 11 : 14 }) }) }), _jsx("input", { ref: searchInputRef, className: C.searchInput, type: "text", placeholder: "\u641C\u7D22\u4F1A\u8BDD\u540D\u79F0", tabIndex: searchOpen ? 0 : -1, value: query, onChange: (event) => setQuery(event.target.value), onKeyDown: (event) => {
+                                        if (event.key !== 'Escape')
+                                            return;
+                                        setQuery('');
+                                        setSearchOpen(false);
+                                    } }), searchOpen ? (_jsx("button", { type: "button", className: C.clearButton, "aria-label": "\u6E05\u9664\u641C\u7D22", onClick: (event) => {
+                                        event.stopPropagation();
+                                        setQuery('');
+                                        setSearchOpen(false);
+                                    }, children: _jsx(IconCloseFillRegular, {}) })) : null] }) })) : null, _jsxs("div", { className: joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined), children: [_jsx(ViewOptionsMenu, { groupBy: viewOptions.groupBy, orderBy: viewOptions.orderBy, archivedFilter: viewOptions.archivedFilter, onChange: (patch) => setViewOptions((previous) => ({ ...previous, ...patch })) }), _jsx(AddWorkspaceMenu, { onSelectKind: (kind) => void addWorkspace(kind) })] })] }), _jsx("div", { className: C.listArea, style: { flex: 1, overflow: 'auto', minHeight: 0 }, children: flatSessions.length === 0 && Object.values(pluginItems).every((items) => items.length === 0) ? (_jsx("div", { className: C.emptyState, children: _jsx("div", { className: C.empty, children: keyword === '' ? '还没有工作区' : '没有匹配的会话' }) })) : (_jsx("div", { className: C.list, children: viewOptions.groupBy === 'flat' ? (flatSessions.map(renderSessionRow)) : (_jsxs(_Fragment, { children: [workspaceItems.map((ws) => {
                                 const wsId = ws.workspaceId ?? ws.path;
                                 const claim = workspaceClaims.byWorkspace.get(workspaceClaims.workspaceKey(ws));
                                 if (claim !== undefined) {

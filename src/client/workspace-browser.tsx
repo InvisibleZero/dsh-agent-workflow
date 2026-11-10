@@ -25,6 +25,16 @@ import {
   IconTriangleRightFillRegular,
   IconNewChatOutlineRegular,
   IconSlidersTwoOutlineRegular,
+  IconSearchOutlineRegular,
+  IconCloseFillRegular,
+  IconProjectAddOutlineRegular,
+  IconChevronsUpDownOutlineRegular,
+  IconClockOutlineRegular,
+  IconWorkspaceTreeOutlineRegular,
+  IconFlatListOutlineRegular,
+  IconArchiveOffOutlineRegular,
+  IconQueueOutlineRegular,
+  IconArchiveCheckOutlineRegular,
   IconFolderOpenRegular,
   IconFolderCloseRegular,
   IconEditOutlineRegular,
@@ -120,14 +130,23 @@ const C = {
   rail: 'GAkraW_rail',
   sectionHeader: 'GAkraW_sectionHeader',
   sectionLabel: 'GAkraW_sectionLabel',
+  sectionLabelHidden: 'GAkraW_sectionLabelHidden',
+  searchSlot: 'GAkraW_searchSlot',
+  searchSlotExpanded: 'GAkraW_searchSlotExpanded',
   search: 'GAkraW_search',
+  searchExpanded: 'GAkraW_searchExpanded',
+  searchButton: 'GAkraW_searchButton',
   searchInput: 'GAkraW_searchInput',
+  clearButton: 'GAkraW_clearButton',
+  searchSpacingMotion: 'GAkraW_searchSpacingMotion',
   listArea: 'GAkraW_listArea',
   list: 'GAkraW_list',
   treeBody: 'GAkraW_treeBody',
   emptyState: 'GAkraW_emptyState',
   empty: 'GAkraW_empty',
   headerActions: 'GAkraW_headerActions',
+  headerActionsHidden: 'GAkraW_headerActionsHidden',
+  viewOptionsMenu: 'GAkraW_viewOptionsMenu',
 };
 
 /** 翻译表：沿用宿主 t() 的语义，值换成本地中文。 */
@@ -345,17 +364,19 @@ function ViewOptionsMenu(props: {
     only: 'only-archived',
   };
   const items = [
-    { id: 'workspace', label: '按工作区分组' },
-    { id: 'workspace-tree', label: '工作区树' },
-    { id: 'flat', label: '平铺' },
+    { type: 'label', id: 'group-by', text: '分组方式' },
+    { id: 'workspace', label: '按工作区分组', icon: <IconFolderCloseRegular /> },
+    { id: 'workspace-tree', label: '工作区树', icon: <IconWorkspaceTreeOutlineRegular /> },
+    { id: 'flat', label: '平铺', icon: <IconFlatListOutlineRegular /> },
     { type: 'separator', id: 'sep-order' },
-    { id: 'manual', label: '手动排序' },
-    { id: 'updated', label: '按更新时间' },
+    { type: 'label', id: 'order-by', text: '排序方式' },
+    { id: 'manual', label: '手动排序', icon: <IconChevronsUpDownOutlineRegular /> },
+    { id: 'updated', label: '按更新时间', icon: <IconClockOutlineRegular /> },
     { type: 'separator', id: 'sep-filter' },
     { type: 'label', id: 'filter-by', text: '归档过滤' },
-    { id: 'hide-archived', label: '隐藏已归档' },
-    { id: 'show-archived', label: '显示已归档' },
-    { id: 'only-archived', label: '只看已归档' },
+    { id: 'hide-archived', label: '隐藏已归档', icon: <IconArchiveOffOutlineRegular /> },
+    { id: 'show-archived', label: '显示已归档', icon: <IconQueueOutlineRegular /> },
+    { id: 'only-archived', label: '只看已归档', icon: <IconArchiveCheckOutlineRegular /> },
   ];
 
   return (
@@ -383,6 +404,7 @@ function ViewOptionsMenu(props: {
           portal
           align="end"
           dense
+          listClassName={C.viewOptionsMenu}
           getAnchorRect={() => menuAnchorRect(point)}
           items={items}
           selectedIds={[props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]]}
@@ -412,11 +434,11 @@ function AddWorkspaceMenu(props: { onSelectKind: (kind: WorkspaceKind) => void }
 
   return (
     <>
-      <Tooltip label="新建工作区" side="bottom" align="end" delayMs={500} portal>
+      <Tooltip label="新建工作区" side="bottom" delayMs={500} portal>
         <button
           type="button"
           className={C.iconButton}
-          aria-label="添加工作区"
+          aria-label="新建工作区"
           aria-haspopup="menu"
           aria-expanded={point !== null}
           onClick={(event) => {
@@ -425,10 +447,7 @@ function AddWorkspaceMenu(props: { onSelectKind: (kind: WorkspaceKind) => void }
             setPoint((current) => (current === null ? next : null));
           }}
         >
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
-            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" />
-            <path d="M11.5 11v4M9.5 13h4" />
-          </svg>
+          <IconProjectAddOutlineRegular size={16} />
         </button>
       </Tooltip>
       {point !== null ? (
@@ -605,6 +624,9 @@ function WorkspaceBrowser(props: any) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  /** 搜索框容器与输入框：点击容器展开并聚焦，和宿主一致。 */
+  const searchRootRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => new Set());
   const [viewOptions, setViewOptions] = useState<{ groupBy: string; orderBy: string; archivedFilter: string }>({
     groupBy: 'workspace',
@@ -966,39 +988,72 @@ function WorkspaceBrowser(props: any) {
       className={joinClasses(C.root, wide ? C.wide : C.rail)}
       style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
     >
-      {/* 表头：标题在左、图标靠右；搜索点开后原地展开成输入框（和宿主一致）。 */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '6px 8px',
-          minHeight: 34,
-          boxSizing: 'border-box',
-        }}
-      >
-        <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>工作区</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Tooltip label={searchOpen ? '关闭搜索' : '搜索'} side="bottom" align="end" delayMs={500} portal>
-            <button
-              type="button"
-              className={C.iconButton}
-              aria-label={searchOpen ? '关闭搜索' : '搜索'}
+      {/* 表头：结构、类名、图标与宿主 WorkspaceBrowser 完全一致（标题 + 原地展开的搜索 + 两个按钮）。 */}
+      <div className={joinClasses(C.sectionHeader, wide ? C.searchSpacingMotion : undefined)}>
+        {wide ? (
+          <span className={joinClasses(C.sectionLabel, C.wide, searchOpen ? C.sectionLabelHidden : undefined)}>工作区</span>
+        ) : null}
+        {wide ? (
+          <div className={joinClasses(C.searchSlot, searchOpen ? C.searchSlotExpanded : undefined)}>
+            <div
+              ref={searchRootRef}
+              className={joinClasses(C.search, searchOpen ? C.searchExpanded : undefined)}
               onClick={() => {
-                if (searchOpen) {
-                  setQuery('');
-                  setSearchOpen(false);
-                } else {
-                  setSearchOpen(true);
-                }
+                setSearchOpen(true);
+                searchInputRef.current?.focus();
               }}
             >
-              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden style={{ display: 'block' }}>
-                <circle cx="11" cy="11" r="6.5" />
-                <path d="m16 16 4.5 4.5" />
-              </svg>
-            </button>
-          </Tooltip>
+              <Tooltip label="搜索" side="bottom" delayMs={500} disabled={searchOpen} portal>
+                <button
+                  type="button"
+                  className={C.searchButton}
+                  aria-label="搜索会话"
+                  aria-expanded={searchOpen}
+                  onClick={() => {
+                    if (searchOpen) {
+                      setQuery('');
+                      setSearchOpen(false);
+                    } else {
+                      setSearchOpen(true);
+                      searchInputRef.current?.focus();
+                    }
+                  }}
+                >
+                  <IconSearchOutlineRegular size={searchOpen ? 11 : 14} />
+                </button>
+              </Tooltip>
+              <input
+                ref={searchInputRef}
+                className={C.searchInput}
+                type="text"
+                placeholder="搜索会话名称"
+                tabIndex={searchOpen ? 0 : -1}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return;
+                  setQuery('');
+                  setSearchOpen(false);
+                }}
+              />
+              {searchOpen ? (
+                <button
+                  type="button"
+                  className={C.clearButton}
+                  aria-label="清除搜索"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setQuery('');
+                    setSearchOpen(false);
+                  }}
+                >
+                  <IconCloseFillRegular />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        <div className={joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined)}>
           <ViewOptionsMenu
             groupBy={viewOptions.groupBy}
             orderBy={viewOptions.orderBy}
@@ -1008,64 +1063,6 @@ function WorkspaceBrowser(props: any) {
           <AddWorkspaceMenu onSelectKind={(kind) => void addWorkspace(kind)} />
         </div>
       </div>
-
-      {/* 搜索：单独一行、整宽胶囊，左放大镜 + 中输入框 + 右清除（与宿主老版一致）。 */}
-      {searchOpen ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            margin: '0 8px 6px',
-            padding: '0 8px',
-            height: 32,
-            boxSizing: 'border-box',
-            borderRadius: 9,
-            border: '1px solid var(--dsw-alias-border-l2)',
-            background: 'var(--dsw-alias-bg-layer-2)',
-          }}
-        >
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--dsw-alias-label-secondary)" strokeWidth={1.8} strokeLinecap="round" aria-hidden style={{ flex: 'none' }}>
-            <circle cx="11" cy="11" r="6.5" />
-            <path d="m16 16 4.5 4.5" />
-          </svg>
-          <input
-            autoFocus
-            value={query}
-            placeholder="搜索会话名称"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setQuery('');
-                setSearchOpen(false);
-              }
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              color: 'var(--dsw-alias-label-primary)',
-              font: 'inherit',
-              fontSize: 13,
-            }}
-          />
-          {query !== '' ? (
-            <button
-              type="button"
-              aria-label="清除搜索"
-              onClick={() => setQuery('')}
-              style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, padding: 0, border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' }}
-            >
-              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
 
       <div className={C.listArea} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {flatSessions.length === 0 && Object.values(pluginItems).every((items) => items.length === 0) ? (
