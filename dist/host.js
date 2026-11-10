@@ -270,6 +270,49 @@ function manualFileName(nodeId) {
 function summaryFileName(nodeId) {
   return `\u624B\u518C\u6458\u8981-${nodeId}.md`;
 }
+var MANUAL_TEMPLATE = [
+  "# \u5DE5\u4F5C\u624B\u518C",
+  "",
+  "## \u65B9\u6848\uFF08\u4E0A\u5C42 \u2192 \u4E0B\u5C42\uFF09",
+  "### 1. \u76EE\u6807\u4E0E\u9A8C\u6536",
+  "<!-- \u8981\u89E3\u51B3\u4EC0\u4E48\u3001\u4E0D\u505A\u4EC0\u4E48\u3001\u9A8C\u6536\u6807\u51C6 -->",
+  "### 2. \u5BF9\u5916\u5951\u7EA6",
+  "<!-- \u5BF9\u5916\u63A5\u53E3 / \u547D\u4EE4 / \u4E8B\u4EF6\uFF0C\u5165\u53C2\u51FA\u53C2 -->",
+  "### 3. \u7ED3\u6784\u4E0E\u4F9D\u8D56",
+  "<!-- \u6A21\u5757\u5212\u5206\u3001\u804C\u8D23\u3001\u8C03\u7528\u65B9\u5411 -->",
+  "### 4. \u6570\u636E\u4E0E\u72B6\u6001",
+  "<!-- \u6570\u636E\u7ED3\u6784\u3001\u72B6\u6001\u6D41\u8F6C\u3001\u6301\u4E45\u5316 -->",
+  "### 5. \u8868\u73B0\u4E0E\u6587\u6848",
+  "<!-- \u754C\u9762\u3001\u5B57\u6BB5\u3001\u6587\u6848\u3001\u4EA4\u4E92\u7EC6\u8282 -->",
+  "",
+  "## \u51B3\u7B56\u8BB0\u5F55",
+  "<!-- \u8BA8\u8BBA\u4E2D\u62CD\u677F\u7684\u5206\u53C9\u70B9\uFF1A\u4E3A\u4EC0\u4E48\u9009 A \u4E0D\u9009 B -->",
+  "",
+  "## \u5B9E\u65BD\u987A\u5E8F",
+  "- [ ] 2. \u5BF9\u5916\u5951\u7EA6",
+  "- [ ] 3. \u7ED3\u6784\u4E0E\u4F9D\u8D56",
+  "- [ ] 4. \u6570\u636E\u4E0E\u72B6\u6001",
+  "- [ ] 5. \u8868\u73B0\u4E0E\u6587\u6848",
+  "",
+  "## \u8981\u70B9 / \u9700\u6C42 / \u7591\u96BE\u6742\u75C7",
+  ""
+].join("\n");
+function parseChecklist(manual) {
+  const lines = manual.split(/\r?\n/);
+  let inSection = false;
+  const items = [];
+  for (const line of lines) {
+    if (line.trim() === "## \u5B9E\u65BD\u987A\u5E8F") {
+      inSection = true;
+      continue;
+    }
+    if (inSection && line.startsWith("## ")) break;
+    if (!inSection) continue;
+    const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
+    if (match !== null) items.push({ label: (match[2] ?? "").trim(), done: match[1] !== " " });
+  }
+  return items;
+}
 async function writeIfMissing(path2, content) {
   try {
     await fs2.access(path2);
@@ -617,7 +660,7 @@ var WorkflowRepository = class {
     if (typeof workingDir === "string" && workingDir.trim() !== "") {
       const wfDir = join(workingDir, WORKFLOW_SUBDIR);
       await fs2.mkdir(wfDir, { recursive: true });
-      await writeIfMissing(join(wfDir, manualFileName(nodeId)), "# \u5DE5\u4F5C\u624B\u518C\n\n\uFF08\u672C\u8282\u70B9 AI \u81EA\u7559\u8BB0\u5F55\uFF1A\u8981\u70B9\u3001\u9700\u6C42\u3001\u7591\u96BE\u6742\u75C7\u3002\uFF09\n");
+      await writeIfMissing(join(wfDir, manualFileName(nodeId)), MANUAL_TEMPLATE);
       await writeIfMissing(join(wfDir, summaryFileName(nodeId)), "# \u624B\u518C\u6458\u8981\n\n\uFF08\u672C\u624B\u518C\u7684\u6982\u8981\uFF0C\u4F9B\u5B50\u8282\u70B9\u67E5\u770B\u4E00\u5C42\u3002\uFF09\n");
       await appendGitignore(workingDir);
     }
@@ -651,7 +694,7 @@ var WorkflowRepository = class {
     const wfDir = join(workingDir, WORKFLOW_SUBDIR);
     const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
     const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-    return { manual, summary, notesDir: wfDir };
+    return { manual, summary, notesDir: wfDir, checklist: parseChecklist(manual) };
   }
   /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
   async readParentSummary(workflowId, nodeId) {

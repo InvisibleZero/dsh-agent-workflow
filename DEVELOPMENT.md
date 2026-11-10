@@ -457,6 +457,19 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **涉及文件**：`host/workflow-repository.ts`（remove/listTrash/restoreFromTrash）、`host.ts`（/trash-list、/trash-restore）、
   `client/workflow-dialogs.tsx`（WorkflowConfirmDialog）、`client/workflow-embedded.tsx`（删除前确认）。
 
+### D-24 实施清单联动会话窗口：解析手册的「实施顺序」勾选清单
+
+- **语义**：进入实现中后，工作手册的 `## 实施顺序`（`- [ ]` / `- [x]`）就是实施进度；AI 勾、界面只读反映。
+- **数据来源**：手册文件是唯一真源，UI 不新增写路径。宿主 `parseChecklist()` 正则解析「实施顺序」小节，
+  只认 `- [ ]` / `- [x]`，读到下一个 `## ` 停；解析不到返回空数组。
+- **模板**：`MANUAL_TEMPLATE` 预置「方案（目标与验收/对外契约/结构与依赖/数据与状态/表现与文案）+
+  决策记录 + 实施顺序 + 要点」，让新节点的清单可解析、模型有骨架可填。
+- **接口**：`/node-manual` 现在额外返回 `checklist: [{label, done}]`。
+- **客户端**：状态徽标在 `implementing` 态下每 3s 拉一次 `/node-manual`，显示「实施 n/m」胶囊；点开用 `Menu` 展开勾选（只读）。
+- **约束**：勾选只改 `- [ ]`↔`- [x]`，模型不能重排/改写这一节——靠 B/C 操作细节里的文案锁死；违反时 UI 降级成"清单解析失败"，不影响功能。
+- **涉及文件**：`host/workflow-repository.ts`（MANUAL_TEMPLATE、parseChecklist、readNodeManual 返回 checklist）、
+  `client/workflow-embedded.tsx`（WorkflowStateBadge 拉清单 + 胶囊 + Menu）。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```

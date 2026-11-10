@@ -29,6 +29,54 @@ function manualFileName(nodeId) {
 function summaryFileName(nodeId) {
     return `手册摘要-${nodeId}.md`;
 }
+/** 新节点的初始工作手册模板：分层方案 + 决策记录 + 实施顺序（勾选清单）。 */
+const MANUAL_TEMPLATE = [
+    '# 工作手册',
+    '',
+    '## 方案（上层 → 下层）',
+    '### 1. 目标与验收',
+    '<!-- 要解决什么、不做什么、验收标准 -->',
+    '### 2. 对外契约',
+    '<!-- 对外接口 / 命令 / 事件，入参出参 -->',
+    '### 3. 结构与依赖',
+    '<!-- 模块划分、职责、调用方向 -->',
+    '### 4. 数据与状态',
+    '<!-- 数据结构、状态流转、持久化 -->',
+    '### 5. 表现与文案',
+    '<!-- 界面、字段、文案、交互细节 -->',
+    '',
+    '## 决策记录',
+    '<!-- 讨论中拍板的分叉点：为什么选 A 不选 B -->',
+    '',
+    '## 实施顺序',
+    '- [ ] 2. 对外契约',
+    '- [ ] 3. 结构与依赖',
+    '- [ ] 4. 数据与状态',
+    '- [ ] 5. 表现与文案',
+    '',
+    '## 要点 / 需求 / 疑难杂症',
+    '',
+].join('\n');
+/** 从工作手册里解析「实施顺序」小节的勾选清单；解析不到返回空数组。 */
+function parseChecklist(manual) {
+    const lines = manual.split(/\r?\n/);
+    let inSection = false;
+    const items = [];
+    for (const line of lines) {
+        if (line.trim() === '## 实施顺序') {
+            inSection = true;
+            continue;
+        }
+        if (inSection && line.startsWith('## '))
+            break;
+        if (!inSection)
+            continue;
+        const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
+        if (match !== null)
+            items.push({ label: (match[2] ?? '').trim(), done: match[1] !== ' ' });
+    }
+    return items;
+}
 async function writeIfMissing(path, content) {
     try {
         await fs.access(path);
@@ -442,7 +490,7 @@ export class WorkflowRepository {
         if (typeof workingDir === 'string' && workingDir.trim() !== '') {
             const wfDir = join(workingDir, WORKFLOW_SUBDIR);
             await fs.mkdir(wfDir, { recursive: true });
-            await writeIfMissing(join(wfDir, manualFileName(nodeId)), '# 工作手册\n\n（本节点 AI 自留记录：要点、需求、疑难杂症。）\n');
+            await writeIfMissing(join(wfDir, manualFileName(nodeId)), MANUAL_TEMPLATE);
             await writeIfMissing(join(wfDir, summaryFileName(nodeId)), '# 手册摘要\n\n（本手册的概要，供子节点查看一层。）\n');
             await appendGitignore(workingDir);
         }
@@ -477,7 +525,7 @@ export class WorkflowRepository {
         const wfDir = join(workingDir, WORKFLOW_SUBDIR);
         const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
         const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-        return { manual, summary, notesDir: wfDir };
+        return { manual, summary, notesDir: wfDir, checklist: parseChecklist(manual) };
     }
     /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     async readParentSummary(workflowId, nodeId) {

@@ -1479,6 +1479,19 @@ window.__ModuleLoader__.load({
         const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
         const [nodeInfo, setNodeInfo] = (0, react_1.useState)(null);
         const [advancing, setAdvancing] = (0, react_1.useState)(false);
+        const [checklist, setChecklist] = (0, react_1.useState)([]);
+        const [checklistMenu, setChecklistMenu] = (0, react_1.useState)(null);
+        const readChecklist = async (workflowId, nodeId) => {
+            try {
+                const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const data = await response.json().catch(() => null);
+                const items = data?.ok === true && Array.isArray(data.manual?.checklist) ? data.manual.checklist : [];
+                setChecklist(items);
+            }
+            catch {
+                setChecklist([]);
+            }
+        };
         const readNode = async () => {
             try {
                 const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
@@ -1535,7 +1548,11 @@ window.__ModuleLoader__.load({
             const tick = async () => {
                 if (cancelled)
                     return;
-                await readNode();
+                const info = await readNode();
+                if (info !== null && info.state === 'implementing')
+                    void readChecklist(info.workflowId, info.nodeId);
+                else
+                    setChecklist([]);
             };
             void tick();
             // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
@@ -1563,6 +1580,8 @@ window.__ModuleLoader__.load({
                 const info = await readNode();
                 if (info !== null && info.enterTrigger !== '')
                     pushDraft(info.enterTrigger);
+                if (info !== null && info.state === 'implementing')
+                    void readChecklist(info.workflowId, info.nodeId);
             }
             catch (error) {
                 console.error('[dsh-agent-workflow] 推进状态失败：', error);
@@ -1590,7 +1609,27 @@ window.__ModuleLoader__.load({
                         lineHeight: '22px',
                         whiteSpace: 'nowrap',
                         cursor: 'pointer',
-                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nextState === null ? null : ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
+                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? (() => {
+                    const doneCount = checklist.filter((item) => item.done).length;
+                    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
+                                    event.currentTarget.focus({ preventScroll: true });
+                                    const point = (0, workspace_ui_1.menuPointFromEvent)(event);
+                                    setChecklistMenu((current) => (current === null ? point : null));
+                                }, style: {
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    height: 22,
+                                    padding: '0 8px',
+                                    borderRadius: 6,
+                                    border: '1px solid transparent',
+                                    background: 'var(--dsw-alias-bg-layer-1)',
+                                    color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
+                                    fontSize: 11,
+                                    lineHeight: '22px',
+                                    whiteSpace: 'nowrap',
+                                    cursor: 'pointer',
+                                }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] }));
+                })() : null, nextState === null ? null : ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',

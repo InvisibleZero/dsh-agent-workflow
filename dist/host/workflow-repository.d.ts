@@ -124,6 +124,10 @@ export declare class WorkflowRepository {
         manual: string;
         summary: string;
         notesDir: string;
+        checklist: Array<{
+            label: string;
+            done: boolean;
+        }>;
     } | null>;
     /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     readParentSummary(workflowId: string, nodeId: string): Promise<string>;

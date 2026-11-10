@@ -631,6 +631,19 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
   const [nodeInfo, setNodeInfo] = useState<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [checklist, setChecklist] = useState<Array<{ label: string; done: boolean }>>([]);
+  const [checklistMenu, setChecklistMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const readChecklist = async (workflowId: string, nodeId: string): Promise<void> => {
+    try {
+      const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+      const data = await response.json().catch(() => null);
+      const items = data?.ok === true && Array.isArray(data.manual?.checklist) ? data.manual.checklist : [];
+      setChecklist(items);
+    } catch {
+      setChecklist([]);
+    }
+  };
 
   const readNode = async (): Promise<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null> => {
     try {
@@ -685,7 +698,9 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      await readNode();
+      const info = await readNode();
+      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
+      else setChecklist([]);
     };
     void tick();
     // 状态可能被侧栏的「推进」改掉，轮询轻量本地接口即可（每次只读一个小 JSON）。
@@ -712,6 +727,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
       });
       const info = await readNode();
       if (info !== null && info.enterTrigger !== '') pushDraft(info.enterTrigger);
+      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
     } catch (error) {
       console.error('[dsh-agent-workflow] 推进状态失败：', error);
     } finally {
@@ -751,6 +767,52 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
         <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' }} />
         {label}
       </button>
+      {nodeInfo.state === 'implementing' && checklist.length > 0 ? (() => {
+        const doneCount = checklist.filter((item) => item.done).length;
+        return (
+          <>
+            <button
+              type="button"
+              title="实施进度（AI 自动勾选，只读）"
+              onClick={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
+                const point = menuPointFromEvent(event);
+                setChecklistMenu((current) => (current === null ? point : null));
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: 22,
+                padding: '0 8px',
+                borderRadius: 6,
+                border: '1px solid transparent',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
+                fontSize: 11,
+                lineHeight: '22px',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={(event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
+              onMouseLeave={(event) => { event.currentTarget.style.borderColor = 'transparent'; }}
+            >
+              实施 {doneCount}/{checklist.length}
+            </button>
+            {checklistMenu !== null ? (
+              <Menu
+                open
+                anchor={null}
+                portal
+                align="end"
+                getAnchorRect={() => menuAnchorRect(checklistMenu)}
+                items={checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` }))}
+                onClose={() => setChecklistMenu(null)}
+                onSelect={() => setChecklistMenu(null)}
+              />
+            ) : null}
+          </>
+        );
+      })() : null}
       {nextState === null ? null : (
         <Tooltip label={`推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="top" delayMs={400} portal>
           <button
