@@ -196,8 +196,10 @@ const [point, setPoint] = useState<MenuPoint | null>(null);
 - **背景**：节点字段 `session_id` 一旦写入就会一直复用；早期版本建出的空壳会话（无工作区）或已被归档的会话会导致点开没反应。
 - **现在的做法**：点节点时先查 `sessions.list` 里还有没有这个 id——还在就 `openSession`；不在就打日志、`bind-session` 传空串解绑，然后按新规则重建并重新绑定。不再需要手动「重新绑定会话」菜单项。
 - **解绑的语义**：传空串 = **删掉该字段**，不是留 `""`（旧快照无字段时行为才一致）。
-- **节点「⋯」菜单**：已绑定会话时直接调 `contextMenus.open({ kind: 'session', ... })` 打开宿主原生菜单（置顶 / 重命名 / 分叉 / 复制 Session ID / 在文件夹显示 / 放入回收站 / 归档 全都有）；未绑定时才用自绘菜单（新建子会话）。
-- **教训**：能交给宿主的交互别再自己抄一遍——抄出来的项少了、顺序不一样，用户一眼就看出不是原生的。
+- **节点「⋯」菜单**：自建菜单（置顶会话 / 重命名 / 复制 Session ID / 归档会话），动作调宿主的 `uiWorkspace` 服务。
+  **不出现「分叉会话」**——workflow 节点会话是一一绑定，分叉会破坏对应关系。
+  未绑定会话的节点只有「新建子会话」。
+- **教训**：能交给宿主的交互优先交给宿主；但只要需要**裁剪掉其中某一项**，就只能自建菜单，并自己承担动作与状态回显（见 D-15、D-17）。
 
 ### D-11 推 GitHub 连不上（本机网络）：DNS 把 github.com 解析到超时 IP
 
@@ -307,6 +309,20 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 - **为什么这样定义**：宿主侧栏的「置顶会话」就是"在该工作区内排前面"；不定义这个行为的话，置顶只写数据，界面上什么都看不见（D-15 的教训）。
 - **验证**：置顶某个子节点 → 它跳到同级第一位并出现星标；取消置顶 → 回到原来的位置。
 - **涉及文件**：`src/client/workflow-embedded.tsx`（`isNodePinned` / `sortNodesPinnedFirst`）。
+
+### D-17 宿主的上下文菜单不能按项裁剪
+
+- **现象**：想从 workflow 节点的会话菜单里去掉「分叉会话」，但宿主菜单是整体弹出来的。
+- **根因**：`contextMenus.register` 以 `target/id` 为键，ui-workspace、open-in-app、session-purge 等**多个插件各自注册 provider**；
+  既没有"禁用某一项"的 API，`open(target, point)` 也没有排除参数，`MenuOverlay` 直接把全部 provider 的结果渲染出来。
+- **做法**：要裁剪就自建 `Menu`，动作调宿主服务：
+  - 置顶 / 取消置顶 → `uiWorkspace.pinSession` / `unpinSession`
+  - 归档 / 取消归档 → `uiWorkspace.archiveSession` / `unarchiveSession`
+  - 重命名 → `runtime.requestRenameSession`（复用侧栏的重命名对话框）
+  - 复制 Session ID → `writeClipboard`（`ui-primitives` 导出）
+- **代价**：宿主菜单里**其它插件**提供的项（「在文件夹显示」「放入回收站」）拿不到，只能不要。
+- **验证**：节点「⋯」只有四项且没有「分叉会话」；置顶后行上出现星标并排到同级最前；归档后行变淡。
+- **涉及文件**：`src/client/workflow-embedded.tsx`（`runSessionMenuAction`）。
 
 ---
 

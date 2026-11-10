@@ -18,6 +18,11 @@ import {
   IconEditOutlineRegular,
   IconTrashOutlineRegular,
   IconPinFillRegular,
+  IconPinOutlineRegular,
+  IconCopyOutlineRegular,
+  IconArchiveOutlineRegular,
+  IconUnarchiveOutlineRegular,
+  writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
 import type { WorkspaceKindPlugin } from './workspace-kind-registry';
@@ -240,8 +245,7 @@ function WorkflowWorkspaceItem(props: {
     }
   };
 
-  const rootId = snapshot?.workspace_id ?? summary.id;
-  const byId = new Map<string, any>((snapshot?.nodes ?? []).map((node: any) => [node.node_id, node]));
+  const rootId = snapshot?.workspace_id ?? summary.id;  const byId = new Map<string, any>((snapshot?.nodes ?? []).map((node: any) => [node.node_id, node]));
 
   /**
    * 节点绑定的会话在宿主里的实时状态。
@@ -262,6 +266,40 @@ function WorkflowWorkspaceItem(props: {
   const sortNodesPinnedFirst = (nodes: any[]): any[] => (
     [...nodes].sort((left, right) => Number(isNodePinned(right)) - Number(isNodePinned(left)))
   );
+
+  /**
+   * 节点会话菜单的动作。全部走宿主的 uiWorkspace / sessions 服务，
+   * 这样置顶、归档、重命名的状态与侧栏其它地方保持一致。
+   */
+  const runSessionMenuAction = async (actionId: string, sessionId: string, node: any) => {
+    const uiWorkspace = readClientService(ctx, 'uiWorkspace');
+    try {
+      if (actionId === 'pin') {
+        if (pinnedSessionIds.has(sessionId)) await uiWorkspace?.unpinSession?.(sessionId);
+        else await uiWorkspace?.pinSession?.(sessionId);
+        return;
+      }
+      if (actionId === 'unarchive') {
+        await uiWorkspace?.unarchiveSession?.(sessionId);
+        return;
+      }
+      if (actionId === 'archive') {
+        await uiWorkspace?.archiveSession?.(sessionId);
+        return;
+      }
+      if (actionId === 'rename') {
+        const summary = sessionsById[sessionId];
+        runtime?.requestRenameSession?.(sessionId, summary?.title ?? node.title ?? '');
+        return;
+      }
+      if (actionId === 'copy-id') {
+        const copied = await writeClipboard(sessionId);
+        if (copied !== true) console.warn('[dsh-agent-workflow] 复制会话 ID 失败');
+      }
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 会话菜单操作失败：', error);
+    }
+  };
 
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
@@ -325,17 +363,10 @@ function WorkflowWorkspaceItem(props: {
               aria-haspopup="menu"
               aria-expanded={nodeMenu?.nodeId === node.node_id}
               onClick={(event) => {
-                // 先把焦点落到触发按钮：宿主菜单关闭时要把焦点还回来，
+                // 先把焦点落到触发按钮：菜单关闭时要把焦点还回来，
                 // 否则菜单隐藏时焦点仍在菜单项上，浏览器会报 aria-hidden 警告。
                 event.currentTarget.focus({ preventScroll: true });
                 const point = menuPointFromEvent(event);
-                const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
-                if (nodeSessionId !== null) {
-                  // 已绑定会话：直接打开宿主原生的「会话」菜单（置顶/重命名/复制 ID/归档…全都有）。
-                  setNodeMenu(null);
-                  runtime?.requestSessionMenu?.(nodeSessionId, node.title ?? '', point);
-                  return;
-                }
                 setNodeMenu((current) => (
                   current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
                 ));
@@ -488,17 +519,45 @@ function WorkflowWorkspaceItem(props: {
       {nodeMenu !== null ? (() => {
         const menuNode = byId.get(nodeMenu.nodeId);
         if (menuNode === undefined) return null;
+        const menuSessionId = typeof menuNode.session_id === 'string' && menuNode.session_id !== ''
+          ? menuNode.session_id
+          : null;
+        if (menuSessionId === null) {
+          return (
+            <Menu
+              open
+              anchor={null}
+              portal
+              getAnchorRect={() => menuAnchorRect(nodeMenu)}
+              items={[{ id: 'child', label: '新建子会话' }]}
+              onClose={() => setNodeMenu(null)}
+              onSelect={(id: string) => {
+                if (id === 'child') void addChildTo(menuNode.node_id);
+              }}
+            />
+          );
+        }
+
+        const menuPinned = pinnedSessionIds.has(menuSessionId);
+        const menuArchived = archivedSessionIds.has(menuSessionId);
+        // 注意：这里不出现「分叉会话」——workflow 节点会话不允许分叉（会破坏节点与会话的一一对应）。
+        const items = menuArchived
+          ? [{ id: 'unarchive', label: '取消归档', icon: <IconUnarchiveOutlineRegular /> }]
+          : [
+            { id: 'pin', label: menuPinned ? '取消置顶' : '置顶会话', icon: <IconPinOutlineRegular /> },
+            { id: 'rename', label: '重命名', icon: <IconEditOutlineRegular /> },
+            { id: 'copy-id', label: '复制 Session ID', icon: <IconCopyOutlineRegular /> },
+            { id: 'archive', label: '归档会话', icon: <IconArchiveOutlineRegular />, separatorBefore: true },
+          ];
         return (
           <Menu
             open
             anchor={null}
             portal
             getAnchorRect={() => menuAnchorRect(nodeMenu)}
-            items={[{ id: 'child', label: '新建子会话' }]}
+            items={items}
             onClose={() => setNodeMenu(null)}
-            onSelect={(id: string) => {
-              if (id === 'child') void addChildTo(menuNode.node_id);
-            }}
+            onSelect={(id: string) => void runSessionMenuAction(id, menuSessionId, menuNode)}
           />
         );
       })() : null}

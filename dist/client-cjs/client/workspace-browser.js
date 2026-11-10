@@ -396,8 +396,9 @@ function WorkspaceBrowser(props) {
         requestDeleteWorkspace: (workspaceId) => {
             void deleteWorkspaceWithClaims(workspaceId);
         },
-        requestSessionMenu: (sessionId, displayTitle, point) => {
-            openSessionMenuAt(sessionId, displayTitle, point);
+        requestRenameSession: (sessionId, currentTitle) => {
+            setRenameTarget({ kind: 'session', id: sessionId, title: currentTitle });
+            setRenameDraft(currentTitle);
         },
     };
     const uiWorkspace = getService(ctx, 'uiWorkspace');

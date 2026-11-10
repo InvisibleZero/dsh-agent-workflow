@@ -253,6 +253,43 @@ function WorkflowWorkspaceItem(props) {
      */
     const isNodePinned = (node) => (typeof node?.session_id === 'string' && node.session_id !== '' && pinnedSessionIds.has(node.session_id));
     const sortNodesPinnedFirst = (nodes) => ([...nodes].sort((left, right) => Number(isNodePinned(right)) - Number(isNodePinned(left))));
+    /**
+     * 节点会话菜单的动作。全部走宿主的 uiWorkspace / sessions 服务，
+     * 这样置顶、归档、重命名的状态与侧栏其它地方保持一致。
+     */
+    const runSessionMenuAction = async (actionId, sessionId, node) => {
+        const uiWorkspace = readClientService(ctx, 'uiWorkspace');
+        try {
+            if (actionId === 'pin') {
+                if (pinnedSessionIds.has(sessionId))
+                    await uiWorkspace?.unpinSession?.(sessionId);
+                else
+                    await uiWorkspace?.pinSession?.(sessionId);
+                return;
+            }
+            if (actionId === 'unarchive') {
+                await uiWorkspace?.unarchiveSession?.(sessionId);
+                return;
+            }
+            if (actionId === 'archive') {
+                await uiWorkspace?.archiveSession?.(sessionId);
+                return;
+            }
+            if (actionId === 'rename') {
+                const summary = sessionsById[sessionId];
+                runtime?.requestRenameSession?.(sessionId, summary?.title ?? node.title ?? '');
+                return;
+            }
+            if (actionId === 'copy-id') {
+                const copied = await (0, dsh_client_ui_primitives_1.writeClipboard)(sessionId);
+                if (copied !== true)
+                    console.warn('[dsh-agent-workflow] 复制会话 ID 失败');
+            }
+        }
+        catch (error) {
+            console.error('[dsh-agent-workflow] 会话菜单操作失败：', error);
+        }
+    };
     const renderNodeRow = (node, depth) => {
         const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
         const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
@@ -282,17 +319,10 @@ function WorkflowWorkspaceItem(props) {
                     }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: (0, jsx_runtime_1.jsx)("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: displayTitle }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowResting'), children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('time'), children: isArchived
                                         ? '已归档'
                                         : (node_state_label_1.NODE_STATE_LABEL[node.current_state] ?? node.current_state) }), isPinned ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPinFillRegular, { size: 12 }) : null] }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
-                                        // 先把焦点落到触发按钮：宿主菜单关闭时要把焦点还回来，
+                                        // 先把焦点落到触发按钮：菜单关闭时要把焦点还回来，
                                         // 否则菜单隐藏时焦点仍在菜单项上，浏览器会报 aria-hidden 警告。
                                         event.currentTarget.focus({ preventScroll: true });
                                         const point = (0, workspace_ui_1.menuPointFromEvent)(event);
-                                        const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
-                                        if (nodeSessionId !== null) {
-                                            // 已绑定会话：直接打开宿主原生的「会话」菜单（置顶/重命名/复制 ID/归档…全都有）。
-                                            setNodeMenu(null);
-                                            runtime?.requestSessionMenu?.(nodeSessionId, node.title ?? '', point);
-                                            return;
-                                        }
                                         setNodeMenu((current) => (current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }));
                                     }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
                                             if (nextState !== null)
@@ -335,10 +365,27 @@ function WorkflowWorkspaceItem(props) {
                 const menuNode = byId.get(nodeMenu.nodeId);
                 if (menuNode === undefined)
                     return null;
-                return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: [{ id: 'child', label: '新建子会话' }], onClose: () => setNodeMenu(null), onSelect: (id) => {
-                        if (id === 'child')
-                            void addChildTo(menuNode.node_id);
-                    } }));
+                const menuSessionId = typeof menuNode.session_id === 'string' && menuNode.session_id !== ''
+                    ? menuNode.session_id
+                    : null;
+                if (menuSessionId === null) {
+                    return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: [{ id: 'child', label: '新建子会话' }], onClose: () => setNodeMenu(null), onSelect: (id) => {
+                            if (id === 'child')
+                                void addChildTo(menuNode.node_id);
+                        } }));
+                }
+                const menuPinned = pinnedSessionIds.has(menuSessionId);
+                const menuArchived = archivedSessionIds.has(menuSessionId);
+                // 注意：这里不出现「分叉会话」——workflow 节点会话不允许分叉（会破坏节点与会话的一一对应）。
+                const items = menuArchived
+                    ? [{ id: 'unarchive', label: '取消归档', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconUnarchiveOutlineRegular, {}) }]
+                    : [
+                        { id: 'pin', label: menuPinned ? '取消置顶' : '置顶会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPinOutlineRegular, {}) },
+                        { id: 'rename', label: '重命名', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutlineRegular, {}) },
+                        { id: 'copy-id', label: '复制 Session ID', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCopyOutlineRegular, {}) },
+                        { id: 'archive', label: '归档会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutlineRegular, {}), separatorBefore: true },
+                    ];
+                return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
             })() : null] }));
 }
 exports.workflowKindPlugin = {
