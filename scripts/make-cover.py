@@ -204,19 +204,29 @@ def build_manual():
     d.text((x0, PANEL_TOP + 122), "每个会话各有一份会话手册", font=note_font, fill=TEXT_MUTED)
 
     sessions = [
-        ("会话手册 1", "实现中", STATE_BRAND, "实施 2/4"),
-        ("会话手册 2", "验收中", STATE_VERIFY, "实施 4/4"),
-        ("会话手册 3", "讨论中", STATE_WARN, "方案编写中"),
+        ("会话手册 1", "实现中", STATE_BRAND, "实施 2/4", True, 190),
+        ("会话手册 2", "验收中", STATE_VERIFY, "", False, 67),
+        ("会话手册 3", "讨论中", STATE_WARN, "", False, 67),
     ]
     layers = ["1. 目标与验收", "2. 对外契约", "3. 结构与依赖", "4. 数据与状态", "5. 表现与文案"]
     checks = [("2. 对外契约", True), ("3. 结构与依赖", True), ("4. 数据与状态", False), ("5. 表现与文案", False)]
     col_font = ImageFont.truetype(FONT_BOLD, 11)
-    card_w, gap = 108, 10
+    tiny_font = ImageFont.truetype(FONT_BOLD, 9)
+    dots_font = ImageFont.truetype(FONT_REG, 22)
     top = PANEL_TOP + 142
-    for index, (title, state, color, note) in enumerate(sessions):
-        left = x0 + index * (card_w + gap)
-        right = left + card_w
+    left = x0
+    for title, state, color, note, detailed, width in sessions:
+        right = left + width
         d.rounded_rectangle([(left, top), (right, top + 234)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
+        if not detailed:
+            # 后两份只示意"还有很多份"，内容用省略号居中
+            tw = d.textlength(title, font=tiny_font)
+            d.text((left + (width - tw) / 2, top + 12), title, font=tiny_font, fill=TEXT_PRIMARY)
+            dots_w = d.textlength("…", font=dots_font)
+            d.text((left + (width - dots_w) / 2, top + 106), "…", font=dots_font, fill=TEXT_MUTED)
+            left = right + 10
+            continue
+
         d.text((left + 10, top + 10), title, font=col_font, fill=TEXT_PRIMARY)
         d.ellipse([(left + 10, top + 31), (left + 16, top + 37)], fill=color)
         d.text((left + 22, top + 28), state, font=desc_font, fill=color)
@@ -235,6 +245,8 @@ def build_manual():
             else:
                 d.ellipse([(cx + 1, cy + 1), (cx + 7, cy + 7)], outline=TEXT_MUTED, width=2)
             d.text((cx + 13, cy - 2), label, font=item_font, fill=ROW_CHILD_TITLE if done else TEXT_MUTED)
+
+        left = right + 10
 
     return layer
 
