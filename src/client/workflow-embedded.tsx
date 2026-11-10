@@ -52,16 +52,36 @@ async function createWorkflow(path: string) {
   if (data?.ok !== true) throw new Error(String(data?.error ?? '创建失败'));
 }
 
+/** 从客户端 ctx 取服务：优先 ctx.get（取不到时回退属性访问）。 */
+function readClientService(ctx: any, serviceName: string): any {
+  if (ctx === undefined || ctx === null) return undefined;
+  if (typeof ctx.get === 'function') {
+    try {
+      const viaGet = ctx.get(serviceName);
+      if (viaGet !== undefined && viaGet !== null) return viaGet;
+    } catch {
+      // 继续走属性访问
+    }
+  }
+  try {
+    return ctx[serviceName];
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * workflow 工作区的可嵌入渲染：与 usual 工作区同一套交互——
- * 工作区行有「⋯」和「新建子会话」；每个节点行也是「⋯ + 新建子会话」。
+ * 工作区行有「⋯」和「新建子会话」；节点行点击打开该节点绑定的会话。
  */
-function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onToggle: () => void; onChanged?: () => void }) {
-  const { summary, collapsed, onToggle, onChanged } = props;
+function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onToggle: () => void; onChanged?: () => void; ctx: any }) {
+  const { summary, collapsed, onToggle, onChanged, ctx } = props;
   const [snapshot, setSnapshot] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [openNodeId, setOpenNodeId] = useState<string | null>(null);
+  /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
+  const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
   /** 置顶 / 取消置顶：写我们自己的 workflow 快照，然后让侧栏重拉列表重排。 */
   const togglePinned = async () => {
@@ -126,6 +146,58 @@ function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onTogg
     }
   };
 
+  /**
+   * 点击节点行：打开该节点对应的会话。
+   * 已绑定 → 直接 openSession；未绑定 → 在 workflow 的工作目录里新建会话，
+   * 写回节点后打开（写回失败也照样打开，不阻塞用户看会话）。
+   */
+  const openNodeSession = async (node: any) => {
+    if (busyNodeId !== null) return;
+    const uiWorkspace = readClientService(ctx, 'uiWorkspace');
+    if (uiWorkspace === undefined || typeof uiWorkspace.openSession !== 'function') {
+      console.error('[dsh-agent-workflow] uiWorkspace 服务不可用，无法打开会话');
+      return;
+    }
+
+    const boundSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
+    if (boundSessionId !== null) {
+      uiWorkspace.openSession(boundSessionId);
+      return;
+    }
+
+    const sessions = readClientService(ctx, 'sessions');
+    if (sessions === undefined || typeof sessions.create !== 'function') {
+      console.error('[dsh-agent-workflow] sessions 服务不可用，无法新建会话');
+      return;
+    }
+
+    setBusyNodeId(node.node_id);
+    try {
+      const workingDirectory = snapshot?.working_directory;
+      const createdSessionId = await sessions.create(
+        typeof workingDirectory === 'string' && workingDirectory !== '' ? { cwd: workingDirectory } : {},
+      );
+      if (typeof createdSessionId !== 'string' || createdSessionId === '') throw new Error('新建会话没有返回 id');
+      try {
+        const response = await fetch('/dsh-agent-workflow/bind-session', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: summary.id, nodeId: node.node_id, sessionId: createdSessionId }),
+        });
+        const data = await response.json().catch(() => null);
+        if (data?.ok === true) setSnapshot(data.snapshot);
+        else console.error('[dsh-agent-workflow] 绑定会话失败：', data);
+      } catch (bindError) {
+        console.error('[dsh-agent-workflow] 绑定会话失败：', bindError);
+      }
+      uiWorkspace.openSession(createdSessionId);
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 打开节点会话失败：', error);
+    } finally {
+      setBusyNodeId(null);
+    }
+  };
+
   const rootId = snapshot?.workspace_id ?? summary.id;
   const byId = new Map<string, any>((snapshot?.nodes ?? []).map((node: any) => [node.node_id, node]));
 
@@ -142,7 +214,13 @@ function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onTogg
         <div
           role="treeitem"
           className={rowsClass('sessionRow')}
-          style={{ paddingLeft: 4 + depth * 14 }}
+          title={busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'}
+          onClick={() => void openNodeSession(node)}
+          style={{
+            paddingLeft: 4 + depth * 14,
+            cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
+            opacity: busyNodeId === node.node_id ? 0.6 : 1,
+          }}
         >
           <span className={rowsClass('slot')}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' }} />
@@ -268,7 +346,7 @@ export const workflowKindPlugin: WorkspaceKindPlugin = {
   kind: WorkspaceKind.Workflow,
   list: listWorkflows,
   create: createWorkflow,
-  renderItem: (summary, collapsed, onToggle, onChanged) => (
-    <WorkflowWorkspaceItem summary={summary} collapsed={collapsed} onToggle={onToggle} onChanged={onChanged} />
+  renderItem: (summary, collapsed, onToggle, onChanged, ctx) => (
+    <WorkflowWorkspaceItem summary={summary} collapsed={collapsed} onToggle={onToggle} onChanged={onChanged} ctx={ctx} />
   ),
 };

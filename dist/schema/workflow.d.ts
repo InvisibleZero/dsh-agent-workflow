@@ -288,6 +288,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         node_id: z.ZodString;
         parent_id: z.ZodNullable<z.ZodString>;
         title: z.ZodOptional<z.ZodString>;
+        session_id: z.ZodOptional<z.ZodString>;
         node_type: z.ZodEnum<["workspace", "feature", "task"]>;
         current_state: z.ZodEnum<["not_started", "discussing", "implementing", "verifying", "completed"]>;
         child_ids: z.ZodArray<z.ZodString, "many">;
@@ -367,6 +368,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         step_count: number;
         max_steps: number;
         title?: string | undefined;
+        session_id?: string | undefined;
         context_payload?: unknown;
         state_detail_overrides?: {
             discussing?: {
@@ -393,6 +395,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         step_count: number;
         max_steps: number;
         title?: string | undefined;
+        session_id?: string | undefined;
         context_payload?: unknown;
         flags?: "blocked"[] | undefined;
         state_detail_overrides?: {
@@ -446,6 +449,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         step_count: number;
         max_steps: number;
         title?: string | undefined;
+        session_id?: string | undefined;
         context_payload?: unknown;
         state_detail_overrides?: {
             discussing?: {
@@ -499,6 +503,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         step_count: number;
         max_steps: number;
         title?: string | undefined;
+        session_id?: string | undefined;
         context_payload?: unknown;
         flags?: "blocked"[] | undefined;
         state_detail_overrides?: {

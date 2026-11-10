@@ -559,7 +559,7 @@ function WorkspaceBrowser(props) {
                                                     next.add(key);
                                                 return next;
                                             });
-                                        }, () => void loadPluginLists()) }, key));
+                                        }, () => void loadPluginLists(), ctx) }, key));
                                 });
                             })] })) })) }), renameTarget !== null ? (_jsx("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: _jsxs("div", { style: {
                         minWidth: 320,

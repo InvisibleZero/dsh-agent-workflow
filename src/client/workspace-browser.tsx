@@ -912,7 +912,7 @@ function WorkspaceBrowser(props: any) {
                             else next.add(key);
                             return next;
                           });
-                        }, () => void loadPluginLists())}
+                        }, () => void loadPluginLists(), ctx)}
                       </div>
                     );
                   });

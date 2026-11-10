@@ -562,7 +562,7 @@ function WorkspaceBrowser(props) {
                                                     next.add(key);
                                                 return next;
                                             });
-                                        }, () => void loadPluginLists()) }, key));
+                                        }, () => void loadPluginLists(), ctx) }, key));
                                 });
                             })] })) })) }), renameTarget !== null ? ((0, jsx_runtime_1.jsx)("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: (0, jsx_runtime_1.jsxs)("div", { style: {
                         minWidth: 320,

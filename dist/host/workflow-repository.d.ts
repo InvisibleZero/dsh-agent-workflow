@@ -43,6 +43,15 @@ export declare class WorkflowRepository {
         to: string;
     }): Promise<WorkflowSnapshot>;
     /**
+     * 把节点绑定到一个 dsh 会话（点节点时打开）。
+     * 传空字符串表示解绑；只改我们自己的快照，不碰宿主的会话存储。
+     */
+    bindSession(input: {
+        id: string;
+        nodeId: string;
+        sessionId: string;
+    }): Promise<WorkflowSnapshot>;
+    /**
      * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
      * 只改我们自己的快照，与 dsh 的 workspace 无关。
      */

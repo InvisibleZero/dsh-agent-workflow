@@ -48,6 +48,11 @@ var AgentNode = z2.object({
    * （根节点的 title 与 WorkflowSnapshot.title 一致，不重复写也行。）
    */
   title: z2.string().optional(),
+  /**
+   * 该节点绑定的 dsh 会话 id：点节点行时打开这个会话；没有则新建一个再写回。
+   * 可选：旧快照没有这个字段，第一次点击时才写入。
+   */
+  session_id: z2.string().optional(),
   node_type: z2.enum(["workspace", "feature", "task"]),
   current_state: NodeState,
   child_ids: z2.array(z2.string()),
@@ -302,6 +307,31 @@ var WorkflowRepository = class {
     return updated;
   }
   /**
+   * 把节点绑定到一个 dsh 会话（点节点时打开）。
+   * 传空字符串表示解绑；只改我们自己的快照，不碰宿主的会话存储。
+   */
+  async bindSession(input) {
+    const snapshot = await this.storage.load(input.id);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    if (typeof input.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
+    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+    if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const sessionId = input.sessionId.trim();
+    const updated = {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.node_id !== input.nodeId) return node;
+        if (sessionId === "") {
+          const { session_id: _removed, ...rest } = node;
+          return rest;
+        }
+        return { ...node, session_id: sessionId };
+      })
+    };
+    await this.storage.save(updated);
+    return updated;
+  }
+  /**
    * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
    * 只改我们自己的快照，与 dsh 的 workspace 无关。
    */
@@ -433,6 +463,17 @@ function apply(ctx) {
         if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
         const snapshot = await repository.get(id);
         if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+        return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/bind-session",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        if (typeof body?.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
+        const snapshot = await repository.bindSession({ id: body.id, nodeId: body.nodeId, sessionId: body.sessionId });
         return { snapshot };
       })
     }));

@@ -133,6 +133,32 @@ export class WorkflowRepository {
   }
 
   /**
+   * 把节点绑定到一个 dsh 会话（点节点时打开）。
+   * 传空字符串表示解绑；只改我们自己的快照，不碰宿主的会话存储。
+   */
+  async bindSession(input: { id: string; nodeId: string; sessionId: string }): Promise<WorkflowSnapshot> {
+    const snapshot = await this.storage.load(input.id);
+    if (snapshot === null) throw new Error('找不到该 workflow');
+    if (typeof input.sessionId !== 'string') throw new Error('缺少 sessionId');
+    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+    if (!exists) throw new Error('找不到节点');
+    const sessionId = input.sessionId.trim();
+    const updated: WorkflowSnapshot = {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.node_id !== input.nodeId) return node;
+        if (sessionId === '') {
+          const { session_id: _removed, ...rest } = node;
+          return rest;
+        }
+        return { ...node, session_id: sessionId };
+      }),
+    };
+    await this.storage.save(updated);
+    return updated;
+  }
+
+  /**
    * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
    * 只改我们自己的快照，与 dsh 的 workspace 无关。
    */

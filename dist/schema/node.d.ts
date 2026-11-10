@@ -11,6 +11,11 @@ export declare const AgentNode: z.ZodObject<{
      * （根节点的 title 与 WorkflowSnapshot.title 一致，不重复写也行。）
      */
     title: z.ZodOptional<z.ZodString>;
+    /**
+     * 该节点绑定的 dsh 会话 id：点节点行时打开这个会话；没有则新建一个再写回。
+     * 可选：旧快照没有这个字段，第一次点击时才写入。
+     */
+    session_id: z.ZodOptional<z.ZodString>;
     node_type: z.ZodEnum<["workspace", "feature", "task"]>;
     current_state: z.ZodEnum<["not_started", "discussing", "implementing", "verifying", "completed"]>;
     child_ids: z.ZodArray<z.ZodString, "many">;
@@ -96,6 +101,7 @@ export declare const AgentNode: z.ZodObject<{
     step_count: number;
     max_steps: number;
     title?: string | undefined;
+    session_id?: string | undefined;
     context_payload?: unknown;
     state_detail_overrides?: {
         discussing?: {
@@ -122,6 +128,7 @@ export declare const AgentNode: z.ZodObject<{
     step_count: number;
     max_steps: number;
     title?: string | undefined;
+    session_id?: string | undefined;
     context_payload?: unknown;
     flags?: "blocked"[] | undefined;
     state_detail_overrides?: {

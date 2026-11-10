@@ -12,6 +12,11 @@ export const AgentNode = z.object({
      * （根节点的 title 与 WorkflowSnapshot.title 一致，不重复写也行。）
      */
     title: z.string().optional(),
+    /**
+     * 该节点绑定的 dsh 会话 id：点节点行时打开这个会话；没有则新建一个再写回。
+     * 可选：旧快照没有这个字段，第一次点击时才写入。
+     */
+    session_id: z.string().optional(),
     node_type: z.enum(['workspace', 'feature', 'task']),
     current_state: NodeState,
     child_ids: z.array(z.string()),
