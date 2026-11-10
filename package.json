@@ -1,10 +1,11 @@
 {
   "name": "dsh-agent-workflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "侧栏工作区 + 树形子节点 + 五态状态机：每个子节点即一个 DSH 会话，当前状态自动决定注入给模型的操作细节，并给每个节点维护 AI 自留的工作手册与手册摘要",
   "type": "module",
   "main": "dist/host.js",
   "types": "dist/index.d.ts",
+  "icon": "./icon.svg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/InvisibleZero/dsh-agent-workflow.git"
@@ -28,6 +29,7 @@
     "dist",
     "src",
     "scripts",
+    "assets",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

@@ -1,9 +1,11 @@
 # dsh-agent-workflow —— Agent 编排与 Workflow 状态机插件
 
+<img src="assets/cover.svg" width="100%" alt="dsh-agent-workflow 封面：五态状态机与树形子节点">
+
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：左侧是原生的目录工作区列表，每个工作区里可以长出**树形子节点**，每个子节点 = 一个 DSH 会话，按**五态状态机**逐步推进；当前状态会自动决定注入给模型的操作细节与工作手册。
 
 - **仓库地址**：<https://github.com/InvisibleZero/dsh-agent-workflow>
-- **版本**：`0.1.0`
+- **版本**：`0.2.0`
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
 
