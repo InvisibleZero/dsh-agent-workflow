@@ -1244,6 +1244,8 @@ window.__ModuleLoader__.load({
         const byId = new Map((snapshot?.nodes ?? []).map((node) => [node.node_id, node]));
         const renderNodeRow = (node, depth) => {
             const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
+            /** 根节点代表工作区本身，不绑会话：点它只做展开/折叠。 */
+            const isRootNode = node.parent_id === null;
             const children = (node.child_ids ?? [])
                 .map((id) => byId.get(id))
                 .filter((child) => child !== undefined);
@@ -1252,11 +1254,16 @@ window.__ModuleLoader__.load({
                 && typeof node.session_id === 'string'
                 && node.session_id !== ''
                 && node.session_id === currentSessionId;
-            return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "aria-selected": isCurrent, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), isCurrent && (0, workspace_ui_1.rowsClass)('selected')), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
+            return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "aria-selected": isCurrent, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), isCurrent && (0, workspace_ui_1.rowsClass)('selected')), title: isRootNode ? '工作区根节点' : (busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'), onClick: () => {
+                            if (isRootNode)
+                                onToggle();
+                            else
+                                void openNodeSession(node);
+                        }, style: {
                             paddingLeft: 4 + depth * 14,
-                            cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
+                            cursor: isRootNode ? 'default' : (busyNodeId === node.node_id ? 'progress' : 'pointer'),
                             opacity: busyNodeId === node.node_id ? 0.6 : 1,
-                        }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: (0, jsx_runtime_1.jsx)("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: node.title ?? node.node_type }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('rowResting'), children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('time'), children: node_state_label_1.NODE_STATE_LABEL[node.current_state] ?? node.current_state }) }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
+                        }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: (0, jsx_runtime_1.jsx)("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: node.title ?? node.node_type }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('rowResting'), children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('time'), children: node_state_label_1.NODE_STATE_LABEL[node.current_state] ?? node.current_state }) }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [isRootNode ? null : ((0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
                                             const point = (0, workspace_ui_1.menuPointFromEvent)(event);
                                             const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
                                             if (nodeSessionId !== null) {
@@ -1266,7 +1273,7 @@ window.__ModuleLoader__.load({
                                                 return;
                                             }
                                             setNodeMenu((current) => (current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }));
-                                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
+                                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) })), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
                                                 if (nextState !== null)
                                                     void transition(node.node_id, nextState);
                                             }, style: { opacity: nextState === null ? 0.35 : 1 }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(node.node_id), children: (0, jsx_runtime_1.jsx)("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: (0, jsx_runtime_1.jsx)("path", { d: "M12 6v12M6 12h12" }) }) }) })] })] }), children.map((child) => renderNodeRow(child, depth + 1))] }, node.node_id));
