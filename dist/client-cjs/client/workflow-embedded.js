@@ -92,6 +92,8 @@ function WorkflowWorkspaceItem(props) {
     const [busyNodeId, setBusyNodeId] = (0, react_1.useState)(null);
     /** 待确认删除的工作区（删除不可逆，先过一层确认）。 */
     const [pendingDelete, setPendingDelete] = (0, react_1.useState)(null);
+    /** 待确认「进入实现中」的推进请求（由会话徽标发起，在这棵树里弹漂亮确认框）。 */
+    const [pendingAdvanceConfirm, setPendingAdvanceConfirm] = (0, react_1.useState)(null);
     // 会话里的状态徽标只发事件，弹窗由这里渲染（输入框容器带 transform，fixed 会跑偏）。
     (0, react_1.useEffect)(() => {
         const onOpenNodeDetail = (event) => {
@@ -99,9 +101,21 @@ function WorkflowWorkspaceItem(props) {
             if (typeof nodeId === 'string' && nodeId !== '')
                 setNodeDetailNodeId(nodeId);
         };
+        const onConfirmAdvance = (event) => {
+            const detail = event?.detail ?? {};
+            if (detail.workflowId !== summary.id)
+                return;
+            if (typeof detail.requestId !== 'string' || typeof detail.nodeId !== 'string')
+                return;
+            setPendingAdvanceConfirm({ requestId: detail.requestId, nodeId: detail.nodeId });
+        };
         window.addEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
-        return () => window.removeEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
-    }, []);
+        window.addEventListener('dsh-agent-workflow:confirm-advance', onConfirmAdvance);
+        return () => {
+            window.removeEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
+            window.removeEventListener('dsh-agent-workflow:confirm-advance', onConfirmAdvance);
+        };
+    }, [summary.id]);
     const load = async () => {
         if (snapshot !== null)
             return;
@@ -406,6 +420,14 @@ function WorkflowWorkspaceItem(props) {
                     const target = pendingDelete;
                     setPendingDelete(null);
                     runtime?.requestDeleteWorkspace?.(target.workspaceId);
+                } })) : null, pendingAdvanceConfirm !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowConfirmDialog, { title: "\u8FDB\u5165\u5B9E\u73B0\u4E2D", message: '这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案', confirmLabel: "\u4ECD\u8FDB\u5165", onClose: () => {
+                    const target = pendingAdvanceConfirm;
+                    setPendingAdvanceConfirm(null);
+                    window.dispatchEvent(new CustomEvent('dsh-agent-workflow:advance-decision', { detail: { requestId: target.requestId, confirmed: false } }));
+                }, onConfirm: () => {
+                    const target = pendingAdvanceConfirm;
+                    setPendingAdvanceConfirm(null);
+                    window.dispatchEvent(new CustomEvent('dsh-agent-workflow:advance-decision', { detail: { requestId: target.requestId, confirmed: true } }));
                 } })) : null, nodeMenu !== null ? (() => {
                 const menuNode = byId.get(nodeMenu.nodeId);
                 if (menuNode === undefined)
@@ -544,6 +566,23 @@ function WorkflowStateBadge(props) {
         return null;
     const label = node_state_label_1.NODE_STATE_LABEL[nodeInfo.state] ?? nodeInfo.state;
     const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
+    /**
+     * 漂亮的确认框要渲染在侧栏那棵树里（输入区有 transform，fixed 会跑偏），
+     * 所以用两个 window 事件做一次请求/应答往返。
+     */
+    const requestAdvanceConfirm = (workflowId, nodeId) => new Promise((resolve) => {
+        const requestId = `advance-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const onDecision = (event) => {
+            if (event?.detail?.requestId !== requestId)
+                return;
+            window.removeEventListener('dsh-agent-workflow:advance-decision', onDecision);
+            resolve(event.detail.confirmed === true);
+        };
+        window.addEventListener('dsh-agent-workflow:advance-decision', onDecision);
+        window.dispatchEvent(new CustomEvent('dsh-agent-workflow:confirm-advance', {
+            detail: { requestId, workflowId, nodeId },
+        }));
+    });
     /** 推进：写状态 → 刷新徽标 → 把新状态的默认输入填进输入框（不自动发送）。 */
     const advance = async () => {
         if (nextState === null || advancing)
@@ -552,7 +591,7 @@ function WorkflowStateBadge(props) {
         if (nextState === 'implementing') {
             const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
             if (!meta.hasPlan) {
-                const confirmed = window.confirm('这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n点「确定」仍进入实现中；点「取消」回讨论中继续完善方案。');
+                const confirmed = await requestAdvanceConfirm(nodeInfo.workflowId, nodeInfo.nodeId);
                 if (!confirmed)
                     return;
             }
