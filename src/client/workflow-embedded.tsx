@@ -183,8 +183,24 @@ function WorkflowWorkspaceItem(props: {
 
     const boundSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
     if (boundSessionId !== null) {
-      uiWorkspace.openSession(boundSessionId);
-      return;
+      // 绑定的会话可能已经被归档/删除：还在就直接打开，不在就解绑后重建，避免点了没反应。
+      const sessionsService = readClientService(ctx, 'sessions');
+      const sessionById = sessionsService?.list?.getSnapshot?.()?.byId;
+      const stillExists = sessionById !== undefined && sessionById !== null && sessionById[boundSessionId] !== undefined;
+      if (stillExists) {
+        uiWorkspace.openSession(boundSessionId);
+        return;
+      }
+      console.warn('[dsh-agent-workflow] 节点绑定的会话已不存在，重新创建：', boundSessionId);
+      try {
+        await fetch('/dsh-agent-workflow/bind-session', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: summary.id, nodeId: node.node_id, sessionId: '' }),
+        });
+      } catch (error) {
+        console.error('[dsh-agent-workflow] 清理失效绑定失败：', error);
+      }
     }
 
     const sessions = readClientService(ctx, 'sessions');
@@ -221,22 +237,6 @@ function WorkflowWorkspaceItem(props: {
     } finally {
       setBusyNodeId(null);
     }
-  };
-
-  /** 解除旧绑定后立刻重建一个挂在工作区上的会话（用于修复“选工作区”那种空壳会话）。 */
-  const rebindNode = async (node: any) => {
-    try {
-      const response = await fetch('/dsh-agent-workflow/bind-session', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: summary.id, nodeId: node.node_id, sessionId: '' }),
-      });
-      const data = await response.json().catch(() => null);
-      if (data?.ok === true) setSnapshot(data.snapshot);
-    } catch (error) {
-      console.error('[dsh-agent-workflow] 解除绑定失败：', error);
-    }
-    await openNodeSession({ ...node, session_id: undefined });
   };
 
   const rootId = snapshot?.workspace_id ?? summary.id;
@@ -283,6 +283,13 @@ function WorkflowWorkspaceItem(props: {
               aria-expanded={nodeMenu?.nodeId === node.node_id}
               onClick={(event) => {
                 const point = menuPointFromEvent(event);
+                const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
+                if (nodeSessionId !== null) {
+                  // 已绑定会话：直接打开宿主原生的「会话」菜单（置顶/重命名/复制 ID/归档…全都有）。
+                  setNodeMenu(null);
+                  runtime?.requestSessionMenu?.(nodeSessionId, node.title ?? '', point);
+                  return;
+                }
                 setNodeMenu((current) => (
                   current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
                 ));
@@ -402,20 +409,16 @@ function WorkflowWorkspaceItem(props: {
       {nodeMenu !== null ? (() => {
         const menuNode = byId.get(nodeMenu.nodeId);
         if (menuNode === undefined) return null;
-        const isBound = typeof menuNode.session_id === 'string' && menuNode.session_id !== '';
         return (
           <Menu
             open
             anchor={null}
             portal
             getAnchorRect={() => menuAnchorRect(nodeMenu)}
-            items={isBound
-              ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
-              : [{ id: 'child', label: '新建子会话' }]}
+            items={[{ id: 'child', label: '新建子会话' }]}
             onClose={() => setNodeMenu(null)}
             onSelect={(id: string) => {
               if (id === 'child') void addChildTo(menuNode.node_id);
-              else if (id === 'rebind') void rebindNode(menuNode);
             }}
           />
         );

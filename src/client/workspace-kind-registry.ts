@@ -45,6 +45,8 @@ export interface WorkspaceKindRuntime {
   requestRenameWorkspace(workspaceId: string, currentTitle: string): void;
   /** 删除宿主工作区；若该工作区被某个类型认领，连带删除它的类型数据。 */
   requestDeleteWorkspace(workspaceId: string): void;
+  /** 在指定屏幕坐标打开宿主的「会话」上下文菜单（与 usual 会话行一致）。 */
+  requestSessionMenu(sessionId: string, displayTitle: string, point: { x: number; y: number }): void;
 }
 
 export interface WorkspaceKindPlugin {

@@ -683,6 +683,9 @@ function WorkspaceBrowser(props: any) {
     requestDeleteWorkspace: (workspaceId: string) => {
       void deleteWorkspaceWithClaims(workspaceId);
     },
+    requestSessionMenu: (sessionId: string, displayTitle: string, point: { x: number; y: number }) => {
+      openSessionMenuAt(sessionId, displayTitle, point);
+    },
   };
   const uiWorkspace = getService(ctx, 'uiWorkspace');
   const workspacesSvc = getService(ctx, 'workspaces');
@@ -886,6 +889,14 @@ function WorkspaceBrowser(props: any) {
    * 菜单项由宿主自己通过 `ctx.contextMenus.register` 注册，我们只负责把它打开。
    */
   const openSessionMenu = (sessionId: string, displayTitle: string, event: any) => {
+    const point = event !== undefined && typeof event.clientX === 'number'
+      ? { x: event.clientX, y: event.clientY }
+      : undefined;
+    openSessionMenuAt(sessionId, displayTitle, point);
+  };
+
+  /** 同上，但用显式坐标（类型插件的行没有原始事件）。 */
+  const openSessionMenuAt = (sessionId: string, displayTitle: string, point: { x: number; y: number } | undefined) => {
     const contextMenus = getService(ctx, 'contextMenus');
     if (contextMenus === undefined || contextMenus === null) {
       console.error('[dsh-agent-workflow] contextMenus 服务不可用，无法打开会话菜单');
@@ -897,9 +908,6 @@ function WorkspaceBrowser(props: any) {
         contextMenus.close();
         return;
       }
-      const point = event !== undefined && typeof event.clientX === 'number'
-        ? { x: event.clientX, y: event.clientY }
-        : undefined;
       contextMenus.open({ kind: 'session', value: { sessionId, displayTitle } }, point);
     } catch (error) {
       console.error('[dsh-agent-workflow] 打开会话菜单失败：', error);
