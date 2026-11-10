@@ -1059,19 +1059,23 @@ function WorkspaceBrowser(props: any) {
         ) : null}
         <div
           className={joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined)}
-          // 兜底：即使类名没生效也不让搜索框把这两个按钮挤走。
+          // 绝对定位写死每个按钮的右偏移：图标大小/包裹元素变化都不会挤动邻居。
+          // 视图选项比新建工作区多左移一倍（+4px 间距 + 额外 4px）。
           style={wide && searchOpen
             ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' }
-            // 锁死宽度 + 右对齐：菜单开合时哪怕内部多出一个包裹元素，三个按钮也不会横向挪动。
-            : { flex: 'none', width: 60, minWidth: 60, maxWidth: 60, justifyContent: 'flex-end' }}
+            : { position: 'relative', flex: 'none', width: 64, height: 28 }}
         >
-          <ViewOptionsMenu
-            groupBy={viewOptions.groupBy}
-            orderBy={viewOptions.orderBy}
-            archivedFilter={viewOptions.archivedFilter}
-            onChange={(patch) => setViewOptions((previous) => ({ ...previous, ...patch }))}
-          />
-          <AddWorkspaceMenu onSelectKind={(kind) => void addWorkspace(kind)} />
+          <div style={{ position: 'absolute', top: 0, right: 36, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ViewOptionsMenu
+              groupBy={viewOptions.groupBy}
+              orderBy={viewOptions.orderBy}
+              archivedFilter={viewOptions.archivedFilter}
+              onChange={(patch) => setViewOptions((previous) => ({ ...previous, ...patch }))}
+            />
+          </div>
+          <div style={{ position: 'absolute', top: 0, right: 2, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <AddWorkspaceMenu onSelectKind={(kind) => void addWorkspace(kind)} />
+          </div>
         </div>
       </div>
 
