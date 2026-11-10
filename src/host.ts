@@ -188,7 +188,17 @@ export function apply(ctx: any) {
         const sessionId = query.get('sessionId');
         if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
         const node = await repository.findBySession(sessionId);
-        return { node };
+        if (node === null) return { node: null };
+        // 顺便算出当前状态的「进入后默认输入」，客户端推进后用它填输入框。
+        const snapshot = await repository.get(node.workflowId);
+        const found = snapshot?.nodes.find((candidate) => candidate.node_id === node.nodeId);
+        let enterTrigger = '';
+        if (found !== undefined) {
+          const global = await repository.getAppGlobalOperationDetail();
+          const effective = effectiveDetail(found.current_state, found, global);
+          enterTrigger = typeof effective.enter_trigger === 'string' ? effective.enter_trigger : '';
+        }
+        return { node: { ...node, enter_trigger: enterTrigger } };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

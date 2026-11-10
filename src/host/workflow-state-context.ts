@@ -52,9 +52,6 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
     if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
       parts.push('', effective.full_detail.trim());
     }
-    if (typeof effective.enter_trigger === 'string' && effective.enter_trigger.trim() !== '') {
-      parts.push('', `进入本状态时的默认输入：${effective.enter_trigger.trim()}`);
-    }
     parts.push('</workflow-state>');
     let text = parts.join('\n');
     if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {

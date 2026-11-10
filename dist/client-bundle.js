@@ -1423,17 +1423,47 @@ window.__ModuleLoader__.load({
                 const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
                 const data = await response.json().catch(() => null);
                 const node = data?.ok === true ? data.node : null;
-                setNodeInfo(node === null || node === undefined
-                    ? null
-                    : {
-                        state: String(node.current_state),
-                        workflowId: String(node.workflowId),
-                        nodeId: String(node.nodeId),
-                    });
+                if (node === null || node === undefined) {
+                    setNodeInfo(null);
+                    return null;
+                }
+                const info = {
+                    state: String(node.current_state),
+                    workflowId: String(node.workflowId),
+                    nodeId: String(node.nodeId),
+                    enterTrigger: typeof node.enter_trigger === 'string' ? node.enter_trigger : '',
+                };
+                setNodeInfo(info);
+                return info;
             }
             catch {
                 setNodeInfo(null);
+                return null;
             }
+        };
+        /**
+         * 把「进入后默认输入」填进当前输入框（半自动：不发送，用户自己按回车）。
+         * InputActions 的方法名在 build 里没有类型，按常见命名逐个试，失败只告警不抛。
+         */
+        const pushDraft = (text) => {
+            const actions = props?.inputActions;
+            if (actions === undefined || actions === null || text === '')
+                return false;
+            const candidates = ['setText', 'setDraft', 'replaceText', 'insertText', 'appendText', 'setValue', 'insert', 'append'];
+            for (const name of candidates) {
+                const method = actions[name];
+                if (typeof method !== 'function')
+                    continue;
+                try {
+                    method.call(actions, text);
+                    return true;
+                }
+                catch (error) {
+                    console.warn('[dsh-agent-workflow] 写入默认输入失败：', name, error);
+                }
+            }
+            console.warn('[dsh-agent-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
+            return false;
         };
         (0, react_1.useEffect)(() => {
             if (sessionId === '') {
@@ -1458,7 +1488,7 @@ window.__ModuleLoader__.load({
             return null;
         const label = node_state_label_1.NODE_STATE_LABEL[nodeInfo.state] ?? nodeInfo.state;
         const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
-        /** 「推进」按钮挪到了会话里（状态徽标右边）；逻辑暂时保持原样：直接写状态。 */
+        /** 推进：写状态 → 刷新徽标 → 把新状态的默认输入填进输入框（不自动发送）。 */
         const advance = async () => {
             if (nextState === null || advancing)
                 return;
@@ -1469,7 +1499,9 @@ window.__ModuleLoader__.load({
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to: nextState }),
                 });
-                await readNode();
+                const info = await readNode();
+                if (info !== null && info.enterTrigger !== '')
+                    pushDraft(info.enterTrigger);
             }
             catch (error) {
                 console.error('[dsh-agent-workflow] 推进状态失败：', error);

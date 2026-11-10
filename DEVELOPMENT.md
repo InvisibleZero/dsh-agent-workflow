@@ -86,6 +86,11 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 - **UI 文案规则**：界面上**只出现中文状态名**，不显示 A/B/C/D 这些内部代号——代号只用于文档和代码注释。
 - **保存**：**没有保存按钮**——改动后 700ms 防抖自动保存；状态行显示「待保存… / 保存中… / 已自动保存」。
   关闭设置页（组件卸载）时若有未落盘的改动会补写一次，避免丢掉最后几个字。
+- **默认输入（enter_trigger）不进上下文**：它只用于「推进状态后填进输入框」（半自动，不自动发送）。
+  注入块里**不要**再带它——模型看到也无事可做，纯属浪费 token。
+- **半自动填写**：输入框组件的写入方法（`InputActions`）在这一版没有类型声明，客户端按候选名逐个探测
+  （`setText` / `setDraft` / `replaceText` / `insertText` / `appendText` / `setValue` / `insert` / `append`），
+  全都匹配不上时只在控制台告警并列出可用方法名，不影响推进本身。
 - **节点级覆盖**：节点行的小齿轮打开只读弹窗，展示该节点生效的 A + B/C/D，并标出「当前态」「已覆盖」。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 

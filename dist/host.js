@@ -542,9 +542,6 @@ function registerWorkflowStateContext(ctx, repository) {
     if (typeof effective.full_detail === "string" && effective.full_detail.trim() !== "") {
       parts.push("", effective.full_detail.trim());
     }
-    if (typeof effective.enter_trigger === "string" && effective.enter_trigger.trim() !== "") {
-      parts.push("", `\u8FDB\u5165\u672C\u72B6\u6001\u65F6\u7684\u9ED8\u8BA4\u8F93\u5165\uFF1A${effective.enter_trigger.trim()}`);
-    }
     parts.push("</workflow-state>");
     let text = parts.join("\n");
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
@@ -772,7 +769,16 @@ function apply(ctx) {
         const sessionId = query.get("sessionId");
         if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
         const node = await repository.findBySession(sessionId);
-        return { node };
+        if (node === null) return { node: null };
+        const snapshot = await repository.get(node.workflowId);
+        const found = snapshot?.nodes.find((candidate) => candidate.node_id === node.nodeId);
+        let enterTrigger = "";
+        if (found !== void 0) {
+          const global = await repository.getAppGlobalOperationDetail();
+          const effective = effectiveDetail(found.current_state, found, global);
+          enterTrigger = typeof effective.enter_trigger === "string" ? effective.enter_trigger : "";
+        }
+        return { node: { ...node, enter_trigger: enterTrigger } };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
