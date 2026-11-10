@@ -160,6 +160,28 @@ const [point, setPoint] = useState<MenuPoint | null>(null);
 - **做法**：节点「⋯」菜单里的「重新绑定会话」= 先 `bind-session` 传空串解绑，再按新规则重建。
 - **解绑的语义**：传空串 = **删掉该字段**，不是留 `""`（旧快照无字段时行为才一致）。
 
+### D-11 推 GitHub 连不上（本机网络）：DNS 把 github.com 解析到超时 IP
+
+- **现象**：`git push` 报 `Failed to connect to github.com port 443 after 21000 ms`；
+  但 `api.github.com`、`codeload.github.com` 都能通，`https://github.com` 的网页有时也正常。
+- **根因**：本机 DNS 只返回 `20.205.243.166`，这个 IP 从当前网络不通；而 `140.82.113.3` 等其它 GitHub IP 可达。
+  git 自身没有「按命令强制解析 IP」的可用开关（`http.curloptResolve` 在本机会撞上 SSL backend 报错，
+  `http.sslbackend=schannel` 又会报 `SEC_E_NO_CREDENTIALS`）。
+- **正确做法**：本地起一个 CONNECT 隧道，把 `github.com:443` 转发到可达 IP，再让 git 走它。
+
+```powershell
+# 1) 后端小脚本（Node）：监听 127.0.0.1:8899，把 github.com 的 CONNECT 转发到可达 IP
+#    代码见本仓库 scripts/dev-github-tunnel.cjs
+node scripts/dev-github-tunnel.cjs
+
+# 2) 推送时走代理
+git -c http.proxy=http://127.0.0.1:8899 push origin main
+```
+
+- **验证**：先 `git -c http.proxy=... ls-remote --heads origin`，能看到 `refs/heads/main` 即为通。
+- **注意**：隧道只转发 `github.com`，`api.github.com` 直连即可；用完记得关掉进程。
+- **备用排查**：`Resolve-DnsName github.com -Type A` 看当前解析出的 IP；换一个可达 IP 改脚本里的 `FORWARD_IP`。
+
 ---
 
 ## 5. 记录格式（新增条目照抄）
