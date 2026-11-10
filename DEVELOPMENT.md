@@ -59,7 +59,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 | --- | --- |
 | 左 | 类型图标（树）+ 展开三角 |
 | 中 | 标题（取宿主工作区标题，改名后立刻同步） |
-| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
+| 右 | 根节点状态（讨论中/实现中/…）+「⋯」（重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
 
 - **点整行 = 展开 / 收起节点树，不打开会话**（和 usual 工作区行一致）。
 - 根节点**不绑会话**，所以这一行没有会话菜单。
@@ -93,8 +93,9 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
   （`setText` / `setDraft` / `replaceText` / `insertText` / `appendText` / `setValue` / `insert` / `append`），
   全都匹配不上时只在控制台告警并列出可用方法名，不影响推进本身。**实测已命中**（列表里至少一个可用），
   探测逻辑保留，用于兼容 DSH 版本差异。
-- **「未开始」故意没有默认输入**（设计决定，不是遗漏）：进入未开始态时应该由**用户自己发起第一句**，
-  因为没人知道用户要做什么。默认输入只在讨论中 / 实现中 / 验收中三个状态有意义。
+- **「未开始」已删除**（2026-11-11）：它没有任何专属操作细节，正常路径又必须立刻离开它，
+  结果就是新会话停在"没有规则"的态里，模型直接开工。现在新节点一建出来就是「讨论中」，
+  快照 v1→v2 迁移负责把旧数据的 `not_started` 映射过来。默认输入只在讨论中 / 实现中 / 验收中三个状态有意义。
 - **节点级覆盖**：节点行的小齿轮打开只读弹窗，展示该节点生效的 A + B/C/D，并标出「当前态」「已覆盖」。
 - **节点级「附加说明」（首选做法）**：不覆盖全局，只在全局细节后面追加一段，存在节点字段 `additional_detail[state]`；
   注入时渲染成「本节点补充要求：…」。编辑入口在齿轮弹窗里（每个状态一个文本框，700ms 自动保存，
@@ -435,7 +436,7 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   隔离是「约定级」的——只注入自己的手册 + 父级摘要，提示语要求别碰别人的 `.workflow/<id>/`。
 - **只对新节点生效**：存量节点没有对应文件，注入时静默跳过手册段，不做迁移。
 - **注入**：本节点手册「最近 2000 字 + 文件路径」+ 父级摘要（`readParentSummary`，只看一层，父是根则空）。
-  整块上限提到 8KB。常驻一句「收尾把要点写进手册并同步摘要」；推进会刷新本块，天然是强提示。
+  整块上限提到 8KB。常驻一句「收尾按三问写进项目手册（新决策 / 新坑 / 都没有）」；推进会刷新本块，天然是强提示。
 - **幂等**：写 md 用 `writeIfMissing`（已存在不覆盖）；`.gitignore` 只在文件已存在时追加 `.workflow/` 一行。
 - **涉及文件**：`host/workflow-repository.ts`（addNode 平铺写 md / readNodeManual / readParentSummary）、
   `host.ts`（/add-node 返回 nodeId、/node-manual、/open-folder）、`host/workflow-state-context.ts`（注入）、
@@ -463,7 +464,7 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **数据来源**：手册文件是唯一真源，UI 不新增写路径。宿主 `parseChecklist()` 正则解析「实施顺序」小节，
   只认 `- [ ]` / `- [x]`，读到下一个 `## ` 停；解析不到返回空数组。
 - **模板**：`MANUAL_TEMPLATE` 预置「方案（目标与验收/对外契约/结构与依赖/数据与状态/表现与文案）+
-  决策记录 + 实施顺序 + 要点」，让新节点的清单可解析、模型有骨架可填。
+  决策记录 + 实施顺序 + 坑与防线」，让新节点的清单可解析、模型有骨架可填。
 - **接口**：`/node-manual` 返回 `checklist: [{label, done}]`（供弹窗）；新增轻量 `/node-checklist`（供 3s 轮询），
   返回 `{ exists, checklist, hasPlan }`。
 - **清单缓存**：`getManualMeta()` 按 `workflowId:nodeId` 缓存 checklist + hasPlan，以文件 mtime 失效——
@@ -491,17 +492,17 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **弹窗改用 portal**：`WorkflowStateBadge` 里的节点弹窗 / 设置 / 确认框原来靠 window 事件
   转发给侧栏树渲染（因为输入区容器带 transform，自绘 fixed 会跑偏）；现在直接
   `createPortal(…, document.body)` 渲染，`react-dom` 由 dsh 模块表提供，彻底绕开 transform。
-- **菜单定位原语**：`menuPointFromEvent` / `menuAnchorRect` 保留在 `client/menu-util.ts`。
+- **菜单定位原语**：`menuPointFromEvent` / `menuAnchorRect` 保留在 `client/menu-anchor.ts`（原名 menu-util）。
 - **产物**：client-bundle 从 ~146KB 降到 ~40KB，模块从 8 个降到 5 个。
 - **待补**：树删了之后"一个会话怎么变成 workflow 节点"的入口没了（自动认领 / 会话行按钮尚未接线）；
   会话维度下"工作区项目手册 + 会话手册"两层的拆分也待落地。
 
 ### D-26 扁平模型：工作区=项目、会话=单元，两层手册 + 自动认领 + 条件流转 + 时间线
 
-- **模型**：工作区 = 一个项目；会话 = 一个 workflow 单元（五态 + 方案 + 实施顺序）。
+- **模型**：工作区 = 一个项目；会话 = 一个 workflow 单元（四态 + 方案 + 实施顺序）。
   不再有节点树、parent/child、深度限制——那些都废了（拆解已内化进会话）。
 - **两层手册**（都在 `<工作区>/.workflow/` 下）：
-  - `项目手册.md`：项目总览 / 决策 / 要点（每工作区一份，跨会话延续，AI 收尾回写）；
+  - `项目手册.md`：项目总览 / 决策记录 / 约束 / 坑与防线（每工作区一份，跨会话延续，AI 收尾回写）；
   - `会话手册-<node_id>.md`：方案（5 层）+ 实施顺序（每会话一份，AI 自己勾）。
   - 旧的手册摘要（`手册摘要-<id>.md`）**删除**——"一层可见"现在直接注入项目手册。
 - **自动认领**：`POST /ensure-node { sessionId, workingDirectory }` —— 按工作目录找/建 workflow 快照 +

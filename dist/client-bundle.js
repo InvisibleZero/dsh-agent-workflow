@@ -56,11 +56,11 @@ window.__ModuleLoader__.load({
      * workflow 模块（减法后）：不再渲染树 / 不再替换宿主的侧栏浏览器。
      *
      * 现在只保留会话维度的东西：
-     *   - 会话状态徽标（输入框工具条）：当前状态 + 推进 + 实施清单；
-     *   - 节点补充说明 / 工作手册（只读）、全局操作细节设置：都由徽标自己用 portal 弹。
+     *   - 会话状态徽标（输入框工具条）：当前状态 + 推进 + 实施清单。
+     *   - 节点补充说明 / 工作手册（只读）、全局操作细节设置：都由徽标自己用 portal 弹窗。
      *
-     * 弹窗改用 `createPortal(document.body)`：输入框容器带 transform，自绘 fixed 会跑偏，
-     * portal 到 body 后 fixed 相对视口，彻底绕开这个坑。
+     * 弹窗改用 `createPortal(document.body)`：输入框容器有 transform，自绘 fixed 会跑偏，
+     * portal 挂 body 上 fixed 相对视口，彻底绕开这个坑。
      */
     const react_1 = require("react");
     const react_dom_1 = require("react-dom");
@@ -69,9 +69,8 @@ window.__ModuleLoader__.load({
     const menu_anchor_1 = __req("client/menu-anchor.js");
     const node_state_color_1 = __req("client/node-state-color.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
-    /** 五态单向推进表。 */
+    /** 四态单向推进表。 */
     const NEXT_NODE_STATE = {
-        not_started: 'discussing',
         discussing: 'implementing',
         implementing: 'verifying',
         verifying: 'completed',
@@ -106,8 +105,8 @@ window.__ModuleLoader__.load({
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ sessionId, workingDirectory }),
                 });
-                const data = await response.json().catch(() => null);
-                return data?.ok === true && data.node !== null && data.node !== undefined;
+                const responseBody = await response.json().catch(() => null);
+                return responseBody?.ok === true && responseBody.node !== null && responseBody.node !== undefined;
             }
             catch {
                 return false;
@@ -116,10 +115,10 @@ window.__ModuleLoader__.load({
         const readChecklist = async (workflowId, nodeId) => {
             try {
                 const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-                const data = await response.json().catch(() => null);
-                if (data?.ok === true) {
-                    const items = Array.isArray(data.checklist) ? data.checklist : [];
-                    const plan = data.hasPlan !== false;
+                const responseBody = await response.json().catch(() => null);
+                if (responseBody?.ok === true) {
+                    const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
+                    const plan = responseBody.hasPlan !== false;
                     setChecklist(items);
                     setHasPlan(plan);
                     return { checklist: items, hasPlan: plan };
@@ -133,8 +132,8 @@ window.__ModuleLoader__.load({
         const readNode = async () => {
             try {
                 const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
-                const data = await response.json().catch(() => null);
-                const node = data?.ok === true ? data.node : null;
+                const responseBody = await response.json().catch(() => null);
+                const node = responseBody?.ok === true ? responseBody.node : null;
                 if (node === null || node === undefined) {
                     setNodeInfo(null);
                     return null;
@@ -144,6 +143,9 @@ window.__ModuleLoader__.load({
                     workflowId: String(node.workflowId),
                     nodeId: String(node.nodeId),
                     enterTrigger: typeof node.enter_trigger === 'string' ? node.enter_trigger : '',
+                    pendingAdvance: responseBody?.pendingAdvance === undefined || responseBody?.pendingAdvance === null
+                        ? null
+                        : { to: String(responseBody.pendingAdvance.to) },
                 };
                 setNodeInfo(info);
                 return info;
@@ -173,6 +175,55 @@ window.__ModuleLoader__.load({
             }
             console.warn('[dsh-agent-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
             return false;
+        };
+        /** 读应用级开关：切换状态时是否自动发送默认输入（默认关闭）。 */
+        const readAutoSend = async () => {
+            try {
+                const response = await fetch('/dsh-agent-workflow/app-settings');
+                const responseBody = await response.json().catch(() => null);
+                return responseBody?.ok === true && responseBody.autoSendEnterTrigger === true;
+            }
+            catch {
+                return false;
+            }
+        };
+        /** 提交输入框内容：优先用 InputActions 的提交方法，退回在输入框上模拟 Enter。 */
+        const submitDraft = () => {
+            const actions = props?.inputActions;
+            if (actions !== undefined && actions !== null) {
+                const candidates = ['submit', 'send', 'submitInput', 'sendInput', 'sendMessage', 'submitMessage'];
+                for (const name of candidates) {
+                    const method = actions[name];
+                    if (typeof method !== 'function')
+                        continue;
+                    try {
+                        method.call(actions);
+                        return true;
+                    }
+                    catch (error) {
+                        console.warn('[dsh-agent-workflow] 提交默认输入失败：', name, error);
+                    }
+                }
+            }
+            const field = document.querySelector('textarea');
+            if (field instanceof HTMLTextAreaElement) {
+                field.focus();
+                field.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true,
+                }));
+                return true;
+            }
+            return false;
+        };
+        /** 推进后的默认输入：按开关决定"只填入"还是"填入并发送"。 */
+        const applyEnterTrigger = async (text) => {
+            if (text === '')
+                return;
+            if (!pushDraft(text))
+                return;
+            if (!(await readAutoSend()))
+                return;
+            submitDraft();
         };
         (0, react_1.useEffect)(() => {
             if (sessionId === '') {
@@ -214,16 +265,23 @@ window.__ModuleLoader__.load({
             setAdvancing(true);
             const startedAt = Date.now();
             try {
-                await fetch('/dsh-agent-workflow/transition', {
+                const response = await fetch('/dsh-agent-workflow/transition', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
                 });
+                const payload = await response.json().catch(() => null);
+                // 前置条件没满足（方案没写 / 清单没勾完）时后端会拒绝，这里必须让人看见原因。
+                if (payload === null || payload.ok !== true) {
+                    const reason = payload?.error ?? `推进被拒绝（HTTP ${response.status}）`;
+                    window.alert(String(reason));
+                    return;
+                }
                 // 通知侧栏会话行的状态点刷新（清缓存并重取）。
                 window.dispatchEvent(new Event('dsh-workflow-state-changed'));
                 const info = await readNode();
-                if (info !== null && info.enterTrigger !== '')
-                    pushDraft(info.enterTrigger);
+                if (info !== null)
+                    await applyEnterTrigger(info.enterTrigger);
                 if (info !== null && info.state === 'implementing')
                     void readChecklist(info.workflowId, info.nodeId);
                 else
@@ -250,6 +308,30 @@ window.__ModuleLoader__.load({
             }
             void transitionTo(nextState);
         };
+        /** 同意 / 拒绝模型发起的推进请求（状态只由这里或手动 → 改变）。 */
+        const respondAdvance = async (accept) => {
+            try {
+                const response = await fetch('/dsh-agent-workflow/approve-advance', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ sessionId, accept }),
+                });
+                const payload = await response.json().catch(() => null);
+                if (payload?.ok !== true) {
+                    window.alert(String(payload?.error ?? '处理推进请求失败'));
+                    return;
+                }
+                window.dispatchEvent(new Event('dsh-workflow-state-changed'));
+                const info = await readNode();
+                if (accept && info !== null)
+                    await applyEnterTrigger(info.enterTrigger);
+                if (info !== null && info.state === 'implementing')
+                    void readChecklist(info.workflowId, info.nodeId);
+            }
+            catch (error) {
+                console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
+            }
+        };
         const doneCount = checklist.filter((item) => item.done).length;
         const backwardStates = BACKWARD_STATES[nodeInfo.state] ?? [];
         return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u67E5\u770B\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282 / \u5DE5\u4F5C\u624B\u518C", onClick: () => setDetailOpen(true), style: {
@@ -257,14 +339,24 @@ window.__ModuleLoader__.load({
                                 borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                                 color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
                                 whiteSpace: 'nowrap', cursor: 'pointer',
-                            }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: node_state_color_1.NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
+                            }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: node_state_color_1.NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.pendingAdvance !== null ? ((0, jsx_runtime_1.jsxs)("span", { style: {
+                                display: 'inline-flex', alignItems: 'center', gap: 6, height: 22, padding: '0 8px',
+                                borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)',
+                                fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap',
+                            }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: ["\u8BF7\u6C42 \u2192 ", node_state_label_1.NODE_STATE_LABEL[nodeInfo.pendingAdvance.to] ?? nodeInfo.pendingAdvance.to] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => void respondAdvance(true), style: {
+                                        height: 22, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                                        color: 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))', fontSize: 11, lineHeight: '22px',
+                                    }, children: "\u540C\u610F" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => void respondAdvance(false), style: {
+                                        height: 22, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                                        color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
+                                    }, children: "\u62D2\u7EDD" })] })) : null, nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
                                         event.currentTarget.focus({ preventScroll: true });
                                         const point = (0, menu_anchor_1.menuPointFromEvent)(event);
                                         setChecklistMenu((current) => (current === null ? point : null));
                                     }, style: {
                                         display: 'inline-flex', alignItems: 'center', height: 22, padding: '0 8px',
                                         borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
-                                        color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
+                                        color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))',
                                         fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
                                     }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
                                             event.currentTarget.focus({ preventScroll: true });
@@ -296,7 +388,7 @@ window.__ModuleLoader__.load({
                                     setReturnToDetail(false);
                                     setDetailOpen(true);
                                 }
-                            } })) : null, confirmOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowConfirmDialog, { title: "\u8FDB\u5165\u5B9E\u73B0\u4E2D", message: '这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案', confirmLabel: "\u4ECD\u8FDB\u5165", onClose: () => setConfirmOpen(false), onConfirm: () => {
+                            } })) : null, confirmOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowConfirmDialog, { title: "\u8FDB\u5165\u5B9E\u73B0\u4E2D", message: '这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案。', confirmLabel: "\u4ECD\u8FDB\u5165", onClose: () => setConfirmOpen(false), onConfirm: () => {
                                 setConfirmOpen(false);
                                 void transitionTo(nextState);
                             } })) : null] }), document.body)] }));
@@ -324,7 +416,6 @@ window.__ModuleLoader__.load({
      * 就不会把 zod 拖进浏览器包（否则整个客户端 entry 会在启动时失败）。
      */
     exports.NODE_STATE_LABEL = {
-        not_started: '未开始',
         discussing: '讨论中',
         implementing: '实现中',
         verifying: '验收中',
@@ -335,7 +426,6 @@ window.__ModuleLoader__.load({
     "client/workflow-dialogs.js": function(__req, module, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.WorkflowGlobalSettingsSection = WorkflowGlobalSettingsSection;
     exports.applyWorkflowSettingsSection = applyWorkflowSettingsSection;
     exports.WorkflowSettingsDialog = WorkflowSettingsDialog;
     exports.WorkflowConfirmDialog = WorkflowConfirmDialog;
@@ -428,6 +518,7 @@ window.__ModuleLoader__.load({
      */
     function WorkflowGlobalSettingsSection() {
         const [detail, setDetail] = (0, react_1.useState)(null);
+        const [autoSend, setAutoSend] = (0, react_1.useState)(false);
         const [activeTab, setActiveTab] = (0, react_1.useState)('shared');
         const [status, setStatus] = (0, react_1.useState)('idle');
         const [error, setError] = (0, react_1.useState)(null);
@@ -438,13 +529,13 @@ window.__ModuleLoader__.load({
             void (async () => {
                 try {
                     const response = await fetch('/dsh-agent-workflow/global-settings');
-                    const data = await response.json().catch(() => null);
+                    const responseBody = await response.json().catch(() => null);
                     if (cancelled)
                         return;
-                    if (data?.ok === true)
-                        setDetail(data.globalOperationDetail);
+                    if (responseBody?.ok === true)
+                        setDetail(responseBody.globalOperationDetail);
                     else
-                        setError(String(data?.error ?? '读取设置失败'));
+                        setError(String(responseBody?.error ?? '读取设置失败'));
                 }
                 catch (reason) {
                     if (!cancelled)
@@ -453,6 +544,35 @@ window.__ModuleLoader__.load({
             })();
             return () => { cancelled = true; };
         }, []);
+        // 应用级开关：切换状态时是否自动发送默认输入（默认关闭）。
+        (0, react_1.useEffect)(() => {
+            let cancelled = false;
+            void (async () => {
+                try {
+                    const response = await fetch('/dsh-agent-workflow/app-settings');
+                    const responseBody = await response.json().catch(() => null);
+                    if (!cancelled && responseBody?.ok === true)
+                        setAutoSend(responseBody.autoSendEnterTrigger === true);
+                }
+                catch {
+                    // 读不到就按默认（关闭）。
+                }
+            })();
+            return () => { cancelled = true; };
+        }, []);
+        const saveAutoSend = async (next) => {
+            setAutoSend(next);
+            try {
+                await fetch('/dsh-agent-workflow/app-settings-save', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ autoSendEnterTrigger: next }),
+                });
+            }
+            catch (reason) {
+                console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+            }
+        };
         /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
         const persist = async (value) => {
             setStatus('saving');
@@ -463,14 +583,14 @@ window.__ModuleLoader__.load({
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ globalOperationDetail: value }),
                 });
-                const data = await response.json().catch(() => null);
-                if (data?.ok === true) {
+                const responseBody = await response.json().catch(() => null);
+                if (responseBody?.ok === true) {
                     setStatus('saved');
                     window.setTimeout(() => setStatus((current) => (current === 'saved' ? 'idle' : current)), 1600);
                 }
                 else {
                     setStatus('error');
-                    setError(String(data?.error ?? '保存失败'));
+                    setError(String(responseBody?.error ?? '保存失败'));
                 }
             }
             catch (reason) {
@@ -504,7 +624,15 @@ window.__ModuleLoader__.load({
             return (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
         }
         const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
+        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), (0, jsx_runtime_1.jsxs)("label", { style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 12,
+                        fontSize: 12,
+                        color: 'var(--dsw-alias-label-secondary)',
+                        cursor: 'pointer',
+                    }, children: [(0, jsx_runtime_1.jsx)("input", { type: "checkbox", checked: autoSend, onChange: (event) => { void saveAutoSend(event.target.checked); } }), "\u5207\u6362\u72B6\u6001\u65F6\u81EA\u52A8\u53D1\u9001\u9ED8\u8BA4\u8F93\u5165\uFF08\u5F53\u524D\u662F\u53EA\u586B\u5165\u8F93\u5165\u6846\u3001\u4E0D\u53D1\u9001\uFF1B\u9ED8\u8BA4\u5173\u95ED\uFF09"] }), (0, jsx_runtime_1.jsxs)("div", { style: {
                         border: '1px solid var(--dsw-alias-border-l1)',
                         borderRadius: 8,
                         background: 'var(--dsw-alias-bg-base)',
@@ -565,9 +693,10 @@ window.__ModuleLoader__.load({
                                 borderRadius: 6,
                                 cursor: 'pointer',
                                 fontSize: 12,
-                                border: 'none',
-                                background: 'var(--dsw-alias-state-error-primary, #d64545)',
-                                color: '#fff',
+                                // 不填充实色：某些主题没定义对应 token，实色 + #fff 会变成"白底白字"。
+                                border: '1px solid var(--dsw-alias-state-error-primary)',
+                                background: 'transparent',
+                                color: 'var(--dsw-alias-state-error-primary)',
                             }, children: props.confirmLabel })] })] }));
     }
     /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
@@ -581,13 +710,13 @@ window.__ModuleLoader__.load({
             void (async () => {
                 try {
                     const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-                    const data = await response.json().catch(() => null);
+                    const responseBody = await response.json().catch(() => null);
                     if (cancelled)
                         return;
-                    if (data?.ok === true)
-                        setPayload(data);
+                    if (responseBody?.ok === true)
+                        setPayload(responseBody);
                     else
-                        setError(String(data?.error ?? '读取失败'));
+                        setError(String(responseBody?.error ?? '读取失败'));
                 }
                 catch (reason) {
                     if (!cancelled)
@@ -602,15 +731,15 @@ window.__ModuleLoader__.load({
             void (async () => {
                 try {
                     const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-                    const data = await response.json().catch(() => null);
-                    if (cancelled || data?.ok !== true)
+                    const responseBody = await response.json().catch(() => null);
+                    if (cancelled || responseBody?.ok !== true)
                         return;
-                    setManualData(data.manual === null
+                    setManualData(responseBody.manual === null
                         ? null
                         : {
-                            manual: String(data.manual?.manual ?? ''),
-                            notesDir: String(data.manual?.notesDir ?? ''),
-                            globalManual: String(data.globalManual ?? ''),
+                            manual: String(responseBody.manual?.manual ?? ''),
+                            notesDir: String(responseBody.manual?.notesDir ?? ''),
+                            globalManual: String(responseBody.globalManual ?? ''),
                         });
                 }
                 catch {
@@ -651,8 +780,8 @@ window.__ModuleLoader__.load({
                         headers: { 'content-type': 'application/json' },
                         body: JSON.stringify({ id: workflowId, nodeId, state, text }),
                     });
-                    const data = await response.json().catch(() => null);
-                    setNoteStatus(data?.ok === true ? '已保存' : String(data?.error ?? '保存失败'));
+                    const responseBody = await response.json().catch(() => null);
+                    setNoteStatus(responseBody?.ok === true ? '已保存' : String(responseBody?.error ?? '保存失败'));
                 }
                 catch (reason) {
                     setNoteStatus(String(reason));
@@ -715,14 +844,13 @@ window.__ModuleLoader__.load({
     exports.WORKFLOW_FLOW = exports.NODE_STATE_COLOR = void 0;
     // @ts-nocheck
     /**
-     * 五态状态色 + 流程顺序（徽标 / 侧栏状态点 / 设置页流程条 共用，避免三处各存一份）。
+     * 四态状态色 + 流程顺序（徽标 / 侧栏状态点 / 设置页流程条 共用，避免三处各存一份）。
      *
-     * 配色约定（对齐 Jira/GitHub 惯例）：未开始=灰、讨论中=黄、实现中=蓝、验收中=紫、已完结=绿。
+     * 配色约定（对齐 Jira/GitHub 惯例）：讨论中=黄、实现中=蓝、验收中=紫、已完结=绿。
      * - 「实现中」用宿主实打实的蓝色 token（`brand-primary-new-colorprimary-new-color`），带 `#4176e6` 兜底；
      * - 「验收中」主题里没有紫色 token，直接硬编码 violet-500（#8b5cf6），深浅色下都可读。
      */
     exports.NODE_STATE_COLOR = {
-        not_started: 'var(--dsw-alias-state-idle-primary)',
         discussing: 'var(--dsw-alias-state-warn-primary)',
         implementing: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
         verifying: '#8b5cf6',
@@ -730,7 +858,6 @@ window.__ModuleLoader__.load({
     };
     /** 设置页流程条用的顺序（含中文标签）。 */
     exports.WORKFLOW_FLOW = [
-        { state: 'not_started', label: '未开始' },
         { state: 'discussing', label: '讨论中' },
         { state: 'implementing', label: '实现中' },
         { state: 'verifying', label: '验收中' },
@@ -790,9 +917,9 @@ window.__ModuleLoader__.load({
         const promise = (async () => {
             try {
                 const response = await fetch(`/dsh-agent-workflow/sidebar-nodes?path=${encodeURIComponent(path)}`);
-                const data = await response.json().catch(() => null);
-                if (data?.ok === true && typeof data.nodes === 'object' && data.nodes !== null) {
-                    return data.nodes;
+                const responseBody = await response.json().catch(() => null);
+                if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
+                    return responseBody.nodes;
                 }
                 return {};
             }

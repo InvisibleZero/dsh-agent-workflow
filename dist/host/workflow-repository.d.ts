@@ -19,7 +19,7 @@ export interface WorkflowSummary {
     /** 文件最后修改时间（ISO），用于列表排序；不是严格意义上的"创建时间"。 */
     updatedAt: string;
 }
-/** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 not_started）。 */
+/** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 discussing）。 */
 export declare function buildRootNode(id: string, maxDepth: number, maxSteps: number): AgentNode;
 export declare class WorkflowRepository {
     readonly baseDir: string;
@@ -105,6 +105,7 @@ export declare class WorkflowRepository {
         id: string;
         nodeId: string;
         to: string;
+        by?: string;
     }): Promise<WorkflowSnapshot>;
     /**
      * 把节点绑定到一个 dsh 会话（点节点时打开）。
@@ -158,5 +159,59 @@ export declare class WorkflowRepository {
         }>;
         hasPlan: boolean;
     } | null>;
+    /** 应用级设置（目前只有"切换状态时是否自动发送默认输入"）。存在 <baseDir>/app-settings.json。 */
+    private appSettingsPath;
+    getAppSettings(): Promise<{
+        autoSendEnterTrigger: boolean;
+    }>;
+    updateAppSettings(patch: {
+        autoSendEnterTrigger?: boolean;
+    }): Promise<{
+        autoSendEnterTrigger: boolean;
+    }>;
+    /**
+     * 读项目手册并按四类内容拆开，供注入按优先级取用。
+     * 旧标题「要点 / 疑难杂症」也算「坑与防线」。
+     */
+    readGlobalManualSections(workflowId: string): Promise<{
+        overview: string;
+        decisions: string;
+        constraints: string;
+        pitfalls: string;
+    }>;
+    /**
+     * 读手册全文（AI 专用工具的 read 动作）。
+     * nodeId 为 null 时读项目手册；否则读该会话的会话手册。
+     */
+    readManual(workflowId: string, nodeId: string | null): Promise<string>;
+    /**
+     * 按小节替换手册正文（AI 专用工具的唯一写入口）。
+     * 只改指定 `## 小节` 的正文，标题与其它小节原样保留；路径由这里拼，调用方不能指定。
+     */
+    replaceManualSection(input: {
+        workflowId: string;
+        nodeId: string | null;
+        section: string;
+        content: string;
+    }): Promise<{
+        bytes: number;
+        section: string;
+    }>;
+    /**
+     * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。
+     * @returns 勾选后的完整清单，方便模型确认进度。
+     */
+    setChecklistItem(input: {
+        workflowId: string;
+        nodeId: string;
+        label: string;
+        done: boolean;
+    }): Promise<Array<{
+        label: string;
+        done: boolean;
+    }>>;
+    /** 会话/项目手册的绝对路径与"是不是会话手册"。 */
+    private resolveManualFile;
+    private readFileOrTemplate;
 }
 //# sourceMappingURL=workflow-repository.d.ts.map

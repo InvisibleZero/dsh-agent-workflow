@@ -8,7 +8,6 @@ import type { NodeState } from './node-state';
  * 就不会把 zod 拖进浏览器包（否则整个客户端 entry 会在启动时失败）。
  */
 export const NODE_STATE_LABEL: Record<NodeState, string> = {
-  not_started: '未开始',
   discussing: '讨论中',
   implementing: '实现中',
   verifying: '验收中',

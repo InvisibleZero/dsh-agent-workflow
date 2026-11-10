@@ -173,7 +173,7 @@ export declare const WorkflowSettings: z.ZodObject<{
 export type WorkflowSettings = z.infer<typeof WorkflowSettings>;
 /** 持久化单元：一个 workflow 工作区的全量快照（根节点 parent_id 为 null）。 */
 export declare const WorkflowSnapshot: z.ZodObject<{
-    version: z.ZodLiteral<1>;
+    version: z.ZodLiteral<2>;
     workspace_id: z.ZodString;
     title: z.ZodString;
     /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
@@ -295,7 +295,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         title: z.ZodOptional<z.ZodString>;
         session_id: z.ZodOptional<z.ZodString>;
         node_type: z.ZodEnum<["workspace", "feature", "task"]>;
-        current_state: z.ZodEnum<["not_started", "discussing", "implementing", "verifying", "completed"]>;
+        current_state: z.ZodEnum<["discussing", "implementing", "verifying", "completed"]>;
         child_ids: z.ZodArray<z.ZodString, "many">;
         context_payload: z.ZodUnknown;
         flags: z.ZodDefault<z.ZodArray<z.ZodEnum<["blocked"]>, "many">>;
@@ -377,14 +377,17 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             at: z.ZodString;
             from: z.ZodString;
             to: z.ZodString;
+            by: z.ZodOptional<z.ZodString>;
         }, "strip", z.ZodTypeAny, {
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }, {
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }>, "many">>;
         depth: z.ZodNumber;
         max_depth: z.ZodNumber;
@@ -394,7 +397,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         node_id: string;
         parent_id: string | null;
         node_type: "workspace" | "feature" | "task";
-        current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+        current_state: "discussing" | "implementing" | "verifying" | "completed";
         child_ids: string[];
         flags: "blocked"[];
         depth: number;
@@ -428,12 +431,13 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }[] | undefined;
     }, {
         node_id: string;
         parent_id: string | null;
         node_type: "workspace" | "feature" | "task";
-        current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+        current_state: "discussing" | "implementing" | "verifying" | "completed";
         child_ids: string[];
         depth: number;
         max_depth: number;
@@ -467,11 +471,12 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }[] | undefined;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
     title: string;
-    version: 1;
+    version: 2;
     workspace_id: string;
     settings: {
         global_operation_detail: {
@@ -497,7 +502,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         node_id: string;
         parent_id: string | null;
         node_type: "workspace" | "feature" | "task";
-        current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+        current_state: "discussing" | "implementing" | "verifying" | "completed";
         child_ids: string[];
         flags: "blocked"[];
         depth: number;
@@ -531,6 +536,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }[] | undefined;
     }[];
     working_directory?: string | undefined;
@@ -538,7 +544,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
     pinned?: boolean | undefined;
 }, {
     title: string;
-    version: 1;
+    version: 2;
     workspace_id: string;
     settings: {
         global_operation_detail: {
@@ -564,7 +570,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         node_id: string;
         parent_id: string | null;
         node_type: "workspace" | "feature" | "task";
-        current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+        current_state: "discussing" | "implementing" | "verifying" | "completed";
         child_ids: string[];
         depth: number;
         max_depth: number;
@@ -598,6 +604,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             at: string;
             from: string;
             to: string;
+            by?: string | undefined;
         }[] | undefined;
     }[];
     working_directory?: string | undefined;

@@ -1,7 +1,7 @@
 import { isActiveState } from '../schema/node-state';
 /** 进入目标状态后实际读到的操作细节（A + B/C/D）与默认输入。 */
 export function effectiveDetail(targetState, node, global) {
-    // 未开始 / 已完结没有专属细节，只返回公共 A
+    // 已完结没有专属细节，只返回公共 A
     if (!isActiveState(targetState)) {
         return { full_detail: global.shared_detail, enter_trigger: null };
     }

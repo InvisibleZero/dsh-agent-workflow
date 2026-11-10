@@ -8,7 +8,7 @@ export function effectiveDetail(
   node: AgentNode,
   global: GlobalOperationDetail,
 ): { full_detail: string; enter_trigger: string | null } {
-  // 未开始 / 已完结没有专属细节，只返回公共 A
+  // 已完结没有专属细节，只返回公共 A
   if (!isActiveState(targetState)) {
     return { full_detail: global.shared_detail, enter_trigger: null };
   }

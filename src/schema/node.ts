@@ -53,6 +53,8 @@ export const AgentNode = z.object({
     at: z.string(),
     from: z.string(),
     to: z.string(),
+    /** 谁触发的这次迁移：human（点胶囊）/ agent-request（模型请求并经人同意）/ agent（返工等）。 */
+    by: z.string().optional(),
   })).optional(),
   // —— 防御性约束 ——
   depth: z.number().int().nonnegative(),
@@ -61,9 +63,3 @@ export const AgentNode = z.object({
   max_steps: z.number().int().positive(),
 });
 export type AgentNode = z.infer<typeof AgentNode>;
-
-export const NODE_TYPE_LABEL: Record<AgentNode['node_type'], string> = {
-  workspace: '工作区',
-  feature: '特性',
-  task: '任务',
-};

@@ -26,7 +26,7 @@ export type WorkflowSettings = z.infer<typeof WorkflowSettings>;
 
 /** 持久化单元：一个 workflow 工作区的全量快照（根节点 parent_id 为 null）。 */
 export const WorkflowSnapshot = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   workspace_id: z.string(),
   title: z.string(),
   /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
@@ -69,7 +69,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL: GlobalOperationDetail = {
 
 需要先确认的地方单独列出来，等人确认后再推进。
 
-（收尾）方案确认后、推进到实现中之前，把方案按「目标与验收 → 对外契约 → 结构与依赖 → 数据与状态 → 表现与文案」写进本节点工作手册的「方案」小节，并在「实施顺序」里列出待办；没写进手册不算讨论结束。`,
+（收尾）方案确认后、推进到实现中之前，用 workflow_manual({ target: "session", action: "replace_section", section: "方案", content: "..." }) 把方案按「目标与验收 → 对外契约 → 结构与依赖 → 数据与状态 → 表现与文案」写进本节点手册的「方案」小节，并在「实施顺序」里列出待办（这一步同样用 workflow_manual 写）。没写进手册不能推进——推进工具会拦你。`,
     enter_trigger: null,
   },
   // C —— 实现中
@@ -84,12 +84,12 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL: GlobalOperationDetail = {
 
 实现中发现方案有洞，停下来说明，不要自行扩大范围。
 
-（纪律）一次只推进一层：按工作手册「实施顺序」里当前未勾的第一条做，完成这一层就把它勾成 - [x] 并停下汇报，等「继续」再做下一层。只改勾选状态，不要重排或改写「实施顺序」这一节。`,
+（纪律）一次只推进一层：按工作手册「实施顺序」里当前未勾的第一条做，完成这一层就用 workflow_check({ item: "条目原文", done: true }) 勾掉并停下汇报，等「继续」再做下一层。只改勾选状态，不要重排或改写「实施顺序」这一节。`,
     enter_trigger: '先读工作手册「实施顺序」，按未勾的第一层开始实现，完成一层勾掉再继续。',
   },
   // D —— 验收中
   verifying: {
-    operation_detail: `本阶段只核对与报告，不改代码。
+    operation_detail: `本阶段以核对为主；发现问题可以直接修，但必须在检查表里注明改了什么、影响哪些验收项。
 
 交一张检查表，一行一项：
 
@@ -103,7 +103,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL: GlobalOperationDetail = {
 
 没有证据的「通过」不算通过；不要用「应该没问题」收尾。
 
-发现必须修的问题，说明后回到实现中阶段。`,
+改动较大或方案本身有问题时，说明后回到实现中阶段（返工要带 reason）。`,
     enter_trigger: '开始验收：逐条对照验收条件，给我通过/不通过和证据。',
   },
 };

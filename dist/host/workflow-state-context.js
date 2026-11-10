@@ -18,13 +18,13 @@ import { join } from 'node:path';
 const MAX_TEXT_BYTES = 8000;
 /** 注入用的工作手册「最近内容」长度（全文不常驻，靠文件工具取更早部分）。 */
 const MANUAL_RECENT_CHARS = 2000;
-/** 注入用的父级摘要上限。 */
-const GLOBAL_MANUAL_CHARS = 800;
 /**
  * 注册 workflow 状态上下文。
  * @returns 调试用的 peek(sessionId)：强制算一次并返回将要注入的文本。
  */
-export function registerWorkflowStateContext(ctx, repository) {
+export function registerWorkflowStateContext(ctx, repository, 
+/** 只有返回 true 的会话才注入；由宿主半按"这个会话是不是工作流预设"判定。 */
+isWorkflowSession = () => true) {
     /** sessionId -> 算好的文本（同步可读，供 systemPrompt.context 使用）。 */
     const cache = new Map();
     const pending = new Set();
@@ -32,16 +32,19 @@ export function registerWorkflowStateContext(ctx, repository) {
         const found = await repository.findBySession(sessionId);
         if (found === null || found === undefined) {
             cache.delete(sessionId);
+            logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-node)`);
             return '';
         }
         const snapshot = await repository.get(found.workflowId);
         if (snapshot === null) {
             cache.delete(sessionId);
+            logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-workflow)`);
             return '';
         }
         const node = snapshot.nodes.find((candidate) => candidate.node_id === found.nodeId);
         if (node === undefined) {
             cache.delete(sessionId);
+            logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-node-in-snapshot)`);
             return '';
         }
         const global = await repository.getAppGlobalOperationDetail();
@@ -51,6 +54,7 @@ export function registerWorkflowStateContext(ctx, repository) {
             '<workflow-state>',
             `节点：${node.title || '(未命名)'}　workflow：${snapshot.title}`,
             `当前状态：${label}`,
+            '（阶段边界是硬约束：在「讨论中」「验收中」「已完结」时改文件会被拦截。要动手先调用 workflow_advance 推进阶段，工具会返回该阶段的完整规则。）',
         ];
         if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
             parts.push('', effective.full_detail.trim());
@@ -80,13 +84,22 @@ export function registerWorkflowStateContext(ctx, repository) {
             if (recent.trim() !== '')
                 parts.push(recent);
         }
-        const globalManual = await repository.readGlobalManual(found.workflowId);
-        const globalTrimmed = globalManual.trim();
-        if (globalTrimmed !== '') {
-            parts.push('', '项目手册（总览 / 决策 / 要点）：', globalTrimmed.slice(0, GLOBAL_MANUAL_CHARS));
-        }
+        // —— 项目手册按优先级注入：约束与坑永远在最前，总览/决策只给摘要 ——
+        const projectSections = await repository.readGlobalManualSections(found.workflowId);
+        const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
+        const projectBlocks = [];
+        if (projectSections.constraints.trim() !== '')
+            projectBlocks.push(`【约束 / 红线】\n${clip(projectSections.constraints, 300)}`);
+        if (projectSections.pitfalls.trim() !== '')
+            projectBlocks.push(`【坑与防线】\n${clip(projectSections.pitfalls, 400)}`);
+        if (projectSections.overview.trim() !== '')
+            projectBlocks.push(`【项目总览】\n${clip(projectSections.overview, 120)}`);
+        if (projectSections.decisions.trim() !== '')
+            projectBlocks.push(`【决策记录】\n${clip(projectSections.decisions, 160)}`);
+        if (projectBlocks.length > 0)
+            parts.push('', '项目手册：', projectBlocks.join('\n\n'));
         // 常驻 + 状态推进后的落笔提示：推进会刷新本块，这里天然是"刚推进"那一刻。
-        parts.push('', '收尾时把本次结论写进项目手册的「要点 / 决策」，并同步更新本会话手册的「方案」与「实施顺序」。');
+        parts.push('', '收尾时回答三问并写进项目手册：① 本次新增或推翻了什么决策（写「决策记录」）；② 踩到或复现了什么坑（写「坑与防线」，按「现象 → 根因 → 防线 → 自查」）；③ 两样都没有就写「无」。同时同步本会话手册的「方案」与「实施顺序」。');
         parts.push('</workflow-state>');
         let text = parts.join('\n');
         if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
@@ -99,6 +112,8 @@ export function registerWorkflowStateContext(ctx, repository) {
     const refresh = (sessionId) => {
         if (typeof sessionId !== 'string' || sessionId === '' || pending.has(sessionId))
             return;
+        if (!isWorkflowSession(sessionId))
+            return;
         pending.add(sessionId);
         void buildText(sessionId)
             .catch((error) => {
@@ -110,9 +125,13 @@ export function registerWorkflowStateContext(ctx, repository) {
     const readText = (sessionId) => {
         if (typeof sessionId !== 'string' || sessionId === '')
             return '';
+        if (!isWorkflowSession(sessionId))
+            return '';
         const entry = cache.get(sessionId);
         if (entry !== undefined)
             return entry.text;
+        // 冷缓存：记一条，用来区分"这一轮没注入"是首次装配还是缓存被清了。
+        logEvent(ctx.logger, 'info', `[workflow] context cold (session=${sessionId})`);
         refresh(sessionId);
         return '';
     };
@@ -129,6 +148,11 @@ export function registerWorkflowStateContext(ctx, repository) {
         const sessionId = payload?.agent?.session?.id;
         if (typeof sessionId !== 'string' || sessionId === '')
             return;
+        // 不是工作流预设的会话：既不注入，也不注册上下文位。
+        if (!isWorkflowSession(sessionId))
+            return;
+        // Agent 重建（会话恢复 / 页面刷新）时这条会再出现一次：排查"第二轮丢注入"就看它。
+        logEvent(ctx.logger, 'info', `[workflow] context registered (session=${sessionId})`);
         refresh(sessionId);
         if (typeof this?.systemPrompt?.context !== 'function')
             return;

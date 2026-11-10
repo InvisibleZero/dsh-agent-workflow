@@ -22,9 +22,9 @@ function getWorkspaceStates(path) {
     const promise = (async () => {
         try {
             const response = await fetch(`/dsh-agent-workflow/sidebar-nodes?path=${encodeURIComponent(path)}`);
-            const data = await response.json().catch(() => null);
-            if (data?.ok === true && typeof data.nodes === 'object' && data.nodes !== null) {
-                return data.nodes;
+            const responseBody = await response.json().catch(() => null);
+            if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
+                return responseBody.nodes;
             }
             return {};
         }

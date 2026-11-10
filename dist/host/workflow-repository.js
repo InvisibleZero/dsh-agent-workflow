@@ -3,13 +3,13 @@ import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
-/** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 not_started）。 */
+/** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 discussing）。 */
 export function buildRootNode(id, maxDepth, maxSteps) {
     return {
         node_id: id,
         parent_id: null,
         node_type: 'workspace',
-        current_state: 'not_started',
+        current_state: 'discussing',
         child_ids: [],
         context_payload: null,
         flags: [],
@@ -54,18 +54,27 @@ const SESSION_MANUAL_TEMPLATE = [
     '- [ ] 5. 表现与文案',
     '',
 ].join('\n');
-/** 项目手册模板：项目总览 + 决策记录 + 要点 / 疑难杂症。 */
+/**
+ * 项目手册模板：四类跨会话内容。
+ * - 项目总览：是什么、从哪进
+ * - 决策记录：拍板了什么、放弃了什么
+ * - 约束 / 红线：本项目绝不能做的事（比全局 AGENTS.md 更具体）
+ * - 坑与防线：重复踩的坑，按「现象 → 根因 → 防线 → 自查」写
+ */
 const GLOBAL_MANUAL_TEMPLATE = [
     '# 项目手册',
     '',
     '## 项目总览',
-    '<!-- 这个项目在做什么、有哪些特性、整体结构 -->',
+    '<!-- 这个项目在做什么、技术栈、关键目录；不超过 3 行 -->',
     '',
     '## 决策记录',
-    '<!-- 拍板过的分叉点：为什么选 A 不选 B -->',
+    '<!-- 拍板过的分叉点：选了什么、为什么、放弃了什么；每条不超过 2 行 -->',
     '',
-    '## 要点 / 疑难杂症',
-    '<!-- 跨会话延续的结论与坑 -->',
+    '## 约束 / 红线',
+    '<!-- 本项目绝不能做的事；只写能判定的，不写"注意质量"这类空话 -->',
+    '',
+    '## 坑与防线',
+    '<!-- 现象 → 根因 → 防线 → 自查；每条不超过 3 行 -->',
     '',
 ].join('\n');
 /** 从工作手册里解析「实施顺序」小节的勾选清单；解析不到返回空数组。 */
@@ -107,6 +116,104 @@ function parseHasPlan(manual) {
         return true;
     }
     return false;
+}
+// —— 手册编辑（AI 专用工具的实现）——
+/** 去掉 `##` 前缀后的标题文字。 */
+function headingText(line) {
+    return line.replace(/^#+\s*/, '').trim();
+}
+/** 手册里现有的一级小节名（给"小节不存在"的报错用）。 */
+function availableSections(manual) {
+    return manual
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('## '))
+        .map(headingText);
+}
+/**
+ * 按小节替换正文：只改 `## <section>` 到下一个 `## ` 之间的内容，标题与其它小节保留。
+ * aliases 用于兼容旧模板的标题（例如「坑与防线」在旧手册里叫「要点 / 疑难杂症」）。
+ * @throws 手册里没有该小节时抛出，并列出可用小节。
+ */
+function replaceSectionBody(manual, section, content, aliases = []) {
+    const lines = manual.split(/\r?\n/);
+    const candidates = [section, ...aliases];
+    const start = lines.findIndex((line) => line.startsWith('## ')
+        && candidates.some((candidate) => headingText(line).startsWith(candidate)));
+    if (start < 0) {
+        throw new Error(`手册里没有「${section}」小节；可用小节：${availableSections(manual).join(' / ')}`);
+    }
+    let end = lines.length;
+    for (let index = start + 1; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (line !== undefined && line.startsWith('## ')) {
+            end = index;
+            break;
+        }
+    }
+    const head = lines.slice(0, start + 1);
+    const tail = lines.slice(end);
+    const body = content.trim();
+    return [...head, '', body, '', ...tail].join('\n').replace(/\n{3,}/g, '\n\n');
+}
+/**
+ * 旧模板标题 → 新标题的兼容映射：写入时如果找不到新标题，就退回旧标题。
+ * （「要点 / 疑难杂症」是 v0.2.0 的旧名，现在叫「坑与防线」。）
+ */
+const MANUAL_SECTION_ALIASES = {
+    '坑与防线': ['要点'],
+};
+/** 按 `## 标题` 切分手册，返回有序的 { 标题, 正文 } 列表。 */
+function splitManualSections(manual) {
+    const sections = [];
+    let current = null;
+    for (const line of manual.split(/\r?\n/)) {
+        if (line.startsWith('## ')) {
+            if (current !== null)
+                sections.push({ title: current.title, body: current.lines.join('\n').trim() });
+            current = { title: headingText(line), lines: [] };
+            continue;
+        }
+        if (current !== null)
+            current.lines.push(line);
+    }
+    if (current !== null)
+        sections.push({ title: current.title, body: current.lines.join('\n').trim() });
+    return sections;
+}
+/** 追加一个不存在的小节（用于旧手册缺新小节时的迁移：只追加，不改动已有内容）。 */
+function appendSection(manual, section, content) {
+    const base = manual.trimEnd();
+    const body = content.trim();
+    return `${base}\n\n## ${section}\n\n${body}\n`;
+}
+/** 勾选/取消「实施顺序」里的某一条：按条目文字精确匹配，只改复选框字符。 */ function toggleChecklistLine(manual, label, done) {
+    const lines = manual.split(/\r?\n/);
+    let inSection = false;
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (line === undefined)
+            continue;
+        if (line.trim() === '## 实施顺序') {
+            inSection = true;
+            continue;
+        }
+        if (inSection && line.startsWith('## '))
+            break;
+        if (!inSection)
+            continue;
+        const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
+        if (match !== null && match[4] !== undefined && match[4].trim() === label) {
+            lines[index] = `${match[1] ?? ''}${done ? 'x' : ' '}${match[3] ?? ''}${match[4]}`;
+            return lines.join('\n');
+        }
+    }
+    throw new Error(`没能定位到条目「${label}」`);
+}
+/** 原子写：临时文件 + rename，避免写一半留下残文件。 */
+async function writeTextAtomic(path, content) {
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    await fs.writeFile(tmp, content, 'utf8');
+    await fs.rename(tmp, path);
 }
 async function writeIfMissing(path, content) {
     try {
@@ -217,7 +324,7 @@ export class WorkflowRepository {
             ? input.hostWorkspaceId
             : undefined;
         const snapshot = {
-            version: 1,
+            version: 2,
             workspace_id: id,
             title,
             working_directory: input.path,
@@ -474,7 +581,7 @@ export class WorkflowRepository {
             const snapshot = await this.storage.load(input.id);
             if (snapshot === null)
                 throw new Error('找不到该 workflow');
-            const validStates = ['not_started', 'discussing', 'implementing', 'verifying', 'completed'];
+            const validStates = ['discussing', 'implementing', 'verifying', 'completed'];
             if (!validStates.includes(input.to))
                 throw new Error('非法状态');
             const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
@@ -487,7 +594,12 @@ export class WorkflowRepository {
                     ? {
                         ...candidate,
                         current_state: input.to,
-                        history: [...(candidate.history ?? []), { at: new Date().toISOString(), from, to: input.to }],
+                        history: [...(candidate.history ?? []), {
+                                at: new Date().toISOString(),
+                                from,
+                                to: input.to,
+                                ...(typeof input.by === 'string' && input.by !== '' ? { by: input.by } : {}),
+                            }],
                     }
                     : candidate),
             };
@@ -580,7 +692,7 @@ export class WorkflowRepository {
             return existing;
         const id = randomUUID();
         const snapshot = {
-            version: 1,
+            version: 2,
             workspace_id: id,
             title: title !== '' ? title : basename(workingDirectory),
             working_directory: workingDirectory,
@@ -623,6 +735,8 @@ export class WorkflowRepository {
                 node_type: 'task',
                 session_id: input.sessionId,
                 depth: 0,
+                // 新会话直接进「讨论中」：状态机里已经没有"未开始"这一态，也就没有"自动迁移"这条记录。
+                current_state: 'discussing',
             };
             const updated = { ...snapshot, nodes: [...snapshot.nodes, child] };
             await this.storage.save(updated);
@@ -685,6 +799,135 @@ export class WorkflowRepository {
         const meta = { mtimeMs, checklist: parseChecklist(manual), hasPlan: parseHasPlan(manual) };
         this.manualMetaCache.set(key, meta);
         return { checklist: meta.checklist, hasPlan: meta.hasPlan };
+    }
+    /** 应用级设置（目前只有"切换状态时是否自动发送默认输入"）。存在 <baseDir>/app-settings.json。 */
+    appSettingsPath() {
+        return join(this.baseDir, 'app-settings.json');
+    }
+    async getAppSettings() {
+        try {
+            const raw = JSON.parse(await fs.readFile(this.appSettingsPath(), 'utf8'));
+            return { autoSendEnterTrigger: raw?.autoSendEnterTrigger === true };
+        }
+        catch {
+            // 文件不存在或损坏：退回默认（不自动发送）。
+            return { autoSendEnterTrigger: false };
+        }
+    }
+    async updateAppSettings(patch) {
+        const current = await this.getAppSettings();
+        const next = {
+            autoSendEnterTrigger: patch.autoSendEnterTrigger === undefined
+                ? current.autoSendEnterTrigger
+                : patch.autoSendEnterTrigger === true,
+        };
+        await fs.mkdir(this.baseDir, { recursive: true });
+        const target = this.appSettingsPath();
+        const tmp = `${target}.tmp`;
+        await fs.writeFile(tmp, JSON.stringify(next, null, 2), 'utf8');
+        await fs.rename(tmp, target);
+        return next;
+    }
+    /**
+     * 读项目手册并按四类内容拆开，供注入按优先级取用。
+     * 旧标题「要点 / 疑难杂症」也算「坑与防线」。
+     */
+    async readGlobalManualSections(workflowId) {
+        const manual = await this.readGlobalManual(workflowId);
+        const sections = splitManualSections(manual);
+        const pick = (prefixes) => sections
+            .find((section) => prefixes.some((prefix) => section.title.startsWith(prefix)))
+            ?.body ?? '';
+        return {
+            overview: pick(['项目总览']),
+            decisions: pick(['决策记录']),
+            constraints: pick(['约束']),
+            pitfalls: pick(['坑与防线', '要点']),
+        };
+    }
+    /**
+     * 读手册全文（AI 专用工具的 read 动作）。
+     * nodeId 为 null 时读项目手册；否则读该会话的会话手册。
+     */
+    async readManual(workflowId, nodeId) {
+        if (nodeId === null)
+            return this.readGlobalManual(workflowId);
+        const manual = await this.readNodeManual(workflowId, nodeId);
+        return manual === null ? '' : manual.manual;
+    }
+    /**
+     * 按小节替换手册正文（AI 专用工具的唯一写入口）。
+     * 只改指定 `## 小节` 的正文，标题与其它小节原样保留；路径由这里拼，调用方不能指定。
+     */
+    async replaceManualSection(input) {
+        const { file, isSession } = await this.resolveManualFile(input.workflowId, input.nodeId);
+        const maxBytes = isSession ? MANUAL_MAX_BYTES : GLOBAL_MANUAL_MAX_BYTES;
+        const current = await this.readFileOrTemplate(file, isSession);
+        let next;
+        try {
+            next = replaceSectionBody(current, input.section, input.content, MANUAL_SECTION_ALIASES[input.section] ?? []);
+        }
+        catch (error) {
+            // 旧版项目手册没有「约束 / 坑与防线」这类新小节：追加而不是报错（只对项目手册生效）。
+            if (isSession)
+                throw error;
+            next = appendSection(current, input.section, input.content);
+        }
+        const bytes = Buffer.byteLength(next, 'utf8');
+        if (bytes > maxBytes) {
+            throw new Error(`写入后手册会变成 ${bytes} 字节，超过上限 ${maxBytes} 字节；请精简内容`);
+        }
+        await writeTextAtomic(file, next);
+        this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId ?? ''}`);
+        return { bytes, section: input.section };
+    }
+    /**
+     * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。
+     * @returns 勾选后的完整清单，方便模型确认进度。
+     */
+    async setChecklistItem(input) {
+        const { file } = await this.resolveManualFile(input.workflowId, input.nodeId);
+        const current = await this.readFileOrTemplate(file, true);
+        const items = parseChecklist(current);
+        if (items.length === 0)
+            throw new Error('这本手册的「实施顺序」里还没有条目，先用 workflow_manual 写入');
+        const target = input.label.trim();
+        const match = items.find((item) => item.label === target);
+        if (match === undefined) {
+            throw new Error(`「实施顺序」里没有「${target}」这条；可勾选的条目：${items.map((item) => item.label).join(' / ')}`);
+        }
+        const next = toggleChecklistLine(current, target, input.done);
+        await writeTextAtomic(file, next);
+        this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
+        return parseChecklist(next);
+    }
+    /** 会话/项目手册的绝对路径与"是不是会话手册"。 */
+    async resolveManualFile(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            throw new Error('找不到该 workflow');
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            throw new Error('该 workflow 没有工作目录');
+        if (nodeId !== null) {
+            const exists = snapshot.nodes.some((node) => node.node_id === nodeId);
+            if (!exists)
+                throw new Error('找不到节点');
+        }
+        const wfDir = join(workingDir, WORKFLOW_SUBDIR);
+        await fs.mkdir(wfDir, { recursive: true });
+        return {
+            file: join(wfDir, nodeId === null ? globalManualFileName() : sessionManualFileName(nodeId)),
+            isSession: nodeId !== null,
+        };
+    }
+    async readFileOrTemplate(file, isSession) {
+        try {
+            return await fs.readFile(file, 'utf8');
+        }
+        catch {
+            return isSession ? SESSION_MANUAL_TEMPLATE : GLOBAL_MANUAL_TEMPLATE;
+        }
     }
 }
 //# sourceMappingURL=workflow-repository.js.map

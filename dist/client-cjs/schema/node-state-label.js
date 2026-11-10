@@ -9,7 +9,6 @@ exports.NODE_STATE_LABEL = void 0;
  * 就不会把 zod 拖进浏览器包（否则整个客户端 entry 会在启动时失败）。
  */
 exports.NODE_STATE_LABEL = {
-    not_started: '未开始',
     discussing: '讨论中',
     implementing: '实现中',
     verifying: '验收中',

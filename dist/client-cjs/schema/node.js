@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NODE_TYPE_LABEL = exports.AgentNode = void 0;
+exports.AgentNode = void 0;
 const zod_1 = require("zod");
 const node_state_1 = require("./node-state");
 /**
@@ -55,6 +55,8 @@ exports.AgentNode = zod_1.z.object({
         at: zod_1.z.string(),
         from: zod_1.z.string(),
         to: zod_1.z.string(),
+        /** 谁触发的这次迁移：human（点胶囊）/ agent-request（模型请求并经人同意）/ agent（返工等）。 */
+        by: zod_1.z.string().optional(),
     })).optional(),
     // —— 防御性约束 ——
     depth: zod_1.z.number().int().nonnegative(),
@@ -62,9 +64,4 @@ exports.AgentNode = zod_1.z.object({
     step_count: zod_1.z.number().int().nonnegative(),
     max_steps: zod_1.z.number().int().positive(),
 });
-exports.NODE_TYPE_LABEL = {
-    workspace: '工作区',
-    feature: '特性',
-    task: '任务',
-};
 //# sourceMappingURL=node.js.map

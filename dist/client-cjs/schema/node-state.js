@@ -1,16 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NODE_STATE_LABEL = exports.ACTIVE_STATE_ORDER = exports.StateDetail = exports.NodeFlag = exports.ActiveState = exports.NodeState = void 0;
+exports.StateDetail = exports.NodeFlag = exports.ActiveState = exports.NodeState = void 0;
 exports.isActiveState = isActiveState;
 const zod_1 = require("zod");
 /**
- * 节点主状态（生命周期五态）。
- * 前三个活跃态（discussing / implementing / verifying）各自拥有专属操作细节（B/C/D）；
- * not_started 是保留态（无操作细节，首次对话自动进入 discussing）；
+ * 节点主状态（生命周期四态）。
+ * 三个活跃态（discussing / implementing / verifying）各自拥有专属操作细节（B/C/D）；
+ * 新节点直接进入 discussing（见 workflow-repository 的 ensureNode），
  * completed 是终态（无操作细节）。
  */
 exports.NodeState = zod_1.z.enum([
-    'not_started', // 未开始（保留态）
     'discussing', // 讨论中（B）
     'implementing', // 实现中（C）
     'verifying', // 验收中（D）
@@ -30,16 +29,13 @@ exports.StateDetail = zod_1.z.object({
     enter_trigger: zod_1.z.string().nullable(),
 });
 /** 活跃态的前进顺序，用于聚合与排序。 */
-exports.ACTIVE_STATE_ORDER = [
+const ACTIVE_STATE_ORDER = [
     'discussing',
     'implementing',
     'verifying',
 ];
 /** 判断是否为活跃态（拥有专属细节的态）。 */
 function isActiveState(state) {
-    return exports.ACTIVE_STATE_ORDER.includes(state);
+    return ACTIVE_STATE_ORDER.includes(state);
 }
-/** 状态中文名（UI 显示用）；实现搬到 node-state-label，避免客户端半被迫引入 zod。 */
-var node_state_label_1 = require("./node-state-label");
-Object.defineProperty(exports, "NODE_STATE_LABEL", { enumerable: true, get: function () { return node_state_label_1.NODE_STATE_LABEL; } });
 //# sourceMappingURL=node-state.js.map

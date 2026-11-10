@@ -10,7 +10,7 @@
  */
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 
 const CANDIDATE_PORTS = [12031, 10766, 1606, 8326, 9230, 4709, 2340];
 const PORT = Number(process.argv[2] || 0);
@@ -79,7 +79,7 @@ async function main() {
 
   // 1. 自动认领
   const e1 = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: sidA, workingDirectory: dir } });
-  report('ensure-node 认领新会话', e1?.ok === true && e1?.node?.current_state === 'not_started', `node=${e1?.node?.nodeId?.slice(0, 8)}`);
+  report('ensure-node 认领新会话', e1?.ok === true && e1?.node?.current_state === 'discussing', `node=${e1?.node?.nodeId?.slice(0, 8)}`);
   const wfId = e1?.node?.workflowId;
   const nodeA = e1?.node?.nodeId;
 
@@ -89,39 +89,70 @@ async function main() {
 
   // 3. 第二个会话
   const e3 = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: sidB, workingDirectory: dir } });
-  report('第二个会话认领', e3?.ok === true && e3?.node?.current_state === 'not_started');
+  report('第二个会话认领', e3?.ok === true && e3?.node?.current_state === 'discussing');
 
-  // 4. 五态推进 + 时间线
-  const chain = ['discussing', 'implementing', 'verifying', 'completed'];
-  let last = 'not_started';
+  // 4. 推进前置：方案没写不能进实现中
+  const noPlan = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'implementing' } });
+  report('方案为空时拒绝进入实现中', noPlan?.ok === false && String(noPlan?.error ?? '').includes('方案'), String(noPlan?.error ?? '').slice(0, 40));
+
+  const manualPath = join(dir, '.workflow', `会话手册-${nodeA}.md`);
+  const writeManual = async (checked) => writeFile(manualPath, [
+    '# 会话手册',
+    '',
+    '## 方案（上层 → 下层）',
+    '### 1. 目标与验收',
+    '回归用方案：验证推进前置。',
+    '',
+    '## 实施顺序',
+    `- [${checked ? 'x' : ' '}] 1. 第一步`,
+    `- [${checked ? 'x' : ' '}] 2. 第二步`,
+    '',
+  ].join('\n'), 'utf8');
+  await writeManual(false);
+
+  // 5. 推进 + 时间线
+  const chain = ['implementing', 'verifying', 'completed'];
+  let last = 'discussing';
   let chainOk = true;
-  for (const to of chain) {
+  const toImplementing = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'implementing' } });
+  if (toImplementing?.ok !== true) chainOk = false;
+  else last = 'implementing';
+
+  // 6. 清单没勾完不能进验收中
+  const uncheckedTry = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'verifying' } });
+  report('清单未勾完时拒绝进入验收中', uncheckedTry?.ok === false && String(uncheckedTry?.error ?? '').includes('没勾完'), String(uncheckedTry?.error ?? '').slice(0, 40));
+
+  await writeManual(true);
+  for (const to of ['verifying', 'completed']) {
     const r = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to } });
     const detail = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
-    if (detail?.node?.current_state !== to) chainOk = false;
+    if (r?.ok !== true || detail?.node?.current_state !== to) chainOk = false;
     last = to;
   }
-  report('五态正向推进 未开始→已完结', chainOk, `末态=${last}`);
+  report('四态正向推进 讨论中→已完结', chainOk, `末态=${last}`);
 
   const dAfter = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
-  report('推进生成时间线', (dAfter?.node?.history?.length ?? 0) === 4, `条数=${dAfter?.node?.history?.length}`);
+  report('推进生成时间线', (dAfter?.node?.history?.length ?? 0) === 3, `条数=${dAfter?.node?.history?.length}`);
 
   // 5. 返工（条件流转）
   const rb = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'implementing' } });
   const dRb = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
   report('返工 已完结→实现中', dRb?.node?.current_state === 'implementing', `history=${dRb?.node?.history?.length}`);
 
-  // 6. 非法状态被拒
+  // 6. 非法状态被拒，并把 trace 回给调用方（失败时调用方也有钥匙）
   const bad = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'bogus' } });
-  report('非法状态被拒绝', bad?.ok === false);
+  report('非法状态被拒绝，且响应带 traceId', bad?.ok === false && typeof bad?.traceId === 'string', `trace=${bad?.traceId ?? '(无)'}`);
 
-  // 7. 手册 / 清单 / 侧栏批量
+  // 7. 手册 / 清单 / 侧栏批量 / 同意流程
   const manual = await json(port, `node-manual?id=${wfId}&nodeId=${nodeA}`);
   report('node-manual 返回会话手册+项目手册', manual?.manual?.manual !== undefined && typeof manual?.globalManual === 'string');
   const chk = await json(port, `node-checklist?id=${wfId}&nodeId=${nodeA}`);
   report('node-checklist 返回清单结构', chk?.ok === true && Array.isArray(chk?.checklist) && typeof chk?.hasPlan === 'boolean', `清单=${chk?.checklist?.length} 条`);
   const side = await json(port, `sidebar-nodes?path=${encodeURIComponent(dir)}`);
   report('sidebar-nodes 返回两个节点', side?.ok === true && Object.keys(side?.nodes ?? {}).length === 2, `节点=${Object.keys(side?.nodes ?? {}).length}`);
+  // 模型只能"请求"推进：没有请求时同意接口必须拒绝。
+  const noPending = await json(port, 'approve-advance', { method: 'POST', body: { sessionId: sidA, accept: true } });
+  report('没有待确认请求时 approve-advance 被拒', noPending?.ok === false, String(noPending?.error ?? '').slice(0, 30));
 
   // 8. 回收站往返
   await json(port, 'delete', { method: 'POST', body: { id: wfId } });
@@ -134,13 +165,24 @@ async function main() {
   await json(port, 'delete', { method: 'POST', body: { id: wfId } });
   await rm(dir, { recursive: true, force: true });
 
-  // 9. 埋点可观测（/events 接口）+ 断言推进无失败
+  // 9. 埋点可观测（/events 接口）+ 失败链路能按 trace 串起来
   const evts = await json(port, 'events?limit=200');
   const evList = Array.isArray(evts?.events) ? evts.events : [];
   const transOkCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('transition ok')).length;
-  const transFailCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('transition failed')).length;
-  const illegalFailCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('非法状态')).length;
-  report('埋点可观测（/events）且成败都记到', evList.length > 0 && transOkCount >= 1 && transFailCount >= 1 && transFailCount === illegalFailCount, `ok=${transOkCount}, failed=${transFailCount}（非法状态 ${illegalFailCount}）`);
+  const transFailEvents = evList.filter((e) => typeof e.message === 'string' && e.message.includes('transition failed'));
+  const routeFailEvents = evList.filter((e) => typeof e.message === 'string' && e.message.includes('route failed (route=transition'));
+  // 同一跳失败会留两条（路由级 + 业务级），两条必须共享同一个 trace，否则排查时对不上。
+  const tracesPaired = transFailEvents.length > 0
+    && routeFailEvents.length === transFailEvents.length
+    && transFailEvents.every((event) => typeof event.trace === 'string'
+      && routeFailEvents.some((routeEvent) => routeEvent.trace === event.trace));
+  report(
+    '埋点可观测（/events）且失败可按 trace 串起',
+    evList.length > 0 && transOkCount >= 1 && transFailEvents.length >= 1 && tracesPaired
+      && evList.some((e) => typeof e.trace === 'string'),
+    `ok=${transOkCount}, failed=${transFailEvents.length}, routeFailed=${routeFailEvents.length}, tracePaired=${tracesPaired}`,
+  );
+
 
   console.log('');
   // ---------------- 压力 ----------------

@@ -3,8 +3,9 @@
  *
  * 1) 外部依赖白名单：客户端包里只允许 require react / react-dom / react/jsx-runtime。
  *    任何裸包（zod、node:fs…）都会在浏览器模块表里抛错 → entry failed → 桌面端「无法使用」。
- * 2) 注册契约：只注册 sidebar.panellist[id=agent-workflow] 与 main[key=agent-workflow]，
- *    且 id 必须等于 key（宿主点图标就是按这个 key 派发主面板）。
+ * 2) 注册契约：只注册会话维度的四个槽位——输入框状态胶囊（conversation.input.left）、
+ *    设置页分区（settings.section + settings.section.icon）、侧栏会话行状态点
+ *    （sidebar.session.row.trailing）；旧版的 sidebar.panellist / main 已撤掉。
  *
  * 用法：先 `pnpm build`（或 `tsc -p tsconfig.client-cjs.json && node scripts/bundle-client.mjs`），
  * 再 `pnpm smoke`。

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CURRENT_SNAPSHOT_VERSION,
+  SNAPSHOT_MIGRATIONS,
   readSnapshotVersion,
   migrateSnapshot,
   type SnapshotMigration,
@@ -33,12 +34,39 @@ describe('migrateSnapshot', () => {
     expect(out.workspace_id).toBe('ws1');
   });
 
-  it('按迁移链从 v0 迁到 v1', () => {
+  it('按迁移链从 v0 迁到当前版', () => {
     const v0ToV1: SnapshotMigration = (s) => ({ ...s, version: 1, title: (s.title as string) ?? '' });
     const v0 = { version: 0, workspace_id: 'ws1', settings: DEFAULT_SETTINGS, nodes: [] };
-    const out = migrateSnapshot(v0, { 0: v0ToV1 });
-    expect(out.version).toBe(1);
+    const out = migrateSnapshot(v0, { 0: v0ToV1, ...SNAPSHOT_MIGRATIONS });
+    expect(out.version).toBe(CURRENT_SNAPSHOT_VERSION);
     expect(out.title).toBe('');
+  });
+
+  it('v1 的「未开始」节点迁到「讨论中」', () => {
+    const legacy = {
+      version: 1,
+      workspace_id: 'ws1',
+      title: 't',
+      settings: DEFAULT_SETTINGS,
+      nodes: [
+        {
+          node_id: 'n1',
+          parent_id: null,
+          node_type: 'task',
+          current_state: 'not_started',
+          child_ids: [],
+          context_payload: null,
+          flags: [],
+          depth: 0,
+          max_depth: 8,
+          step_count: 0,
+          max_steps: 200,
+        },
+      ],
+    };
+    const out = migrateSnapshot(legacy);
+    expect(out.version).toBe(2);
+    expect(out.nodes[0]?.current_state).toBe('discussing');
   });
 
   it('缺迁移步骤抛错', () => {

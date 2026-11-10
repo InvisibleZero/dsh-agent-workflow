@@ -29,31 +29,16 @@ interface Captured {
   label?: string | (() => string);
 }
 
-/** 假 ctx.slots：只实现 apply 真正用到的两个方法，并把注册原样记下来。 */
-function makeCtx(captured: Captured[], tabTypes: Array<Record<string, unknown>> = [], options: { injectThrows?: boolean } = {}) {
+/** 假 ctx：只实现客户端入口真正用到的 slots 服务，并把注册原样记下来。 */
+function makeCtx(captured: Captured[], options: { registerThrows?: boolean } = {}) {
   return {
-    // tab 类型走 ctx.inject(['sidebarRightTabs'], ...)，这里给一个能记账的假注册表。
-    inject(_deps: string[], callback: (ctx: any) => void) {
-      callback({
-        effect: (fn: () => unknown) => {
-          const dispose = fn();
-          return typeof dispose === 'function' ? dispose : () => {};
-        },
-        sidebarRightTabs: {
-          register(definition: Record<string, unknown>) {
-            tabTypes.push(definition);
-            return () => {};
-          },
-        },
-      });
-    },
     slots: {
       inject(_key: string, callback: () => unknown) {
-        if (options.injectThrows === true) throw new Error('slots 服务未就绪');
         callback();
         return () => {};
       },
       register(registration: Captured & { name: string }, component: unknown) {
+        if (options.registerThrows === true) throw new Error('槽位已被占用');
         if (typeof component !== 'function') throw new Error('注册的组件必须是函数');
         captured.push({
           slot: registration.name,
@@ -69,39 +54,36 @@ function makeCtx(captured: Captured[], tabTypes: Array<Record<string, unknown>> 
 }
 
 describe('dsh-agent-workflow 客户端入口', () => {
-  it('声明 slots / remote / shortcuts 三个硬依赖', () => {
-    expect(inject).toContain('slots');
-    // remote：置顶桥直连 workspaceController
-    expect(inject).toContain('remote');
-    // shortcuts：宿主会话菜单项需要 hooks.shortcuts = ctx.shortcuts.catalog
-    expect(inject).toContain('shortcuts');
+  it('只声明 slots 一个硬依赖', () => {
+    expect(inject).toEqual(['slots']);
   });
 
-  it('只注册伪装层 sidebar.workspaces（导航项与主面板已撤掉）', () => {
+  it('注册会话维度的四个槽位，且不再碰工作区浏览器', () => {
     const captured: Captured[] = [];
-    const tabTypes: Array<Record<string, unknown>> = [];
-    apply(makeCtx(captured, tabTypes));
+    apply(makeCtx(captured));
 
-    expect(captured).toHaveLength(1);
+    expect(captured.map((item) => item.slot).sort()).toEqual([
+      'conversation.input.left',
+      'settings.section',
+      'settings.section.icon',
+      'sidebar.session.row.trailing',
+    ]);
 
-    const browser = captured.find((item) => item.slot === 'sidebar.workspaces');
-    expect(browser).toBeDefined();
-
-    // 左侧导航项与主面板弹窗都应撤掉。
+    // 旧版替换宿主侧栏/主面板的那套已撤掉。
+    expect(captured.some((item) => item.slot === 'sidebar.workspaces')).toBe(false);
     expect(captured.some((item) => item.slot === 'sidebar.panellist')).toBe(false);
     expect(captured.some((item) => item.slot === 'main')).toBe(false);
 
-    // 右侧栏那套也全部撤掉。
-    expect(captured.some((item) => item.slot === 'sidebar.right.pane.tab')).toBe(false);
-    expect(captured.some((item) => item.slot === 'conversation.session.header.utilities')).toBe(false);
-    expect(captured.some((item) => item.slot === 'sidebar.footer.action')).toBe(false);
-    // 也不再注册右侧栏 tab 类型。
-    expect(tabTypes).toHaveLength(0);
+    // 各槽位用插件自己的 id，避免顶掉宿主条目。
+    const stateBadge = captured.find((item) => item.slot === 'conversation.input.left');
+    expect(stateBadge?.id).toBe('dsh-agent-workflow.state');
+    const stateDot = captured.find((item) => item.slot === 'sidebar.session.row.trailing');
+    expect(stateDot?.id).toBe('dsh-agent-workflow.state-dot');
   });
 
-  it('槽位注册失败时向上抛出之前先兜住（不能拖垮整页启动）', () => {
+  it('某个槽位注册失败不拖垮整页启动', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => apply(makeCtx([], [], { injectThrows: true }))).not.toThrow();
+    expect(() => apply(makeCtx([], { registerThrows: true }))).not.toThrow();
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });

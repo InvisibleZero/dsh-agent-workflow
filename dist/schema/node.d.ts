@@ -17,7 +17,7 @@ export declare const AgentNode: z.ZodObject<{
      */
     session_id: z.ZodOptional<z.ZodString>;
     node_type: z.ZodEnum<["workspace", "feature", "task"]>;
-    current_state: z.ZodEnum<["not_started", "discussing", "implementing", "verifying", "completed"]>;
+    current_state: z.ZodEnum<["discussing", "implementing", "verifying", "completed"]>;
     child_ids: z.ZodArray<z.ZodString, "many">;
     context_payload: z.ZodUnknown;
     /** 横切标志（如 blocked = 异常阻塞待人审）。 */
@@ -114,14 +114,18 @@ export declare const AgentNode: z.ZodObject<{
         at: z.ZodString;
         from: z.ZodString;
         to: z.ZodString;
+        /** 谁触发的这次迁移：human（点胶囊）/ agent-request（模型请求并经人同意）/ agent（返工等）。 */
+        by: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         at: string;
         from: string;
         to: string;
+        by?: string | undefined;
     }, {
         at: string;
         from: string;
         to: string;
+        by?: string | undefined;
     }>, "many">>;
     depth: z.ZodNumber;
     max_depth: z.ZodNumber;
@@ -131,7 +135,7 @@ export declare const AgentNode: z.ZodObject<{
     node_id: string;
     parent_id: string | null;
     node_type: "workspace" | "feature" | "task";
-    current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+    current_state: "discussing" | "implementing" | "verifying" | "completed";
     child_ids: string[];
     flags: "blocked"[];
     depth: number;
@@ -165,12 +169,13 @@ export declare const AgentNode: z.ZodObject<{
         at: string;
         from: string;
         to: string;
+        by?: string | undefined;
     }[] | undefined;
 }, {
     node_id: string;
     parent_id: string | null;
     node_type: "workspace" | "feature" | "task";
-    current_state: "not_started" | "discussing" | "implementing" | "verifying" | "completed";
+    current_state: "discussing" | "implementing" | "verifying" | "completed";
     child_ids: string[];
     depth: number;
     max_depth: number;
@@ -204,8 +209,8 @@ export declare const AgentNode: z.ZodObject<{
         at: string;
         from: string;
         to: string;
+        by?: string | undefined;
     }[] | undefined;
 }>;
 export type AgentNode = z.infer<typeof AgentNode>;
-export declare const NODE_TYPE_LABEL: Record<AgentNode['node_type'], string>;
 //# sourceMappingURL=node.d.ts.map

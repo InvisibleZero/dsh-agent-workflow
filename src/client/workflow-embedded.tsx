@@ -3,11 +3,11 @@
  * workflow 模块（减法后）：不再渲染树 / 不再替换宿主的侧栏浏览器。
  *
  * 现在只保留会话维度的东西：
- *   - 会话状态徽标（输入框工具条）：当前状态 + 推进 + 实施清单；
- *   - 节点补充说明 / 工作手册（只读）、全局操作细节设置：都由徽标自己用 portal 弹。
+ *   - 会话状态徽标（输入框工具条）：当前状态 + 推进 + 实施清单。
+ *   - 节点补充说明 / 工作手册（只读）、全局操作细节设置：都由徽标自己用 portal 弹窗。
  *
- * 弹窗改用 `createPortal(document.body)`：输入框容器带 transform，自绘 fixed 会跑偏，
- * portal 到 body 后 fixed 相对视口，彻底绕开这个坑。
+ * 弹窗改用 `createPortal(document.body)`：输入框容器有 transform，自绘 fixed 会跑偏，
+ * portal 挂 body 上 fixed 相对视口，彻底绕开这个坑。
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -17,9 +17,8 @@ import { menuPointFromEvent, menuAnchorRect } from './menu-anchor';
 import { NODE_STATE_COLOR } from './node-state-color';
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
-/** 五态单向推进表。 */
+/** 四态单向推进表。 */
 const NEXT_NODE_STATE: Record<string, string | null> = {
-  not_started: 'discussing',
   discussing: 'implementing',
   implementing: 'verifying',
   verifying: 'completed',
@@ -31,6 +30,8 @@ interface NodeInfo {
   workflowId: string;
   nodeId: string;
   enterTrigger: string;
+  /** 模型请求推进、等待用户同意的目标状态；null 表示没有待确认请求。 */
+  pendingAdvance: { to: string } | null;
 }
 
 interface ChecklistItem {
@@ -70,8 +71,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId, workingDirectory }),
       });
-      const data = await response.json().catch(() => null);
-      return data?.ok === true && data.node !== null && data.node !== undefined;
+      const responseBody = await response.json().catch(() => null);
+      return responseBody?.ok === true && responseBody.node !== null && responseBody.node !== undefined;
     } catch {
       return false;
     }
@@ -80,10 +81,10 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const readChecklist = async (workflowId: string, nodeId: string): Promise<{ checklist: ChecklistItem[]; hasPlan: boolean }> => {
     try {
       const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-      const data = await response.json().catch(() => null);
-      if (data?.ok === true) {
-        const items = Array.isArray(data.checklist) ? data.checklist : [];
-        const plan = data.hasPlan !== false;
+      const responseBody = await response.json().catch(() => null);
+      if (responseBody?.ok === true) {
+        const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
+        const plan = responseBody.hasPlan !== false;
         setChecklist(items);
         setHasPlan(plan);
         return { checklist: items, hasPlan: plan };
@@ -97,8 +98,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const readNode = async (): Promise<NodeInfo | null> => {
     try {
       const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
-      const data = await response.json().catch(() => null);
-      const node = data?.ok === true ? data.node : null;
+      const responseBody = await response.json().catch(() => null);
+      const node = responseBody?.ok === true ? responseBody.node : null;
       if (node === null || node === undefined) {
         setNodeInfo(null);
         return null;
@@ -108,6 +109,9 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         workflowId: String(node.workflowId),
         nodeId: String(node.nodeId),
         enterTrigger: typeof node.enter_trigger === 'string' ? node.enter_trigger : '',
+        pendingAdvance: responseBody?.pendingAdvance === undefined || responseBody?.pendingAdvance === null
+          ? null
+          : { to: String(responseBody.pendingAdvance.to) },
       };
       setNodeInfo(info);
       return info;
@@ -134,6 +138,52 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     }
     console.warn('[dsh-agent-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
     return false;
+  };
+
+  /** 读应用级开关：切换状态时是否自动发送默认输入（默认关闭）。 */
+  const readAutoSend = async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/dsh-agent-workflow/app-settings');
+      const responseBody = await response.json().catch(() => null);
+      return responseBody?.ok === true && responseBody.autoSendEnterTrigger === true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** 提交输入框内容：优先用 InputActions 的提交方法，退回在输入框上模拟 Enter。 */
+  const submitDraft = (): boolean => {
+    const actions = props?.inputActions;
+    if (actions !== undefined && actions !== null) {
+      const candidates = ['submit', 'send', 'submitInput', 'sendInput', 'sendMessage', 'submitMessage'];
+      for (const name of candidates) {
+        const method = actions[name];
+        if (typeof method !== 'function') continue;
+        try {
+          method.call(actions);
+          return true;
+        } catch (error) {
+          console.warn('[dsh-agent-workflow] 提交默认输入失败：', name, error);
+        }
+      }
+    }
+    const field = document.querySelector('textarea');
+    if (field instanceof HTMLTextAreaElement) {
+      field.focus();
+      field.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true,
+      }));
+      return true;
+    }
+    return false;
+  };
+
+  /** 推进后的默认输入：按开关决定"只填入"还是"填入并发送"。 */
+  const applyEnterTrigger = async (text: string): Promise<void> => {
+    if (text === '') return;
+    if (!pushDraft(text)) return;
+    if (!(await readAutoSend())) return;
+    submitDraft();
   };
 
   useEffect(() => {
@@ -172,15 +222,22 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     setAdvancing(true);
     const startedAt = Date.now();
     try {
-      await fetch('/dsh-agent-workflow/transition', {
+      const response = await fetch('/dsh-agent-workflow/transition', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
       });
+      const payload = await response.json().catch(() => null);
+      // 前置条件没满足（方案没写 / 清单没勾完）时后端会拒绝，这里必须让人看见原因。
+      if (payload === null || payload.ok !== true) {
+        const reason = payload?.error ?? `推进被拒绝（HTTP ${response.status}）`;
+        window.alert(String(reason));
+        return;
+      }
       // 通知侧栏会话行的状态点刷新（清缓存并重取）。
       window.dispatchEvent(new Event('dsh-workflow-state-changed'));
       const info = await readNode();
-      if (info !== null && info.enterTrigger !== '') pushDraft(info.enterTrigger);
+      if (info !== null) await applyEnterTrigger(info.enterTrigger);
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
       else setChecklist([]);
       console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
@@ -202,6 +259,28 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       }
     }
     void transitionTo(nextState);
+  };
+
+  /** 同意 / 拒绝模型发起的推进请求（状态只由这里或手动 → 改变）。 */
+  const respondAdvance = async (accept: boolean) => {
+    try {
+      const response = await fetch('/dsh-agent-workflow/approve-advance', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, accept }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (payload?.ok !== true) {
+        window.alert(String(payload?.error ?? '处理推进请求失败'));
+        return;
+      }
+      window.dispatchEvent(new Event('dsh-workflow-state-changed'));
+      const info = await readNode();
+      if (accept && info !== null) await applyEnterTrigger(info.enterTrigger);
+      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
+    }
   };
 
   const doneCount = checklist.filter((item) => item.done).length;
@@ -226,6 +305,39 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
           <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' }} />
           {label}
         </button>
+        {nodeInfo.pendingAdvance !== null ? (
+          <span
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, height: 22, padding: '0 8px',
+              borderRadius: 6, border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)',
+              fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ color: 'var(--dsw-alias-label-secondary)' }}>
+              请求 → {NODE_STATE_LABEL[nodeInfo.pendingAdvance.to as keyof typeof NODE_STATE_LABEL] ?? nodeInfo.pendingAdvance.to}
+            </span>
+            <button
+              type="button"
+              onClick={() => void respondAdvance(true)}
+              style={{
+                height: 22, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                color: 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))', fontSize: 11, lineHeight: '22px',
+              }}
+            >
+              同意
+            </button>
+            <button
+              type="button"
+              onClick={() => void respondAdvance(false)}
+              style={{
+                height: 22, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer',
+                color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
+              }}
+            >
+              拒绝
+            </button>
+          </span>
+        ) : null}
         {nodeInfo.state === 'implementing' && checklist.length > 0 ? (
           <>
             <button
@@ -239,7 +351,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
               style={{
                 display: 'inline-flex', alignItems: 'center', height: 22, padding: '0 8px',
                 borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
-                color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
+                color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))',
                 fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
               }}
               onMouseEnter={(event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
@@ -354,7 +466,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
           {confirmOpen ? (
             <WorkflowConfirmDialog
               title="进入实现中"
-              message={'这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案'}
+              message={'这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案。'}
               confirmLabel="仍进入"
               onClose={() => setConfirmOpen(false)}
               onConfirm={() => {

@@ -110,8 +110,9 @@ const NODE_DETAIL_TABS = [
  * 设置页里的「操作细节」分区内容。
  * A/B/C/D 四个页签横向排开；每个状态页签内：默认输入在上（20%），操作细节在下（80%）。
  */
-export function WorkflowGlobalSettingsSection() {
+function WorkflowGlobalSettingsSection() {
   const [detail, setDetail] = useState<any>(null);
+  const [autoSend, setAutoSend] = useState(false);
   const [activeTab, setActiveTab] = useState('shared');
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -123,16 +124,44 @@ export function WorkflowGlobalSettingsSection() {
     void (async () => {
       try {
         const response = await fetch('/dsh-agent-workflow/global-settings');
-        const data = await response.json().catch(() => null);
+        const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
-        if (data?.ok === true) setDetail(data.globalOperationDetail);
-        else setError(String(data?.error ?? '读取设置失败'));
+        if (responseBody?.ok === true) setDetail(responseBody.globalOperationDetail);
+        else setError(String(responseBody?.error ?? '读取设置失败'));
       } catch (reason) {
         if (!cancelled) setError(String(reason));
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // 应用级开关：切换状态时是否自动发送默认输入（默认关闭）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch('/dsh-agent-workflow/app-settings');
+        const responseBody = await response.json().catch(() => null);
+        if (!cancelled && responseBody?.ok === true) setAutoSend(responseBody.autoSendEnterTrigger === true);
+      } catch {
+        // 读不到就按默认（关闭）。
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveAutoSend = async (next: boolean) => {
+    setAutoSend(next);
+    try {
+      await fetch('/dsh-agent-workflow/app-settings-save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ autoSendEnterTrigger: next }),
+      });
+    } catch (reason) {
+      console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+    }
+  };
 
   /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
   const persist = async (value: any) => {
@@ -144,13 +173,13 @@ export function WorkflowGlobalSettingsSection() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ globalOperationDetail: value }),
       });
-      const data = await response.json().catch(() => null);
-      if (data?.ok === true) {
+      const responseBody = await response.json().catch(() => null);
+      if (responseBody?.ok === true) {
         setStatus('saved');
         window.setTimeout(() => setStatus((current) => (current === 'saved' ? 'idle' : current)), 1600);
       } else {
         setStatus('error');
-        setError(String(data?.error ?? '保存失败'));
+        setError(String(responseBody?.error ?? '保存失败'));
       }
     } catch (reason) {
       setStatus('error');
@@ -193,6 +222,23 @@ export function WorkflowGlobalSettingsSection() {
       <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }}>
         这些操作细节是应用级全局的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
       </div>
+
+      <label style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
+        fontSize: 12,
+        color: 'var(--dsw-alias-label-secondary)',
+        cursor: 'pointer',
+      }}>
+        <input
+          type="checkbox"
+          checked={autoSend}
+          onChange={(event) => { void saveAutoSend(event.target.checked); }}
+        />
+        切换状态时自动发送默认输入（当前是只填入输入框、不发送；默认关闭）
+      </label>
 
       <div style={{
         border: '1px solid var(--dsw-alias-border-l1)',
@@ -365,9 +411,10 @@ export function WorkflowConfirmDialog(props: {
             borderRadius: 6,
             cursor: 'pointer',
             fontSize: 12,
-            border: 'none',
-            background: 'var(--dsw-alias-state-error-primary, #d64545)',
-            color: '#fff',
+            // 不填充实色：某些主题没定义对应 token，实色 + #fff 会变成"白底白字"。
+            border: '1px solid var(--dsw-alias-state-error-primary)',
+            background: 'transparent',
+            color: 'var(--dsw-alias-state-error-primary)',
           }}
         >{props.confirmLabel}</button>
       </div>
@@ -387,10 +434,10 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     void (async () => {
       try {
         const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-        const data = await response.json().catch(() => null);
+        const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
-        if (data?.ok === true) setPayload(data);
-        else setError(String(data?.error ?? '读取失败'));
+        if (responseBody?.ok === true) setPayload(responseBody);
+        else setError(String(responseBody?.error ?? '读取失败'));
       } catch (reason) {
         if (!cancelled) setError(String(reason));
       }
@@ -404,14 +451,14 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     void (async () => {
       try {
         const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
-        const data = await response.json().catch(() => null);
-        if (cancelled || data?.ok !== true) return;
-        setManualData(data.manual === null
+        const responseBody = await response.json().catch(() => null);
+        if (cancelled || responseBody?.ok !== true) return;
+        setManualData(responseBody.manual === null
           ? null
           : {
-              manual: String(data.manual?.manual ?? ''),
-              notesDir: String(data.manual?.notesDir ?? ''),
-              globalManual: String(data.globalManual ?? ''),
+              manual: String(responseBody.manual?.manual ?? ''),
+              notesDir: String(responseBody.manual?.notesDir ?? ''),
+              globalManual: String(responseBody.globalManual ?? ''),
             });
       } catch {
         // 读不到就不展示。
@@ -452,8 +499,8 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: workflowId, nodeId, state, text }),
         });
-        const data = await response.json().catch(() => null);
-        setNoteStatus(data?.ok === true ? '已保存' : String(data?.error ?? '保存失败'));
+        const responseBody = await response.json().catch(() => null);
+        setNoteStatus(responseBody?.ok === true ? '已保存' : String(responseBody?.error ?? '保存失败'));
       } catch (reason) {
         setNoteStatus(String(reason));
       }

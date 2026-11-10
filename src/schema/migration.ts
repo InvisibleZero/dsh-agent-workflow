@@ -1,17 +1,30 @@
 import { WorkflowSnapshot as WorkflowSnapshotSchema } from './workflow';
 import type { WorkflowSnapshot } from './workflow';
 
-/** 当前快照版本。 */
-export const CURRENT_SNAPSHOT_VERSION = 1;
+/** 当前快照版本。v2 去掉了「未开始」状态。 */
+export const CURRENT_SNAPSHOT_VERSION = 2;
 
 /** 单步迁移：把快照从 version N 迁到 N+1（输入输出都是宽松对象，不强校验）。 */
 export type SnapshotMigration = (snapshot: Record<string, unknown>) => Record<string, unknown>;
 
 /**
- * 版本迁移表：key = 源版本，value = 迁到下一版的函数。
- * 目前 v1 即当前版，无需迁移；未来加字段时在此补 v1 → v2 的迁移。
+ * v1 → v2：删掉「未开始」状态。
+ * 旧快照里 current_state 为 not_started 的节点统一迁到 discussing（时间线原样保留，那是历史事实）。
  */
-export const SNAPSHOT_MIGRATIONS: Readonly<Record<number, SnapshotMigration>> = {};
+const migrateV1ToV2: SnapshotMigration = (snapshot) => {
+  const rawNodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+  const nodes = rawNodes.map((node) => {
+    if (typeof node !== 'object' || node === null) return node;
+    const record = node as Record<string, unknown>;
+    return record.current_state === 'not_started' ? { ...record, current_state: 'discussing' } : record;
+  });
+  return { ...snapshot, version: 2, nodes };
+};
+
+/** 版本迁移表：key = 源版本，value = 迁到下一版的函数。 */
+export const SNAPSHOT_MIGRATIONS: Readonly<Record<number, SnapshotMigration>> = {
+  1: migrateV1ToV2,
+};
 
 /** 读取原始快照的版本号（未强校验，用于决定走哪条迁移链）。 */
 export function readSnapshotVersion(raw: unknown): number {
