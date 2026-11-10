@@ -352,6 +352,25 @@ function WorkspaceBrowser(props) {
         }
         return null;
     })();
+    /** 按目录路径找宿主的「目录工作区」id（Windows 下大小写与结尾斜杠不敏感）。 */
+    const findWorkspaceIdByPath = (path) => {
+        if (typeof path !== 'string' || path.trim() === '')
+            return null;
+        const normalize = (value) => value.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+        const target = normalize(path);
+        for (const workspace of workspaceItems) {
+            const workspacePath = workspace?.path;
+            if (typeof workspacePath !== 'string')
+                continue;
+            if (normalize(workspacePath) !== target)
+                continue;
+            const workspaceId = workspace?.workspaceId;
+            return typeof workspaceId === 'string' ? workspaceId : null;
+        }
+        return null;
+    };
+    /** 交给非 usual 类型插件的运行环境（模块间只通过它拿数据和服务）。 */
+    const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
     const uiWorkspace = getService(ctx, 'uiWorkspace');
     const workspacesSvc = getService(ctx, 'workspaces');
     const openSession = (sessionId) => {
@@ -572,7 +591,7 @@ function WorkspaceBrowser(props) {
                                                     next.add(key);
                                                 return next;
                                             });
-                                        }, () => void loadPluginLists(), ctx, currentSessionId) }, key));
+                                        }, () => void loadPluginLists(), workspaceKindRuntime) }, key));
                                 });
                             })] })) })) }), renameTarget !== null ? (_jsx("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: _jsxs("div", { style: {
                         minWidth: 320,

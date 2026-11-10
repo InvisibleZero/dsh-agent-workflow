@@ -395,6 +395,25 @@ window.__ModuleLoader__.load({
             }
             return null;
         })();
+        /** 按目录路径找宿主的「目录工作区」id（Windows 下大小写与结尾斜杠不敏感）。 */
+        const findWorkspaceIdByPath = (path) => {
+            if (typeof path !== 'string' || path.trim() === '')
+                return null;
+            const normalize = (value) => value.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+            const target = normalize(path);
+            for (const workspace of workspaceItems) {
+                const workspacePath = workspace?.path;
+                if (typeof workspacePath !== 'string')
+                    continue;
+                if (normalize(workspacePath) !== target)
+                    continue;
+                const workspaceId = workspace?.workspaceId;
+                return typeof workspaceId === 'string' ? workspaceId : null;
+            }
+            return null;
+        };
+        /** 交给非 usual 类型插件的运行环境（模块间只通过它拿数据和服务）。 */
+        const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
         const uiWorkspace = getService(ctx, 'uiWorkspace');
         const workspacesSvc = getService(ctx, 'workspaces');
         const openSession = (sessionId) => {
@@ -615,7 +634,7 @@ window.__ModuleLoader__.load({
                                                         next.add(key);
                                                     return next;
                                                 });
-                                            }, () => void loadPluginLists(), ctx, currentSessionId) }, key));
+                                            }, () => void loadPluginLists(), workspaceKindRuntime) }, key));
                                     });
                                 })] })) })) }), renameTarget !== null ? ((0, jsx_runtime_1.jsx)("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: (0, jsx_runtime_1.jsxs)("div", { style: {
                             minWidth: 320,
@@ -873,7 +892,9 @@ window.__ModuleLoader__.load({
      * 工作区行有「⋯」和「新建子会话」；节点行点击打开该节点绑定的会话。
      */
     function WorkflowWorkspaceItem(props) {
-        const { summary, collapsed, onToggle, onChanged, ctx, currentSessionId } = props;
+        const { summary, collapsed, onToggle, onChanged, runtime } = props;
+        const ctx = runtime?.ctx;
+        const currentSessionId = runtime?.currentSessionId ?? null;
         const [snapshot, setSnapshot] = (0, react_1.useState)(null);
         const [loading, setLoading] = (0, react_1.useState)(false);
         const [workspaceMenuOpen, setWorkspaceMenuOpen] = (0, react_1.useState)(false);
@@ -950,8 +971,33 @@ window.__ModuleLoader__.load({
             }
         };
         /**
+         * 找到（必要时补建）该目录对应的宿主「目录工作区」。
+         * 会话必须挂在真实工作区上，否则打开后只会停在「选择工作区」。
+         */
+        const resolveWorkspaceId = async (workingDirectory) => {
+            const existing = typeof runtime?.findWorkspaceIdByPath === 'function'
+                ? runtime.findWorkspaceIdByPath(workingDirectory)
+                : null;
+            if (existing !== null && existing !== undefined && existing !== '')
+                return existing;
+            const workspacesService = readClientService(ctx, 'workspaces');
+            if (workspacesService === undefined || typeof workspacesService.create !== 'function')
+                return null;
+            try {
+                const created = await workspacesService.create({ path: workingDirectory });
+                const createdId = typeof created?.workspaceId === 'string'
+                    ? created.workspaceId
+                    : (typeof created?.id === 'string' ? created.id : null);
+                return createdId;
+            }
+            catch (error) {
+                console.error('[dsh-agent-workflow] 补建目录工作区失败：', error);
+                return null;
+            }
+        };
+        /**
          * 点击节点行：打开该节点对应的会话。
-         * 已绑定 → 直接 openSession；未绑定 → 在 workflow 的工作目录里新建会话，
+         * 已绑定 → 直接 openSession；未绑定 → 在 workflow 的工作目录所属的工作区里新建会话，
          * 写回节点后打开（写回失败也照样打开，不阻塞用户看会话）。
          */
         const openNodeSession = async (node) => {
@@ -974,8 +1020,11 @@ window.__ModuleLoader__.load({
             }
             setBusyNodeId(node.node_id);
             try {
-                const workingDirectory = snapshot?.working_directory;
-                const createdSessionId = await sessions.create(typeof workingDirectory === 'string' && workingDirectory !== '' ? { cwd: workingDirectory } : {});
+                const workingDirectory = typeof snapshot?.working_directory === 'string' ? snapshot.working_directory : '';
+                const workspaceId = workingDirectory !== '' ? await resolveWorkspaceId(workingDirectory) : null;
+                const createdSessionId = await sessions.create(workspaceId !== null && workspaceId !== ''
+                    ? { workspaceId }
+                    : (workingDirectory !== '' ? { cwd: workingDirectory } : {}));
                 if (typeof createdSessionId !== 'string' || createdSessionId === '')
                     throw new Error('新建会话没有返回 id');
                 try {
@@ -1002,12 +1051,31 @@ window.__ModuleLoader__.load({
                 setBusyNodeId(null);
             }
         };
+        /** 解除旧绑定后立刻重建一个挂在工作区上的会话（用于修复“选工作区”那种空壳会话）。 */
+        const rebindNode = async (node) => {
+            try {
+                const response = await fetch('/dsh-agent-workflow/bind-session', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ id: summary.id, nodeId: node.node_id, sessionId: '' }),
+                });
+                const data = await response.json().catch(() => null);
+                if (data?.ok === true)
+                    setSnapshot(data.snapshot);
+            }
+            catch (error) {
+                console.error('[dsh-agent-workflow] 解除绑定失败：', error);
+            }
+            await openNodeSession({ ...node, session_id: undefined });
+        };
         const rootId = snapshot?.workspace_id ?? summary.id;
         const byId = new Map((snapshot?.nodes ?? []).map((node) => [node.node_id, node]));
         const renderNodeRow = (node, depth) => {
             const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
-            // 「推进」已拆成独立的 → 按钮，菜单里只留「新建子会话」。
-            const menuItems = [{ id: 'child', label: '新建子会话' }];
+            // 「推进」已拆成独立的 → 按钮，菜单里只留「新建子会话」；已绑定的节点多一个「重新绑定会话」。
+            const menuItems = typeof node.session_id === 'string' && node.session_id !== ''
+                ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
+                : [{ id: 'child', label: '新建子会话' }];
             const children = (node.child_ids ?? [])
                 .map((id) => byId.get(id))
                 .filter((child) => child !== undefined);
@@ -1024,6 +1092,8 @@ window.__ModuleLoader__.load({
                                             setOpenNodeId(null);
                                             if (id === 'child')
                                                 void addChildTo(node.node_id);
+                                            else if (id === 'rebind')
+                                                void rebindNode(node);
                                         }, portal: true, closeOnPointerLeave: true, anchor: ((0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", onClick: () => setOpenNodeId((previous) => (previous === node.node_id ? null : node.node_id)), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) })) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
                                                 if (nextState !== null)
                                                     void transition(node.node_id, nextState);
@@ -1048,7 +1118,7 @@ window.__ModuleLoader__.load({
         kind: workspace_kind_1.WorkspaceKind.Workflow,
         list: listWorkflows,
         create: createWorkflow,
-        renderItem: (summary, collapsed, onToggle, onChanged, ctx, currentSessionId) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, ctx: ctx, currentSessionId: currentSessionId })),
+        renderItem: (summary, collapsed, onToggle, onChanged, runtime) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, runtime: runtime })),
     };
     //# sourceMappingURL=workflow-embedded.js.map
     },

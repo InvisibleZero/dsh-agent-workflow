@@ -16,20 +16,23 @@ export interface WorkspaceKindItem {
     pinned?: boolean;
     updatedAt?: string;
 }
+/** 类型插件在侧栏里渲染时拿到的运行环境（由侧栏浏览器提供，避免反向 import）。 */
+export interface WorkspaceKindRuntime {
+    /** 客户端插件上下文：用来取 uiWorkspace / sessions / workspaces 等服务。 */
+    ctx: any;
+    /** 当前打开着的会话 id（宿主用 retainedBy.mainView 判定）；没有就是 null。 */
+    currentSessionId: string | null;
+    /** 按目录路径找宿主「目录工作区」的 id；找不到返回 null。 */
+    findWorkspaceIdByPath(path: string): string | null;
+}
 export interface WorkspaceKindPlugin {
     kind: WorkspaceKind;
     /** 列出该类型的所有工作区（侧栏合并显示用）。 */
     list(): Promise<WorkspaceKindItem[]>;
     /** 新建一个该类型工作区（传入已选的目录路径）。 */
     create(path: string): Promise<void>;
-    /**
-     * 渲染该类型工作区在侧栏里的嵌入内容（含标题行 + 展开体）。
-     * `ctx` 是客户端插件上下文：类型插件用它取 uiWorkspace / sessions 等服务，
-     * 不需要为了拿服务反向 import workspace-browser。
-     * `currentSessionId` 是当前打开着的会话（宿主用 retainedBy.mainView 判定），
-     * 用来给对应节点行加选中态。
-     */
-    renderItem: (summary: WorkspaceKindItem, collapsed: boolean, onToggle: () => void, onChanged: (() => void) | undefined, ctx: any, currentSessionId: string | null) => any;
+    /** 渲染该类型工作区在侧栏里的嵌入内容（含标题行 + 展开体）。 */
+    renderItem: (summary: WorkspaceKindItem, collapsed: boolean, onToggle: () => void, onChanged: (() => void) | undefined, runtime: WorkspaceKindRuntime) => any;
 }
 export declare function registerWorkspaceKindPlugin(plugin: WorkspaceKindPlugin): void;
 export declare function getWorkspaceKindPlugin(kind: WorkspaceKind): WorkspaceKindPlugin | undefined;

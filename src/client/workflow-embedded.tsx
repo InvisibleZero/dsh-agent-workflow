@@ -79,10 +79,11 @@ function WorkflowWorkspaceItem(props: {
   collapsed: boolean;
   onToggle: () => void;
   onChanged?: () => void;
-  ctx: any;
-  currentSessionId: string | null;
+  runtime: any;
 }) {
-  const { summary, collapsed, onToggle, onChanged, ctx, currentSessionId } = props;
+  const { summary, collapsed, onToggle, onChanged, runtime } = props;
+  const ctx = runtime?.ctx;
+  const currentSessionId: string | null = runtime?.currentSessionId ?? null;
   const [snapshot, setSnapshot] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -154,8 +155,31 @@ function WorkflowWorkspaceItem(props: {
   };
 
   /**
+   * 找到（必要时补建）该目录对应的宿主「目录工作区」。
+   * 会话必须挂在真实工作区上，否则打开后只会停在「选择工作区」。
+   */
+  const resolveWorkspaceId = async (workingDirectory: string): Promise<string | null> => {
+    const existing = typeof runtime?.findWorkspaceIdByPath === 'function'
+      ? runtime.findWorkspaceIdByPath(workingDirectory)
+      : null;
+    if (existing !== null && existing !== undefined && existing !== '') return existing;
+    const workspacesService = readClientService(ctx, 'workspaces');
+    if (workspacesService === undefined || typeof workspacesService.create !== 'function') return null;
+    try {
+      const created = await workspacesService.create({ path: workingDirectory });
+      const createdId = typeof created?.workspaceId === 'string'
+        ? created.workspaceId
+        : (typeof created?.id === 'string' ? created.id : null);
+      return createdId;
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 补建目录工作区失败：', error);
+      return null;
+    }
+  };
+
+  /**
    * 点击节点行：打开该节点对应的会话。
-   * 已绑定 → 直接 openSession；未绑定 → 在 workflow 的工作目录里新建会话，
+   * 已绑定 → 直接 openSession；未绑定 → 在 workflow 的工作目录所属的工作区里新建会话，
    * 写回节点后打开（写回失败也照样打开，不阻塞用户看会话）。
    */
   const openNodeSession = async (node: any) => {
@@ -180,9 +204,12 @@ function WorkflowWorkspaceItem(props: {
 
     setBusyNodeId(node.node_id);
     try {
-      const workingDirectory = snapshot?.working_directory;
+      const workingDirectory = typeof snapshot?.working_directory === 'string' ? snapshot.working_directory : '';
+      const workspaceId = workingDirectory !== '' ? await resolveWorkspaceId(workingDirectory) : null;
       const createdSessionId = await sessions.create(
-        typeof workingDirectory === 'string' && workingDirectory !== '' ? { cwd: workingDirectory } : {},
+        workspaceId !== null && workspaceId !== ''
+          ? { workspaceId }
+          : (workingDirectory !== '' ? { cwd: workingDirectory } : {}),
       );
       if (typeof createdSessionId !== 'string' || createdSessionId === '') throw new Error('新建会话没有返回 id');
       try {
@@ -205,13 +232,31 @@ function WorkflowWorkspaceItem(props: {
     }
   };
 
+  /** 解除旧绑定后立刻重建一个挂在工作区上的会话（用于修复“选工作区”那种空壳会话）。 */
+  const rebindNode = async (node: any) => {
+    try {
+      const response = await fetch('/dsh-agent-workflow/bind-session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: summary.id, nodeId: node.node_id, sessionId: '' }),
+      });
+      const data = await response.json().catch(() => null);
+      if (data?.ok === true) setSnapshot(data.snapshot);
+    } catch (error) {
+      console.error('[dsh-agent-workflow] 解除绑定失败：', error);
+    }
+    await openNodeSession({ ...node, session_id: undefined });
+  };
+
   const rootId = snapshot?.workspace_id ?? summary.id;
   const byId = new Map<string, any>((snapshot?.nodes ?? []).map((node: any) => [node.node_id, node]));
 
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
-    // 「推进」已拆成独立的 → 按钮，菜单里只留「新建子会话」。
-    const menuItems = [{ id: 'child', label: '新建子会话' }];
+    // 「推进」已拆成独立的 → 按钮，菜单里只留「新建子会话」；已绑定的节点多一个「重新绑定会话」。
+    const menuItems = typeof node.session_id === 'string' && node.session_id !== ''
+      ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
+      : [{ id: 'child', label: '新建子会话' }];
     const children = (node.child_ids ?? [])
       .map((id: string) => byId.get(id))
       .filter((child: any) => child !== undefined);
@@ -248,6 +293,7 @@ function WorkflowWorkspaceItem(props: {
               onSelect={(id: string) => {
                 setOpenNodeId(null);
                 if (id === 'child') void addChildTo(node.node_id);
+                else if (id === 'rebind') void rebindNode(node);
               }}
               portal
               closeOnPointerLeave
@@ -359,14 +405,13 @@ export const workflowKindPlugin: WorkspaceKindPlugin = {
   kind: WorkspaceKind.Workflow,
   list: listWorkflows,
   create: createWorkflow,
-  renderItem: (summary, collapsed, onToggle, onChanged, ctx, currentSessionId) => (
+  renderItem: (summary, collapsed, onToggle, onChanged, runtime) => (
     <WorkflowWorkspaceItem
       summary={summary}
       collapsed={collapsed}
       onToggle={onToggle}
       onChanged={onChanged}
-      ctx={ctx}
-      currentSessionId={currentSessionId}
+      runtime={runtime}
     />
   ),
 };
