@@ -9,14 +9,7 @@ import { jsx as _jsx } from "react/jsx-runtime";
  */
 import { useEffect, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-/** 与输入框徽标保持一致的状态色。 */
-const STATE_COLOR = {
-    not_started: 'var(--dsw-alias-state-idle-primary)',
-    discussing: 'var(--dsw-alias-state-warn-primary)',
-    implementing: 'var(--dsw-alias-brand-primary)',
-    verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-    completed: 'var(--dsw-alias-state-success-primary)',
-};
+import { NODE_STATE_COLOR } from './node-state-color';
 const CACHE_TTL_MS = 5000;
 const promiseCache = new Map();
 function getWorkspaceStates(path) {
@@ -74,7 +67,7 @@ function SessionStateDot(props) {
     }, [sessionId, cwd]);
     if (state === null)
         return null;
-    const color = STATE_COLOR[state];
+    const color = NODE_STATE_COLOR[state];
     if (color === undefined)
         return null;
     return (_jsx("span", { "aria-hidden": true, title: NODE_STATE_LABEL[state] ?? state, style: {

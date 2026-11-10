@@ -18,6 +18,7 @@ const react_dom_1 = require("react-dom");
 const node_state_label_1 = require("../schema/node-state-label");
 const workflow_dialogs_1 = require("./workflow-dialogs");
 const menu_util_1 = require("./menu-util");
+const node_state_color_1 = require("./node-state-color");
 const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
 /** 五态单向推进表。 */
 const NEXT_NODE_STATE = {
@@ -26,14 +27,6 @@ const NEXT_NODE_STATE = {
     implementing: 'verifying',
     verifying: 'completed',
     completed: null,
-};
-/** 状态点颜色（与注入/NODE_STATE_LABEL 对齐）。 */
-const NODE_STATE_COLOR = {
-    not_started: 'var(--dsw-alias-state-idle-primary)',
-    discussing: 'var(--dsw-alias-state-warn-primary)',
-    implementing: 'var(--dsw-alias-brand-primary)',
-    verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-    completed: 'var(--dsw-alias-state-success-primary)',
 };
 /** 返工（后退）转移表：当前态 → 可退回的态。 */
 const BACKWARD_STATES = {
@@ -213,7 +206,7 @@ function WorkflowStateBadge(props) {
                             borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                             color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
                             whiteSpace: 'nowrap', cursor: 'pointer',
-                        }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
+                        }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: node_state_color_1.NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
                                     event.currentTarget.focus({ preventScroll: true });
                                     const point = (0, menu_util_1.menuPointFromEvent)(event);
                                     setChecklistMenu((current) => (current === null ? point : null));

@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
 
@@ -191,6 +192,35 @@ export function WorkflowGlobalSettingsSection() {
     <div style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
       <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }}>
         这些操作细节是应用级全局的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
+      </div>
+
+      <div style={{
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: 8,
+        background: 'var(--dsw-alias-bg-base)',
+        padding: '10px 12px',
+        marginBottom: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          {WORKFLOW_FLOW.map((item, index) => (
+            <span key={item.state} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: NODE_STATE_COLOR[item.state],
+                display: 'inline-block',
+              }} />
+              <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' }}>{item.label}</span>
+              {index < WORKFLOW_FLOW.length - 1 ? (
+                <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginLeft: 2 }}>→</span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
+          返工（退回上一阶段）：实现中 → 讨论中；验收中 → 实现中 / 讨论中
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>

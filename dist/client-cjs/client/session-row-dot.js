@@ -12,14 +12,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  */
 const react_1 = require("react");
 const node_state_label_1 = require("../schema/node-state-label");
-/** 与输入框徽标保持一致的状态色。 */
-const STATE_COLOR = {
-    not_started: 'var(--dsw-alias-state-idle-primary)',
-    discussing: 'var(--dsw-alias-state-warn-primary)',
-    implementing: 'var(--dsw-alias-brand-primary)',
-    verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-    completed: 'var(--dsw-alias-state-success-primary)',
-};
+const node_state_color_1 = require("./node-state-color");
 const CACHE_TTL_MS = 5000;
 const promiseCache = new Map();
 function getWorkspaceStates(path) {
@@ -77,7 +70,7 @@ function SessionStateDot(props) {
     }, [sessionId, cwd]);
     if (state === null)
         return null;
-    const color = STATE_COLOR[state];
+    const color = node_state_color_1.NODE_STATE_COLOR[state];
     if (color === undefined)
         return null;
     return ((0, jsx_runtime_1.jsx)("span", { "aria-hidden": true, title: node_state_label_1.NODE_STATE_LABEL[state] ?? state, style: {

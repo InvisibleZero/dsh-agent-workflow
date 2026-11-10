@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
 import { menuPointFromEvent, menuAnchorRect } from './menu-util';
+import { NODE_STATE_COLOR } from './node-state-color';
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
 /** 五态单向推进表。 */
@@ -23,15 +24,6 @@ const NEXT_NODE_STATE: Record<string, string | null> = {
   implementing: 'verifying',
   verifying: 'completed',
   completed: null,
-};
-
-/** 状态点颜色（与注入/NODE_STATE_LABEL 对齐）。 */
-const NODE_STATE_COLOR: Record<string, string> = {
-  not_started: 'var(--dsw-alias-state-idle-primary)',
-  discussing: 'var(--dsw-alias-state-warn-primary)',
-  implementing: 'var(--dsw-alias-brand-primary)',
-  verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-  completed: 'var(--dsw-alias-state-success-primary)',
 };
 
 interface NodeInfo {

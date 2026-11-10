@@ -9,6 +9,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  */
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
 const FIELD_STYLE = {
     width: '100%',
@@ -161,7 +162,19 @@ export function WorkflowGlobalSettingsSection() {
         return _jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
     }
     const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsx("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => (_jsx("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
+    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsxs("div", { style: {
+                    border: '1px solid var(--dsw-alias-border-l1)',
+                    borderRadius: 8,
+                    background: 'var(--dsw-alias-bg-base)',
+                    padding: '10px 12px',
+                    marginBottom: 12,
+                }, children: [_jsx("div", { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }, children: WORKFLOW_FLOW.map((item, index) => (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsx("span", { style: {
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: '50%',
+                                        background: NODE_STATE_COLOR[item.state],
+                                        display: 'inline-block',
+                                    } }), _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' }, children: item.label }), index < WORKFLOW_FLOW.length - 1 ? (_jsx("span", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginLeft: 2 }, children: "\u2192" })) : null] }, item.state))) }), _jsx("div", { style: { marginTop: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09\uFF1A\u5B9E\u73B0\u4E2D \u2192 \u8BA8\u8BBA\u4E2D\uFF1B\u9A8C\u6536\u4E2D \u2192 \u5B9E\u73B0\u4E2D / \u8BA8\u8BBA\u4E2D" })] }), _jsx("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => (_jsx("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
                         padding: '6px 12px',
                         background: 'transparent',
                         border: 'none',

@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({
     const node_state_label_1 = __req("schema/node-state-label.js");
     const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
     const menu_util_1 = __req("client/menu-util.js");
+    const node_state_color_1 = __req("client/node-state-color.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     /** 五态单向推进表。 */
     const NEXT_NODE_STATE = {
@@ -75,14 +76,6 @@ window.__ModuleLoader__.load({
         implementing: 'verifying',
         verifying: 'completed',
         completed: null,
-    };
-    /** 状态点颜色（与注入/NODE_STATE_LABEL 对齐）。 */
-    const NODE_STATE_COLOR = {
-        not_started: 'var(--dsw-alias-state-idle-primary)',
-        discussing: 'var(--dsw-alias-state-warn-primary)',
-        implementing: 'var(--dsw-alias-brand-primary)',
-        verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-        completed: 'var(--dsw-alias-state-success-primary)',
     };
     /** 返工（后退）转移表：当前态 → 可退回的态。 */
     const BACKWARD_STATES = {
@@ -262,7 +255,7 @@ window.__ModuleLoader__.load({
                                 borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                                 color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
                                 whiteSpace: 'nowrap', cursor: 'pointer',
-                            }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
+                            }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: node_state_color_1.NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
                                         event.currentTarget.focus({ preventScroll: true });
                                         const point = (0, menu_util_1.menuPointFromEvent)(event);
                                         setChecklistMenu((current) => (current === null ? point : null));
@@ -356,6 +349,7 @@ window.__ModuleLoader__.load({
      */
     const react_1 = require("react");
     const node_state_label_1 = __req("schema/node-state-label.js");
+    const node_state_color_1 = __req("client/node-state-color.js");
     const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
     const FIELD_STYLE = {
         width: '100%',
@@ -508,7 +502,19 @@ window.__ModuleLoader__.load({
             return (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
         }
         const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
+        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
+                        border: '1px solid var(--dsw-alias-border-l1)',
+                        borderRadius: 8,
+                        background: 'var(--dsw-alias-bg-base)',
+                        padding: '10px 12px',
+                        marginBottom: 12,
+                    }, children: [(0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }, children: node_state_color_1.WORKFLOW_FLOW.map((item, index) => ((0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsx)("span", { style: {
+                                            width: 7,
+                                            height: 7,
+                                            borderRadius: '50%',
+                                            background: node_state_color_1.NODE_STATE_COLOR[item.state],
+                                            display: 'inline-block',
+                                        } }), (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' }, children: item.label }), index < node_state_color_1.WORKFLOW_FLOW.length - 1 ? ((0, jsx_runtime_1.jsx)("span", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginLeft: 2 }, children: "\u2192" })) : null] }, item.state))) }), (0, jsx_runtime_1.jsx)("div", { style: { marginTop: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09\uFF1A\u5B9E\u73B0\u4E2D \u2192 \u8BA8\u8BBA\u4E2D\uFF1B\u9A8C\u6536\u4E2D \u2192 \u5B9E\u73B0\u4E2D / \u8BA8\u8BBA\u4E2D" })] }), (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
                             padding: '6px 12px',
                             background: 'transparent',
                             border: 'none',
@@ -701,6 +707,34 @@ window.__ModuleLoader__.load({
     }
     //# sourceMappingURL=workflow-dialogs.js.map
     },
+    "client/node-state-color.js": function(__req, module, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.WORKFLOW_FLOW = exports.NODE_STATE_COLOR = void 0;
+    // @ts-nocheck
+    /**
+     * 五态状态色 + 流程顺序（徽标 / 侧栏状态点 / 设置页流程条 共用，避免三处各存一份）。
+     *
+     * 注意：`--dsw-alias-brand-primary` 是对比色（浅色近黑、深色近白），不是蓝色强调色；
+     * 「验收中」用宿主实打实的蓝色 token，并带 `#4176e6` 兜底。
+     */
+    exports.NODE_STATE_COLOR = {
+        not_started: 'var(--dsw-alias-state-idle-primary)',
+        discussing: 'var(--dsw-alias-state-warn-primary)',
+        implementing: 'var(--dsw-alias-brand-primary)',
+        verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
+        completed: 'var(--dsw-alias-state-success-primary)',
+    };
+    /** 设置页流程条用的顺序（含中文标签）。 */
+    exports.WORKFLOW_FLOW = [
+        { state: 'not_started', label: '未开始' },
+        { state: 'discussing', label: '讨论中' },
+        { state: 'implementing', label: '实现中' },
+        { state: 'verifying', label: '验收中' },
+        { state: 'completed', label: '已完结' },
+    ];
+    //# sourceMappingURL=node-state-color.js.map
+    },
     "client/menu-util.js": function(__req, module, exports) {
     "use strict";
     // @ts-nocheck
@@ -743,14 +777,7 @@ window.__ModuleLoader__.load({
      */
     const react_1 = require("react");
     const node_state_label_1 = __req("schema/node-state-label.js");
-    /** 与输入框徽标保持一致的状态色。 */
-    const STATE_COLOR = {
-        not_started: 'var(--dsw-alias-state-idle-primary)',
-        discussing: 'var(--dsw-alias-state-warn-primary)',
-        implementing: 'var(--dsw-alias-brand-primary)',
-        verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
-        completed: 'var(--dsw-alias-state-success-primary)',
-    };
+    const node_state_color_1 = __req("client/node-state-color.js");
     const CACHE_TTL_MS = 5000;
     const promiseCache = new Map();
     function getWorkspaceStates(path) {
@@ -808,7 +835,7 @@ window.__ModuleLoader__.load({
         }, [sessionId, cwd]);
         if (state === null)
             return null;
-        const color = STATE_COLOR[state];
+        const color = node_state_color_1.NODE_STATE_COLOR[state];
         if (color === undefined)
             return null;
         return ((0, jsx_runtime_1.jsx)("span", { "aria-hidden": true, title: node_state_label_1.NODE_STATE_LABEL[state] ?? state, style: {
