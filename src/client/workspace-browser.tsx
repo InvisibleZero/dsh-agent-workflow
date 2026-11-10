@@ -989,7 +989,11 @@ function WorkspaceBrowser(props: any) {
       style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
     >
       {/* 表头：结构、类名、图标与宿主 WorkspaceBrowser 完全一致（标题 + 原地展开的搜索 + 两个按钮）。 */}
-      <div className={joinClasses(C.sectionHeader, wide ? C.searchSpacingMotion : undefined)}>
+      <div
+        className={joinClasses(C.sectionHeader, wide ? C.searchSpacingMotion : undefined)}
+        // 展开时宿主会把 padding-inline 换一套值，导致图标整体位移；这里锁住左边距。
+        style={{ paddingLeft: 'var(--dsh-sidebar-row-padding)' }}
+      >
         {wide ? (
           <span className={joinClasses(C.sectionLabel, C.wide, searchOpen ? C.sectionLabelHidden : undefined)}>工作区</span>
         ) : null}
@@ -1053,7 +1057,11 @@ function WorkspaceBrowser(props: any) {
             </div>
           </div>
         ) : null}
-        <div className={joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined)}>
+        <div
+          className={joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined)}
+          // 兜底：即使类名没生效也不让搜索框把这两个按钮挤走。
+          style={wide && searchOpen ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' } : undefined}
+        >
           <ViewOptionsMenu
             groupBy={viewOptions.groupBy}
             orderBy={viewOptions.orderBy}
