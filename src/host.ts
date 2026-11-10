@@ -254,12 +254,21 @@ export function apply(ctx: any) {
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.parentId !== 'string' || body.parentId === '') throw new Error('缺少 parentId');
-        const result = await repository.addNode({
-          id: body.id,
-          parentId: body.parentId,
-          title: typeof body.title === 'string' ? body.title : undefined,
-        });
-        return { snapshot: result.snapshot, nodeId: result.nodeId };
+        const startedAt = Date.now();
+        let nodeId = '';
+        try {
+          const result = await repository.addNode({
+            id: body.id,
+            parentId: body.parentId,
+            title: typeof body.title === 'string' ? body.title : undefined,
+          });
+          nodeId = result.nodeId;
+          ctx.logger?.info?.(`[workflow] add-node ok (node=${nodeId}, parent=${body.parentId}, ${Date.now() - startedAt}ms)`);
+          return { snapshot: result.snapshot, nodeId };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] add-node failed (parent=${body.parentId}, ${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
+          throw error;
+        }
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

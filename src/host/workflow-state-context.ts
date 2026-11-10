@@ -78,7 +78,7 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
       const recent = manual.length > MANUAL_RECENT_CHARS
         ? `${manual.slice(-MANUAL_RECENT_CHARS)}\n…（更早内容见文件）`
         : manual;
-      parts.push('', `本节点工作手册：${join(manualData.manualDir, `工作手册-${found.nodeId}.md`)}`);
+      parts.push('', `本节点工作手册：${join(manualData.notesDir, `工作手册-${found.nodeId}.md`)}`);
       if (recent.trim() !== '') parts.push(recent);
     }
     const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);
@@ -103,7 +103,7 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
     pending.add(sessionId);
     void buildText(sessionId)
       .catch((error: unknown) => {
-        ctx.logger?.warn?.('workflow state context refresh failed: %o', error);
+        ctx.logger?.warn?.(`workflow state context refresh failed (session=${sessionId}): %o`, error);
       })
       .finally(() => pending.delete(sessionId));
   };

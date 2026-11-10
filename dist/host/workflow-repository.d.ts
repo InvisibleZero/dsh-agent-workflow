@@ -105,11 +105,11 @@ export declare class WorkflowRepository {
         snapshot: WorkflowSnapshot;
         nodeId: string;
     }>;
-    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
+    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
     readNodeManual(workflowId: string, nodeId: string): Promise<{
         manual: string;
         summary: string;
-        manualDir: string;
+        notesDir: string;
     } | null>;
     /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     readParentSummary(workflowId: string, nodeId: string): Promise<string>;

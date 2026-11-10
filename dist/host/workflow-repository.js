@@ -390,7 +390,7 @@ export class WorkflowRepository {
         await this.storage.save(updated);
         return { snapshot: updated, nodeId };
     }
-    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
+    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
     async readNodeManual(workflowId, nodeId) {
         const snapshot = await this.storage.load(workflowId);
         if (snapshot === null)
@@ -404,7 +404,7 @@ export class WorkflowRepository {
         const wfDir = join(workingDir, WORKFLOW_SUBDIR);
         const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
         const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-        return { manual, summary, manualDir: wfDir };
+        return { manual, summary, notesDir: wfDir };
     }
     /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     async readParentSummary(workflowId, nodeId) {

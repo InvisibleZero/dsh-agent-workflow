@@ -584,7 +584,7 @@ var WorkflowRepository = class {
     await this.storage.save(updated);
     return { snapshot: updated, nodeId };
   }
-  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
+  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
   async readNodeManual(workflowId, nodeId) {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return null;
@@ -595,7 +595,7 @@ var WorkflowRepository = class {
     const wfDir = join(workingDir, WORKFLOW_SUBDIR);
     const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
     const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-    return { manual, summary, manualDir: wfDir };
+    return { manual, summary, notesDir: wfDir };
   }
   /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
   async readParentSummary(workflowId, nodeId) {
@@ -675,7 +675,7 @@ function registerWorkflowStateContext(ctx, repository) {
       const manual = manualData.manual;
       const recent = manual.length > MANUAL_RECENT_CHARS ? `${manual.slice(-MANUAL_RECENT_CHARS)}
 \u2026\uFF08\u66F4\u65E9\u5185\u5BB9\u89C1\u6587\u4EF6\uFF09` : manual;
-      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.manualDir, `\u5DE5\u4F5C\u624B\u518C-${found.nodeId}.md`)}`);
+      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.notesDir, `\u5DE5\u4F5C\u624B\u518C-${found.nodeId}.md`)}`);
       if (recent.trim() !== "") parts.push(recent);
     }
     const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);
@@ -696,7 +696,7 @@ function registerWorkflowStateContext(ctx, repository) {
     if (typeof sessionId !== "string" || sessionId === "" || pending.has(sessionId)) return;
     pending.add(sessionId);
     void buildText(sessionId).catch((error) => {
-      ctx.logger?.warn?.("workflow state context refresh failed: %o", error);
+      ctx.logger?.warn?.(`workflow state context refresh failed (session=${sessionId}): %o`, error);
     }).finally(() => pending.delete(sessionId));
   };
   const readText = (sessionId) => {
@@ -979,12 +979,21 @@ function apply(ctx) {
       handler: makeHandler(repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.parentId !== "string" || body.parentId === "") throw new Error("\u7F3A\u5C11 parentId");
-        const result = await repository.addNode({
-          id: body.id,
-          parentId: body.parentId,
-          title: typeof body.title === "string" ? body.title : void 0
-        });
-        return { snapshot: result.snapshot, nodeId: result.nodeId };
+        const startedAt = Date.now();
+        let nodeId = "";
+        try {
+          const result = await repository.addNode({
+            id: body.id,
+            parentId: body.parentId,
+            title: typeof body.title === "string" ? body.title : void 0
+          });
+          nodeId = result.nodeId;
+          ctx.logger?.info?.(`[workflow] add-node ok (node=${nodeId}, parent=${body.parentId}, ${Date.now() - startedAt}ms)`);
+          return { snapshot: result.snapshot, nodeId };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] add-node failed (parent=${body.parentId}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          throw error;
+        }
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

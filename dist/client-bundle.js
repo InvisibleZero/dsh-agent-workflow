@@ -1862,7 +1862,7 @@ window.__ModuleLoader__.load({
                         : {
                             manual: String(data.manual?.manual ?? ''),
                             summary: String(data.manual?.summary ?? ''),
-                            manualDir: String(data.manual?.manualDir ?? ''),
+                            notesDir: String(data.manual?.notesDir ?? ''),
                             parentSummary: String(data.parentSummary ?? ''),
                         });
                 }
@@ -1924,11 +1924,11 @@ window.__ModuleLoader__.load({
                                         border: '1px solid var(--dsw-alias-border-l1)',
                                         background: 'transparent',
                                         color: 'var(--dsw-alias-brand-primary)',
-                                    }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.manualDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
+                                    }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.notesDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
                                         void fetch('/dsh-agent-workflow/open-folder', {
                                             method: 'POST',
                                             headers: { 'content-type': 'application/json' },
-                                            body: JSON.stringify({ path: manualData.manualDir }),
+                                            body: JSON.stringify({ path: manualData.notesDir }),
                                         });
                                     }, style: {
                                         height: 24,
