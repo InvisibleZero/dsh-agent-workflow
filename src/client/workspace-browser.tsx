@@ -1065,7 +1065,9 @@ function WorkspaceBrowser(props: any) {
           // 视图选项比新建工作区多左移一倍（+4px 间距 + 额外 4px）。
           style={wide && searchOpen
             ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' }
-            : { position: 'relative', flex: 'none', width: 64, height: 28 }}
+            // 宿主这个类自带 max-width:60px + overflow:hidden，会把 64px 的容器压回 60，
+            // 绝对定位的视图选项于是溢出到左边界外、贴住搜索按钮 —— 这里把宽度三段都写死并放开裁切。
+            : { position: 'relative', flex: 'none', width: 64, minWidth: 64, maxWidth: 64, height: 28, overflow: 'visible' }}
         >
           {/* 三个按钮中心等距：搜索中心在容器左边界外 18px、新建中心在 48px，视图选项取中点 → right = 64-14-15 = 35 */}
           <div style={{ position: 'absolute', top: 0, right: 35, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
