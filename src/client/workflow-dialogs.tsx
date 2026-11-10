@@ -12,6 +12,13 @@ import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
 
+/**
+ * 「切换状态时自动发送默认输入」勾选框是否显示。
+ * 交互还没定清楚（自动发送会对输入框现有内容动手），先屏蔽 UI；后端接口与自动发送逻辑保留，
+ * 想恢复把这里改成 true 即可。
+ */
+const AUTO_SEND_SETTING_VISIBLE = false;
+
 const FIELD_STYLE = {
   width: '100%',
   boxSizing: 'border-box',
@@ -223,6 +230,8 @@ function WorkflowGlobalSettingsSection() {
         这些操作细节是应用级全局的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
       </div>
 
+      {/* 自动发送开关暂时屏蔽：交互还有没定清楚的地方，后端能力保留（app-settings 接口照旧）。 */}
+      {AUTO_SEND_SETTING_VISIBLE ? (
       <label style={{
         display: 'flex',
         alignItems: 'center',
@@ -239,6 +248,7 @@ function WorkflowGlobalSettingsSection() {
         />
         切换状态时自动发送默认输入（当前是只填入输入框、不发送；默认关闭）
       </label>
+      ) : null}
 
       <div style={{
         border: '1px solid var(--dsw-alias-border-l1)',
