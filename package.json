@@ -18,7 +18,9 @@
     "scripts",
     "cordis.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "README.md",
+    "DEVELOPMENT.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-host.mjs && tsc -p tsconfig.client-cjs.json && node scripts/bundle-client.mjs",

@@ -1,5 +1,7 @@
 # dsh-workflow —— Agent 编排与 Workflow 状态机插件
 
+> **开发手册见 [DEVELOPMENT.md](./DEVELOPMENT.md)**：构建命令、已验证的宿主契约速查、踩坑清单（D-01 起，持续追加）。
+
 嵌入 `dsh` harness 的插件：任务断点续传、状态持久化、树形可视化。
 核心引擎零框架依赖，通过 Adapter 与 dsh 通信（组合模式 + 分层状态机）。
 
