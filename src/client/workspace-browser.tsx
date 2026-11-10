@@ -1000,7 +1000,7 @@ function WorkspaceBrowser(props: any) {
           <span className={joinClasses(C.sectionLabel, C.wide, searchOpen ? C.sectionLabelHidden : undefined)}>工作区</span>
         ) : null}
         {wide ? (
-          <div className={joinClasses(C.searchSlot, searchOpen ? C.searchSlotExpanded : undefined)}>
+          <div className={joinClasses(C.searchSlot, searchOpen ? C.searchSlotExpanded : undefined)} style={{ marginRight: 4 }}>
             <div
               ref={searchRootRef}
               className={joinClasses(C.search, searchOpen ? C.searchExpanded : undefined)}
