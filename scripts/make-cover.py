@@ -102,7 +102,7 @@ def build_sessions():
         d.text((COL_W - 34 - tw, y + 3), state, font=state_font, fill=color)
         y += 52
 
-    d.text((32, PANEL_BOTTOM - 20), "每个会话 = 一个 workflow 单元", font=note_font, fill=TEXT_MUTED)
+    d.text((32, PANEL_TOP + 376), "每个会话 = 一个 workflow 单元", font=note_font, fill=TEXT_MUTED)
     return layer
 
 
@@ -217,13 +217,13 @@ def build_manual():
     left = x0
     for title, state, color, note, detailed, width in sessions:
         right = left + width
-        d.rounded_rectangle([(left, top), (right, top + 234)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
+        d.rounded_rectangle([(left, top), (right, top + 292)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
         if not detailed:
             # 后两份只示意"还有很多份"，内容用省略号居中
             tw = d.textlength(title, font=tiny_font)
             d.text((left + (width - tw) / 2, top + 12), title, font=tiny_font, fill=TEXT_PRIMARY)
             dots_w = d.textlength("…", font=dots_font)
-            d.text((left + (width - dots_w) / 2, top + 106), "…", font=dots_font, fill=TEXT_MUTED)
+            d.text((left + (width - dots_w) / 2, top + 140), "…", font=dots_font, fill=TEXT_MUTED)
             left = right + 10
             continue
 
@@ -233,11 +233,11 @@ def build_manual():
         d.text((left + 10, top + 46), note, font=desc_font, fill=TEXT_MUTED)
 
         for i, line in enumerate(layers):
-            d.text((left + 10, top + 68 + i * 16), line, font=item_font, fill=ROW_CHILD_TITLE)
+            d.text((left + 10, top + 68 + i * 20), line, font=item_font, fill=ROW_CHILD_TITLE)
 
-        d.text((left + 10, top + 150), "实施顺序", font=desc_font, fill=ROW_TITLE)
+        d.text((left + 10, top + 168), "实施顺序", font=desc_font, fill=ROW_TITLE)
         for i, (label, done) in enumerate(checks):
-            cy = top + 168 + i * 16
+            cy = top + 186 + i * 20
             cx = left + 10
             if done:
                 d.line([(cx, cy + 4), (cx + 3, cy + 7)], fill=STATE_SUCCESS, width=2)
