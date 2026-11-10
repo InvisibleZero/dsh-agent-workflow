@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { WorkflowSnapshot } from '../schema/workflow';
 import { migrateSnapshot } from '../schema/migration';
 import type { TraceLog } from '../schema/trace';
@@ -32,9 +33,25 @@ export class JsonStorageAdapter implements WorkflowStoragePort {
   async save(snapshot: WorkflowSnapshot): Promise<void> {
     const p = this.snapshotPath(snapshot.workspace_id);
     await fs.mkdir(path.dirname(p), { recursive: true });
-    const tmp = `${p}.tmp`;
+    // 临时文件名带随机后缀：并发写同一快照时各写各的，避免 rename 撞车（ENOENT/EPERM）。
+    const tmp = `${p}.${randomUUID()}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(snapshot, null, 2), 'utf8');
-    await fs.rename(tmp, p); // 原子替换，避免写一半
+    // Windows 下覆盖正在被并发读（load）的目标文件时 rename 可能瞬时 EPERM，重试几次兜底。
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await fs.rename(tmp, p); // 原子替换，避免写一半
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if ((code === 'EPERM' || code === 'EACCES') && attempt < 6) {
+          await new Promise((resolve) => setTimeout(resolve, 8 * (attempt + 1)));
+          continue;
+        }
+        // 重试仍失败：清掉临时文件再抛，避免残留 .tmp。
+        await fs.rm(tmp, { force: true }).catch(() => {});
+        throw error;
+      }
+    }
   }
 
   async appendTrace(log: TraceLog): Promise<void> {

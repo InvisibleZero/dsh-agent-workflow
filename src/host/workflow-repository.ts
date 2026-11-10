@@ -173,9 +173,22 @@ export class WorkflowRepository {
   private readonly storage: JsonStorageAdapter;
   /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
   private readonly manualMetaCache = new Map<string, { mtimeMs: number; checklist: Array<{ label: string; done: boolean }>; hasPlan: boolean }>();
+  /** 每个工作区的写队列（串行化读-改-写，避免并发覆盖丢更新）。 */
+  private readonly writeQueues = new Map<string, Promise<unknown>>();
 
   constructor(readonly baseDir: string) {
     this.storage = new JsonStorageAdapter(baseDir);
+  }
+
+  /**
+   * 按 key（通常是 workflowId 或工作目录）串行执行写操作。
+   * 前一个任务无论成功失败，后面的都会接着跑；返回本次任务的真实结果。
+   */
+  private serial<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.writeQueues.get(key) ?? Promise.resolve();
+    const current = previous.then(task, task);
+    this.writeQueues.set(key, current.catch(() => {}));
+    return current;
   }
 
   /** 列出所有 workflow 工作区，按最后修改时间倒序。单个损坏文件跳过，不影响整体。 */
@@ -299,27 +312,29 @@ export class WorkflowRepository {
    * 传空串 = 删除该状态的附加说明；三个都空则把字段整个去掉。
    */
   async setNodeNote(input: { id: string; nodeId: string; state: string; text: string }): Promise<WorkflowSnapshot> {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error('找不到该 workflow');
-    const state = input.state;
-    if (!['global', 'discussing', 'implementing', 'verifying'].includes(state)) throw new Error('非法状态');
-    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-    if (!exists) throw new Error('找不到节点');
-    const text = input.text.trim();
-    const updated: WorkflowSnapshot = {
-      ...snapshot,
-      nodes: snapshot.nodes.map((node) => {
-        if (node.node_id !== input.nodeId) return node;
-        const next: Record<string, string> = { ...(node.additional_detail ?? {}) };
-        if (text === '') delete next[state];
-        else next[state] = text;
-        const hasAny = Object.keys(next).length > 0;
-        const { additional_detail: _previous, ...rest } = node;
-        return hasAny ? { ...rest, additional_detail: next } : rest;
-      }),
-    };
-    await this.storage.save(updated);
-    return updated;
+    return this.serial(input.id, async () => {
+      const snapshot = await this.storage.load(input.id);
+      if (snapshot === null) throw new Error('找不到该 workflow');
+      const state = input.state;
+      if (!['global', 'discussing', 'implementing', 'verifying'].includes(state)) throw new Error('非法状态');
+      const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+      if (!exists) throw new Error('找不到节点');
+      const text = input.text.trim();
+      const updated: WorkflowSnapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((node) => {
+          if (node.node_id !== input.nodeId) return node;
+          const next: Record<string, string> = { ...(node.additional_detail ?? {}) };
+          if (text === '') delete next[state];
+          else next[state] = text;
+          const hasAny = Object.keys(next).length > 0;
+          const { additional_detail: _previous, ...rest } = node;
+          return hasAny ? { ...rest, additional_detail: next } : rest;
+        }),
+      };
+      await this.storage.save(updated);
+      return updated;
+    });
   }
 
   /**
@@ -469,27 +484,29 @@ export class WorkflowRepository {
 
   /** 把某个节点推进到下一状态；附状态迁移时间线（history）。 */
   async transitionNode(input: { id: string; nodeId: string; to: string }): Promise<WorkflowSnapshot> {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error('找不到该 workflow');
-    const validStates = ['not_started', 'discussing', 'implementing', 'verifying', 'completed'];
-    if (!validStates.includes(input.to)) throw new Error('非法状态');
-    const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
-    if (node === undefined) throw new Error('找不到节点');
-    const from = node.current_state;
-    const updated: WorkflowSnapshot = {
-      ...snapshot,
-      nodes: snapshot.nodes.map((candidate) =>
-        candidate.node_id === input.nodeId
-          ? {
-              ...candidate,
-              current_state: input.to as AgentNode['current_state'],
-              history: [...(candidate.history ?? []), { at: new Date().toISOString(), from, to: input.to }],
-            }
-          : candidate,
-      ),
-    };
-    await this.storage.save(updated);
-    return updated;
+    return this.serial(input.id, async () => {
+      const snapshot = await this.storage.load(input.id);
+      if (snapshot === null) throw new Error('找不到该 workflow');
+      const validStates = ['not_started', 'discussing', 'implementing', 'verifying', 'completed'];
+      if (!validStates.includes(input.to)) throw new Error('非法状态');
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === undefined) throw new Error('找不到节点');
+      const from = node.current_state;
+      const updated: WorkflowSnapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) =>
+          candidate.node_id === input.nodeId
+            ? {
+                ...candidate,
+                current_state: input.to as AgentNode['current_state'],
+                history: [...(candidate.history ?? []), { at: new Date().toISOString(), from, to: input.to }],
+              }
+            : candidate,
+        ),
+      };
+      await this.storage.save(updated);
+      return updated;
+    });
   }
 
   /**
@@ -593,32 +610,35 @@ export class WorkflowRepository {
   }> {
     const workingDirectory = input.workingDirectory.trim();
     if (workingDirectory === '') throw new Error('缺少工作目录');
-    const snapshot = await this.ensureWorkflow(workingDirectory, '');
-    const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
-    if (existing !== undefined) {
-      return {
-        workflowId: snapshot.workspace_id,
-        nodeId: existing.node_id,
-        title: existing.title ?? '',
-        current_state: existing.current_state,
+    // 按工作目录串行：并发自动认领同一目录时，避免重复建 workflow / 重复建节点。
+    return this.serial(`dir:${workingDirectory}`, async () => {
+      const snapshot = await this.ensureWorkflow(workingDirectory, '');
+      const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
+      if (existing !== undefined) {
+        return {
+          workflowId: snapshot.workspace_id,
+          nodeId: existing.node_id,
+          title: existing.title ?? '',
+          current_state: existing.current_state,
+        };
+      }
+      const nodeId = randomUUID();
+      const title = '新会话';
+      const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+      await fs.mkdir(wfDir, { recursive: true });
+      await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
+      const child: AgentNode = {
+        ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
+        parent_id: null,
+        title,
+        node_type: 'task',
+        session_id: input.sessionId,
+        depth: 0,
       };
-    }
-    const nodeId = randomUUID();
-    const title = '新会话';
-    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
-    await fs.mkdir(wfDir, { recursive: true });
-    await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
-    const child: AgentNode = {
-      ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
-      parent_id: null,
-      title,
-      node_type: 'task',
-      session_id: input.sessionId,
-      depth: 0,
-    };
-    const updated: WorkflowSnapshot = { ...snapshot, nodes: [...snapshot.nodes, child] };
-    await this.storage.save(updated);
-    return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
+      const updated: WorkflowSnapshot = { ...snapshot, nodes: [...snapshot.nodes, child] };
+      await this.storage.save(updated);
+      return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
+    });
   }
 
   /** 读会话手册全文 + 实施清单（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
