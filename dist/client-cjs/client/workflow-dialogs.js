@@ -168,7 +168,7 @@ function applyWorkflowSettingsSection(ctx) {
 }
 /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
 function WorkflowNodeDetailDialog(props) {
-    const { workflowId, nodeId, onClose, onOpenSettings } = props;
+    const { workflowId, nodeId, onClose } = props;
     const [payload, setPayload] = (0, react_1.useState)(null);
     const [error, setError] = (0, react_1.useState)(null);
     (0, react_1.useEffect)(() => {
@@ -195,6 +195,7 @@ function WorkflowNodeDetailDialog(props) {
     const labels = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
     const [notes, setNotes] = (0, react_1.useState)({});
     const [noteStatus, setNoteStatus] = (0, react_1.useState)(null);
+    const [settingsOpen, setSettingsOpen] = (0, react_1.useState)(false);
     const timers = (0, react_1.useRef)({});
     // 读到数据后把节点自己的附加说明灌进本地草稿。
     (0, react_1.useEffect)(() => {
@@ -229,11 +230,11 @@ function WorkflowNodeDetailDialog(props) {
             }
         }, 700);
     };
-    return ((0, jsx_runtime_1.jsxs)(Modal, { title: `节点补充说明 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? ((0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", node_state_label_1.NODE_STATE_LABEL[currentState] ?? currentState, noteStatus === null ? '' : `　${noteStatus}`] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: onOpenSettings, style: {
+    return ((0, jsx_runtime_1.jsxs)(Modal, { title: `节点补充说明 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? ((0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", node_state_label_1.NODE_STATE_LABEL[currentState] ?? currentState, noteStatus === null ? '' : `　${noteStatus}`] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setSettingsOpen(true), style: {
                                     height: 24,
                                     padding: '0 10px',
                                     borderRadius: 6,
-                                    cursor: onOpenSettings === undefined ? 'default' : 'pointer',
+                                    cursor: 'pointer',
                                     fontSize: 12,
                                     border: '1px solid var(--dsw-alias-border-l1)',
                                     background: 'transparent',
@@ -246,6 +247,6 @@ function WorkflowNodeDetailDialog(props) {
                                 marginBottom: 10,
                                 background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
                             }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: [labels[state], currentState === state ? (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null] }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes[state] ?? '', onChange: (event) => saveNote(state, event.target.value) })] }, state));
-                    })] }))] }));
+                    })] })), settingsOpen ? ((0, jsx_runtime_1.jsx)(Modal, { title: "\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E\uFF08\u5168\u5C40\uFF09", onClose: () => setSettingsOpen(false), children: (0, jsx_runtime_1.jsx)(WorkflowGlobalSettingsSection, {}) })) : null] }));
 }
 //# sourceMappingURL=workflow-dialogs.js.map

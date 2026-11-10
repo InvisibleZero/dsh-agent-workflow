@@ -99,8 +99,10 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
   注入时渲染成「本节点补充要求：…」。编辑入口在齿轮弹窗里（每个状态一个文本框，700ms 自动保存，
   走 `POST /node-note`；传空串等于删除，三项都空时字段整个移除）。
   为什么优先做附加而不是覆盖：附加是纯增量，删掉就回到全局原样；覆盖是减法，一旦用了就再也看不出全局原文是什么。
-- **节点弹窗不再展示全局内容**：全局细节只在设置页看；弹窗里只有一个「打开操作细节设置 →」按钮，
-  点击调 `layout.selectPanel('settings')` 跳到设置页（没有分区深链，落点取决于设置页记住的分区）。
+- **节点弹窗不再展示全局内容**：全局细节只在设置页看；弹窗里一个「打开操作细节设置 →」按钮，
+  点开的是**同一个编辑组件**（`WorkflowGlobalSettingsSection`）的弹窗版。
+  为什么不用 `layout.selectPanel('settings')`：那套面板 id 里根本没有设置页（`sidebar.panellist` 只有
+  `plugins` / `schedules`），点了没反应；设置页没有可用的深链入口，所以复用组件自开弹窗。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
 ### 3.3 数据层与渲染层的对应

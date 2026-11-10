@@ -10,6 +10,5 @@ export declare function WorkflowNodeDetailDialog(props: {
     workflowId: string;
     nodeId: string;
     onClose: () => void;
-    onOpenSettings?: () => void;
 }): import("react").JSX.Element;
 //# sourceMappingURL=workflow-dialogs.d.ts.map

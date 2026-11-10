@@ -258,8 +258,8 @@ export function applyWorkflowSettingsSection(ctx: any) {
 }
 
 /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
-export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void; onOpenSettings?: () => void }) {
-  const { workflowId, nodeId, onClose, onOpenSettings } = props;
+export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void }) {
+  const { workflowId, nodeId, onClose } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -283,6 +283,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [noteStatus, setNoteStatus] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const timers = useRef<Record<string, any>>({});
 
   // 读到数据后把节点自己的附加说明灌进本地草稿。
@@ -331,12 +332,12 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
             </span>
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={() => setSettingsOpen(true)}
               style={{
                 height: 24,
                 padding: '0 10px',
                 borderRadius: 6,
-                cursor: onOpenSettings === undefined ? 'default' : 'pointer',
+                cursor: 'pointer',
                 fontSize: 12,
                 border: '1px solid var(--dsw-alias-border-l1)',
                 background: 'transparent',
@@ -371,6 +372,11 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           })}
         </>
       )}
+      {settingsOpen ? (
+        <Modal title="操作细节设置（全局）" onClose={() => setSettingsOpen(false)}>
+          <WorkflowGlobalSettingsSection />
+        </Modal>
+      ) : null}
     </Modal>
   );
 }
