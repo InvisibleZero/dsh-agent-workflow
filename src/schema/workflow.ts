@@ -5,8 +5,6 @@ import { StateDetail } from './node-state';
 /** 全局操作细节 = A（公共）+ B/C/D（三态专属），只在设置里改。 */
 export const GlobalOperationDetail = z.object({
   shared_detail: z.string(),  // A：三态通用的公共操作细节
-  /** 全局附加说明：所有状态都会追加在 A 后面，节点附加再追加在最后。 */
-  global_additional: z.string().default(''),
   discussing: StateDetail,    // B
   implementing: StateDetail,  // C
   verifying: StateDetail,     // D
@@ -52,8 +50,6 @@ export type WorkflowSnapshot = z.infer<typeof WorkflowSnapshot>;
 export const DEFAULT_GLOBAL_OPERATION_DETAIL: GlobalOperationDetail = {
   // A —— 三态通用
   shared_detail: '结论先行、依据充分；对不确定处如实说明，不做无依据的判断。',
-  // 全局附加（所有状态追加）
-  global_additional: '',
   // B —— 讨论中
   discussing: {
     operation_detail: '梳理目标与现状，列出可选方案及各自取舍，暂不修改任何文件；待方案确认后再推进。',

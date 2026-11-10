@@ -91,8 +91,10 @@ var AgentNode = z2.object({
   /**
    * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
    * 与覆盖相反——是纯增量，删掉就回到全局原样。
+   * `global` 是这个节点的「全局附加」：不管当前什么状态都追加。
    */
   additional_detail: z2.object({
+    global: z2.string().optional(),
     discussing: z2.string().optional(),
     implementing: z2.string().optional(),
     verifying: z2.string().optional()
@@ -108,8 +110,6 @@ var AgentNode = z2.object({
 var GlobalOperationDetail = z3.object({
   shared_detail: z3.string(),
   // A：三态通用的公共操作细节
-  /** 全局附加说明：所有状态都会追加在 A 后面，节点附加再追加在最后。 */
-  global_additional: z3.string().default(""),
   discussing: StateDetail,
   // B
   implementing: StateDetail,
@@ -143,8 +143,6 @@ var WorkflowSnapshot = z3.object({
 var DEFAULT_GLOBAL_OPERATION_DETAIL = {
   // A —— 三态通用
   shared_detail: "\u7ED3\u8BBA\u5148\u884C\u3001\u4F9D\u636E\u5145\u5206\uFF1B\u5BF9\u4E0D\u786E\u5B9A\u5904\u5982\u5B9E\u8BF4\u660E\uFF0C\u4E0D\u505A\u65E0\u4F9D\u636E\u7684\u5224\u65AD\u3002",
-  // 全局附加（所有状态追加）
-  global_additional: "",
   // B —— 讨论中
   discussing: {
     operation_detail: "\u68B3\u7406\u76EE\u6807\u4E0E\u73B0\u72B6\uFF0C\u5217\u51FA\u53EF\u9009\u65B9\u6848\u53CA\u5404\u81EA\u53D6\u820D\uFF0C\u6682\u4E0D\u4FEE\u6539\u4EFB\u4F55\u6587\u4EF6\uFF1B\u5F85\u65B9\u6848\u786E\u8BA4\u540E\u518D\u63A8\u8FDB\u3002",
@@ -375,7 +373,7 @@ var WorkflowRepository = class {
     const snapshot = await this.storage.load(input.id);
     if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
     const state = input.state;
-    if (!["discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
+    if (!["global", "discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
     const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
     if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
     const text = input.text.trim();
@@ -582,9 +580,9 @@ function registerWorkflowStateContext(ctx, repository) {
     if (typeof effective.full_detail === "string" && effective.full_detail.trim() !== "") {
       parts.push("", effective.full_detail.trim());
     }
-    const globalAdditional = typeof global?.global_additional === "string" ? global.global_additional.trim() : "";
-    if (globalAdditional !== "") {
-      parts.push("", globalAdditional);
+    const nodeAdditional = typeof node.additional_detail === "object" && node.additional_detail !== null ? node.additional_detail.global : void 0;
+    if (typeof nodeAdditional === "string" && nodeAdditional.trim() !== "") {
+      parts.push("", nodeAdditional.trim());
     }
     const addition = typeof node.additional_detail === "object" && node.additional_detail !== null ? node.additional_detail[node.current_state] : void 0;
     if (typeof addition === "string" && addition.trim() !== "") {

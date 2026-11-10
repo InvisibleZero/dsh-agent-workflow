@@ -146,7 +146,7 @@ export class WorkflowRepository {
         if (snapshot === null)
             throw new Error('找不到该 workflow');
         const state = input.state;
-        if (!['discussing', 'implementing', 'verifying'].includes(state))
+        if (!['global', 'discussing', 'implementing', 'verifying'].includes(state))
             throw new Error('非法状态');
         const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
         if (!exists)

@@ -185,16 +185,9 @@ export function WorkflowGlobalSettingsSection() {
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
             <textarea
-              style={{ ...FIELD_STYLE, flex: '1 1 60%' }}
+              style={{ ...FIELD_STYLE, flex: '1 1 auto' }}
               value={detail.shared_detail ?? ''}
               onChange={(event) => update({ ...detail, shared_detail: event.target.value })}
-            />
-            <label style={{ ...LABEL_STYLE, marginTop: 10 }}>全局附加说明（所有状态都会追加，节点附加排在它后面）</label>
-            <textarea
-              style={{ ...FIELD_STYLE, flex: '1 1 40%' }}
-              placeholder="留空则不追加"
-              value={detail.global_additional ?? ''}
-              onChange={(event) => update({ ...detail, global_additional: event.target.value })}
             />
           </>
         ) : (
@@ -305,6 +298,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   useEffect(() => {
     if (payload === null) return;
     setNotes({
+      global: String(payload.additional?.global ?? ''),
       discussing: String(payload.additional?.discussing ?? ''),
       implementing: String(payload.additional?.implementing ?? ''),
       verifying: String(payload.additional?.verifying ?? ''),
@@ -366,6 +360,20 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           </div>
           <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
             全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
+          </div>
+          <div style={{
+            border: '1px solid var(--dsw-alias-border-l1)',
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 10,
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>本节点附加（所有状态都会追加）</div>
+            <textarea
+              style={{ ...FIELD_STYLE, minHeight: 52 }}
+              placeholder="留空则不追加"
+              value={notes.global ?? ''}
+              onChange={(event) => saveNote('global', event.target.value)}
+            />
           </div>
           {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
             return (

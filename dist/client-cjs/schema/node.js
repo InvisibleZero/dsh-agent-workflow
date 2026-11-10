@@ -39,8 +39,10 @@ exports.AgentNode = zod_1.z.object({
     /**
      * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
      * 与覆盖相反——是纯增量，删掉就回到全局原样。
+     * `global` 是这个节点的「全局附加」：不管当前什么状态都追加。
      */
     additional_detail: zod_1.z.object({
+        global: zod_1.z.string().optional(),
         discussing: zod_1.z.string().optional(),
         implementing: zod_1.z.string().optional(),
         verifying: zod_1.z.string().optional(),

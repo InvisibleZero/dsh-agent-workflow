@@ -88,8 +88,10 @@ export declare const AgentNode: z.ZodObject<{
     /**
      * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
      * 与覆盖相反——是纯增量，删掉就回到全局原样。
+     * `global` 是这个节点的「全局附加」：不管当前什么状态都追加。
      */
     additional_detail: z.ZodOptional<z.ZodObject<{
+        global: z.ZodOptional<z.ZodString>;
         discussing: z.ZodOptional<z.ZodString>;
         implementing: z.ZodOptional<z.ZodString>;
         verifying: z.ZodOptional<z.ZodString>;
@@ -97,10 +99,12 @@ export declare const AgentNode: z.ZodObject<{
         discussing?: string | undefined;
         implementing?: string | undefined;
         verifying?: string | undefined;
+        global?: string | undefined;
     }, {
         discussing?: string | undefined;
         implementing?: string | undefined;
         verifying?: string | undefined;
+        global?: string | undefined;
     }>>;
     depth: z.ZodNumber;
     max_depth: z.ZodNumber;
@@ -138,6 +142,7 @@ export declare const AgentNode: z.ZodObject<{
         discussing?: string | undefined;
         implementing?: string | undefined;
         verifying?: string | undefined;
+        global?: string | undefined;
     } | undefined;
 }, {
     node_id: string;
@@ -171,6 +176,7 @@ export declare const AgentNode: z.ZodObject<{
         discussing?: string | undefined;
         implementing?: string | undefined;
         verifying?: string | undefined;
+        global?: string | undefined;
     } | undefined;
 }>;
 export type AgentNode = z.infer<typeof AgentNode>;
