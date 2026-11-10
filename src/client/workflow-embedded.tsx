@@ -66,16 +66,10 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const [confirmOpen, setConfirmOpen] = useState(false);
   const claimedRef = useRef(false);
 
-  // 自动认领需要会话的工作目录：用槽位给的 useSessions 读当前会话的 cwd。
-  const sessionsSnap = typeof props?.useSessions === 'function' ? props.useSessions() : null;
-  const sessionCwd = (() => {
-    try {
-      const cwd = sessionsSnap?.getSnapshot?.()?.byId?.[sessionId]?.cwd;
-      return typeof cwd === 'string' ? cwd : '';
-    } catch {
-      return '';
-    }
-  })();
+  // 自动认领需要会话的工作目录：useSessions 是带选择器的钩子，直接取当前会话的 cwd。
+  const sessionCwd = typeof props?.useSessions === 'function'
+    ? props.useSessions((s: any) => (s?.byId?.[sessionId]?.cwd ?? ''))
+    : '';
 
   const ensureNode = async (workingDirectory: string): Promise<boolean> => {
     try {
