@@ -292,7 +292,7 @@ export function WorkflowNodeDetailDialog(props) {
             }
         }, 700);
     };
-    return (_jsxs(Modal, { title: `节点补充说明 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, fixedHeight: 560, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsxs("span", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", NODE_STATE_LABEL[currentState] ?? currentState, noteStatus === null ? '' : `　${noteStatus}`] }), _jsx("button", { type: "button", onClick: () => {
+    return (_jsxs(Modal, { title: `节点补充说明 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, fixedHeight: 680, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }, children: [_jsxs("span", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", NODE_STATE_LABEL[currentState] ?? currentState, noteStatus === null ? '' : `　${noteStatus}`] }), _jsx("button", { type: "button", onClick: () => {
                                     // 先关掉当前弹窗，再让上层打开设置：避免两层遮罩叠在一起。
                                     onOpenSettings?.();
                                     onClose();
@@ -339,7 +339,7 @@ export function WorkflowNodeDetailDialog(props) {
                                     borderRadius: 6,
                                     border: 'none',
                                     background: activeTab === tab.id ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-                                    color: activeTab === tab.id ? '#fff' : 'var(--dsw-alias-label-secondary)',
+                                    color: activeTab === tab.id ? 'var(--dsw-alias-bg-base)' : 'var(--dsw-alias-label-secondary)',
                                     cursor: 'pointer',
                                     fontSize: 12,
                                     fontWeight: activeTab === tab.id ? 600 : 400,

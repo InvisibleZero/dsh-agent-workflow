@@ -516,6 +516,19 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   `host/workflow-state-context.ts`（注入项目手册）、`client/workflow-embedded.tsx`（自动认领 + 返工菜单）、
   `client/workflow-dialogs.tsx`（项目手册 + 时间线展示）。
 
+### D-27 两个主题/槽位坑：`useSessions` 是选择器钩子、`brand-primary` 是对比色
+
+- **`useSessions` 带选择器**：宿主用法是 `useSessions((s) => s.byId[sessionId]?.cwd)`，直接返回选中的值；
+  写成 `useSessions()` 再 `.getSnapshot()` 拿不到东西，自动认领会静默失效（徽标不出现）。
+  对照坑：`useSession` 是当前会话快照选择器，`useSessionStatus` 是状态选择器，都同风格。
+- **`--dsw-alias-brand-primary` 不是蓝色强调色**：浅色主题值 ≈ 近黑、深色主题值 ≈ 近白，它是「对比色」。
+  用它填背景再配 `#fff` 文字，深色主题下就是白底白字（不可读）。
+  正确写法：`background: var(--dsw-alias-brand-primary)` + `color: var(--dsw-alias-bg-base)`——
+  这两个 token 互为反色，深浅主题都成立。
+- 需要真正的蓝色强调时，宿主用的是 `--dsw-alias-brand-primary-new-colorprimary-new-color`（#4176e6），
+  但它不在 Inspect 的受支持 token 列表里，谨慎使用。
+- 主题 token 的权威清单：`cordis_inspect_query(platform=client, provider=Theme, method=listTokens)`。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```

@@ -418,7 +418,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   };
 
   return (
-    <Modal title={`节点补充说明 · ${payload?.node?.title ?? '节点'}`} onClose={onClose} fixedHeight={560}>
+    <Modal title={`节点补充说明 · ${payload?.node?.title ?? '节点'}`} onClose={onClose} fixedHeight={680}>
       {error !== null ? <div style={{ color: 'var(--dsw-alias-state-error-primary)' }}>{error}</div> : null}
       {payload === null ? (
         <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>加载中…</div>
@@ -496,7 +496,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                     borderRadius: 6,
                     border: 'none',
                     background: activeTab === tab.id ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-                    color: activeTab === tab.id ? '#fff' : 'var(--dsw-alias-label-secondary)',
+                    color: activeTab === tab.id ? 'var(--dsw-alias-bg-base)' : 'var(--dsw-alias-label-secondary)',
                     cursor: 'pointer',
                     fontSize: 12,
                     fontWeight: activeTab === tab.id ? 600 : 400,
