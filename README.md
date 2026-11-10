@@ -8,7 +8,7 @@
 - **版本**：`0.3.0`（更新记录见 [CHANGELOG.md](./CHANGELOG.md)）
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
-- **许可证**：[MIT](./LICENSE)
+- **许可证**：[Apache-2.0](./LICENSE)（含显式专利授权，署名见 [NOTICE](./NOTICE)）
 
 ---
 
