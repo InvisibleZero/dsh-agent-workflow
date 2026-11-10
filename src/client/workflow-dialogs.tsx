@@ -46,12 +46,22 @@ const PANEL_STYLE = {
   zIndex: 1200,
 } as const;
 
-function Modal(props: { title: string; onClose: () => void; children: any }) {
+function Modal(props: { title: string; onClose: () => void; children: any; fixedHeight?: number | string }) {
+  const fixed = props.fixedHeight !== undefined;
+  const panelStyle = fixed
+    ? {
+        ...PANEL_STYLE,
+        height: props.fixedHeight,
+        display: 'flex',
+        flexDirection: 'column' as const,
+        overflow: 'hidden',
+      }
+    : PANEL_STYLE;
   return (
     <>
       <div style={OVERLAY_STYLE} onClick={props.onClose} />
-      <div style={PANEL_STYLE} role="dialog" aria-label={props.title}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={panelStyle} role="dialog" aria-label={props.title}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flex: '0 0 auto' }}>
           <strong style={{ fontSize: 14 }}>{props.title}</strong>
           <button
             type="button"
@@ -60,7 +70,9 @@ function Modal(props: { title: string; onClose: () => void; children: any }) {
             style={{ border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
           >×</button>
         </div>
-        {props.children}
+        {fixed ? (
+          <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>{props.children}</div>
+        ) : props.children}
       </div>
     </>
   );
@@ -406,7 +418,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   };
 
   return (
-    <Modal title={`节点补充说明 · ${payload?.node?.title ?? '节点'}`} onClose={onClose}>
+    <Modal title={`节点补充说明 · ${payload?.node?.title ?? '节点'}`} onClose={onClose} fixedHeight={560}>
       {error !== null ? <div style={{ color: 'var(--dsw-alias-state-error-primary)' }}>{error}</div> : null}
       {payload === null ? (
         <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>加载中…</div>
@@ -458,23 +470,40 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
               >打开文件夹</button>
             ) : null}
           </div>
-          <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
-            {NODE_DETAIL_TABS.map((tab) => (
-              <button
-                type="button"
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: '6px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: activeTab === tab.id ? '2px solid var(--dsw-alias-brand-primary)' : '2px solid transparent',
-                  color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                }}
-              >{tab.label}</button>
-            ))}
+          <div style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            background: 'var(--dsw-alias-bg-layer-1)',
+            paddingBottom: 12,
+          }}>
+            <div style={{
+              display: 'flex',
+              gap: 4,
+              padding: 4,
+              background: 'var(--dsw-alias-bg-base)',
+              border: '1px solid var(--dsw-alias-border-l1)',
+              borderRadius: 9,
+            }}>
+              {NODE_DETAIL_TABS.map((tab) => (
+                <button
+                  type="button"
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    flex: '1 1 0',
+                    padding: '7px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: activeTab === tab.id ? 'var(--dsw-alias-brand-primary)' : 'transparent',
+                    color: activeTab === tab.id ? '#fff' : 'var(--dsw-alias-label-secondary)',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: activeTab === tab.id ? 600 : 400,
+                  }}
+                >{tab.label}</button>
+              ))}
+            </div>
           </div>
           {activeTab === 'detail' ? (
             <>
