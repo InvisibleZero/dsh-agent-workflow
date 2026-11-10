@@ -1,7 +1,9 @@
 {
   "name": "dsh-agent-workflow",
-  "version": "0.2.0",
-  "description": "会话即工作流单元：五态状态机（讨论/实现/验收）+ 按状态注入操作细节 + 项目手册/会话手册两层 AI 自留记忆",
+  "version": "0.3.0",
+  "description": "会话即工作流单元：四态状态机（讨论/实现/验收/完结）+ 程序级门禁与人工同意 + 项目手册/会话手册两层 AI 自留记忆",
+  "author": "InvisibleZero",
+  "license": "MIT",
   "type": "module",
   "main": "dist/host.js",
   "types": "dist/host.d.ts",
