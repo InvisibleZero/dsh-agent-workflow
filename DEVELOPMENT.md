@@ -478,6 +478,24 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **涉及文件**：`host/workflow-repository.ts`（MANUAL_TEMPLATE、parseChecklist、readNodeManual 返回 checklist）、
   `client/workflow-embedded.tsx`（WorkflowStateBadge 拉清单 + 胶囊 + Menu）。
 
+### D-25 减法：删掉「伪装模块」，不再替换宿主的侧栏浏览器
+
+- **现象/动机**：会话内的状态机 + 5 层方案 + 手册 + 清单，已经把"拆解→落地"整个搬进了会话；
+  侧栏那棵"任务树"因此失去了本职工作，退化成一份平铺清单。当初为了画树而照抄的
+  `WorkspaceBrowser`（伪装模块，~1500 行）成了最大最脆的负担。
+- **删了什么**：`client/workspace-browser.tsx`、`client/workspace-ui.tsx`、
+  `client/workspace-kind.ts`、`client/workspace-kind-registry.ts`，以及
+  `sidebar.workspaces` 的 shadow 注册（`priority: -1`）。
+- **留了什么**：`conversation.input.left` 状态徽标（状态 + 推进 + 实施清单）、
+  `settings.section`（A/B/C/D）、节点弹窗、宿主半（状态机 / 手册 / 注入）。
+- **弹窗改用 portal**：`WorkflowStateBadge` 里的节点弹窗 / 设置 / 确认框原来靠 window 事件
+  转发给侧栏树渲染（因为输入区容器带 transform，自绘 fixed 会跑偏）；现在直接
+  `createPortal(…, document.body)` 渲染，`react-dom` 由 dsh 模块表提供，彻底绕开 transform。
+- **菜单定位原语**：`menuPointFromEvent` / `menuAnchorRect` 保留在 `client/menu-util.ts`。
+- **产物**：client-bundle 从 ~146KB 降到 ~40KB，模块从 8 个降到 5 个。
+- **待补**：树删了之后"一个会话怎么变成 workflow 节点"的入口没了（自动认领 / 会话行按钮尚未接线）；
+  会话维度下"工作区项目手册 + 会话手册"两层的拆分也待落地。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```

@@ -93,11 +93,8 @@ try {
 
 check(unexpected.length === 0, `出现了未声明的外部依赖：${unexpected.join(', ')}`);
 check(
-  Array.isArray(mod.inject)
-    && mod.inject.includes('slots')
-    && mod.inject.includes('remote')
-    && mod.inject.includes('shortcuts'),
-  `inject 应含 slots/remote/shortcuts，实际 ${JSON.stringify(mod.inject)}`,
+  Array.isArray(mod.inject) && mod.inject.includes('slots'),
+  `inject 应含 slots，实际 ${JSON.stringify(mod.inject)}`,
 );
 check(typeof mod.apply === 'function', '没有导出 apply');
 
@@ -149,13 +146,10 @@ try {
   process.exit(1);
 }
 
-const workspaceBrowser = registered.find((item) => item.slot === 'sidebar.workspaces');
-
 const expectedSlots = [
   'conversation.input.left',
   'settings.section',
   'settings.section.icon',
-  'sidebar.workspaces',
 ];
 const actualSlots = registered.map((item) => item.slot).sort();
 
@@ -163,7 +157,6 @@ check(
   actualSlots.length === expectedSlots.length && actualSlots.every((slot, index) => slot === expectedSlots[index]),
   `应注册 ${expectedSlots.join(' + ')}，实际 ${actualSlots.join(', ')}`,
 );
-check(workspaceBrowser !== undefined, '没有注册伪装层 sidebar.workspaces');
 check(registered.every((item) => item.slot !== 'sidebar.panellist'), '左侧导航项应已撤掉');
 check(registered.every((item) => item.slot !== 'main'), '主面板弹窗应已撤掉');
 check(registered.every((item) => item.slot !== 'sidebar.right.pane.tab'), '右侧栏面板应已撤掉');
