@@ -193,39 +193,35 @@ def build_manual():
 
     x0, x1 = 28, COL_W - 28
 
-    # 项目手册
+    # 项目手册（一个项目一份）
     d.rounded_rectangle([(x0, PANEL_TOP + 16), (x1, PANEL_TOP + 16 + 92)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
     file_icon(x0 + 12, PANEL_TOP + 32)
-    d.text((x0 + 38, PANEL_TOP + 28), "项目手册.md", font=file_font, fill=TEXT_PRIMARY)
+    d.text((x0 + 38, PANEL_TOP + 28), "项目手册", font=file_font, fill=TEXT_PRIMARY)
     d.text((x0 + 38, PANEL_TOP + 50), "总览 / 决策 / 约束 / 坑与防线", font=desc_font, fill=TEXT_MUTED)
     d.text((x0 + 12, PANEL_TOP + 78), "验收中收尾：回写决策与坑", font=note_font, fill=STATE_SUCCESS)
 
-    # 会话手册
-    box_top = PANEL_TOP + 120
-    box_bottom = box_top + 272
-    d.rounded_rectangle([(x0, box_top), (x1, box_bottom)], radius=10, fill=CODE_BG, outline=(58, 86, 150), width=1)
-    file_icon(x0 + 12, box_top + 14)
-    d.text((x0 + 38, box_top + 10), "会话手册.md", font=file_font, fill=TEXT_PRIMARY)
-    d.text((x0 + 38, box_top + 32), "方案（5 层）+ 实施顺序", font=desc_font, fill=TEXT_MUTED)
+    # 会话手册（每个会话一份，同一个项目下可以有很多份）
+    d.text((x0, PANEL_TOP + 122), "每个会话各有一份会话手册", font=note_font, fill=TEXT_MUTED)
 
-    d.text((x0 + 12, box_top + 54), "## 方案（上层 → 下层）", font=item_font, fill=ROW_TITLE)
-    layers = ["1. 目标与验收", "2. 对外契约", "3. 结构与依赖", "4. 数据与状态", "5. 表现与文案"]
-    for i, line in enumerate(layers):
-        d.text((x0 + 24, box_top + 74 + i * 18), line, font=item_font, fill=ROW_CHILD_TITLE)
+    sessions = [
+        ("会话手册 1", "方案 5 层 · 实施 2/4", "实现中", STATE_BRAND),
+        ("会话手册 2", "方案 5 层 · 实施 4/4", "验收中", STATE_VERIFY),
+        ("会话手册 3", "方案编写中", "讨论中", STATE_WARN),
+    ]
+    card_h, gap = 84, 12
+    top = PANEL_TOP + 142
+    for title, desc, state, color in sessions:
+        d.rounded_rectangle([(x0, top), (x1, top + card_h)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
+        file_icon(x0 + 12, top + 14)
+        d.text((x0 + 38, top + 10), title, font=file_font, fill=TEXT_PRIMARY)
+        d.text((x0 + 38, top + 34), desc, font=desc_font, fill=TEXT_MUTED)
+        # 右侧状态点 + 状态名
+        state_w = d.textlength(state, font=desc_font)
+        d.ellipse([(x1 - 12 - state_w - 12, top + 15), (x1 - 12 - state_w - 5, top + 22)], fill=color)
+        d.text((x1 - 12 - state_w, top + 12), state, font=desc_font, fill=color)
+        top += card_h + gap
 
-    d.text((x0 + 12, box_top + 172), "## 实施顺序", font=item_font, fill=ROW_TITLE)
-    checks = [("2. 对外契约", True), ("3. 结构与依赖", True), ("4. 数据与状态", False), ("5. 表现与文案", False)]
-    for i, (label, done) in enumerate(checks):
-        cy = box_top + 192 + i * 18
-        cx = x0 + 24
-        if done:
-            d.line([(cx, cy + 5), (cx + 3, cy + 8)], fill=STATE_SUCCESS, width=2)
-            d.line([(cx + 3, cy + 8), (cx + 9, cy + 1)], fill=STATE_SUCCESS, width=2)
-        else:
-            d.ellipse([(cx + 1, cy + 1), (cx + 8, cy + 8)], outline=TEXT_MUTED, width=2)
-        d.text((cx + 16, cy - 2), label, font=item_font, fill=ROW_CHILD_TITLE if done else TEXT_MUTED)
-
-    d.text((x0 + 12, box_bottom + 14), "AI 自己写、自己勾；人只读", font=note_font, fill=TEXT_MUTED)
+    d.text((x0, top + 4), "AI 自己写、自己勾；人只读", font=note_font, fill=TEXT_MUTED)
     return layer
 
 
