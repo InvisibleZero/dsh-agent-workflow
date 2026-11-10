@@ -8,7 +8,6 @@
 - **版本**：`0.2.0`
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
-- **彩蛋**：[JOURNEY.md](./JOURNEY.md) —— 从「加法」到「减法」的开发心路历程
 
 ---
 
@@ -203,6 +202,5 @@ src/
 ## 相关文档
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md)：构建命令、宿主契约速查、踩坑清单（D-01 起）
-- [JOURNEY.md](./JOURNEY.md)：从「加法」到「减法」的开发心路历程（彩蛋）
 - [HANDOFF.md](./HANDOFF.md)：交接说明
 - [SPIKE.md](./SPIKE.md)：最初的技术验证记录
