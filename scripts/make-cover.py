@@ -140,27 +140,36 @@ def build_state():
 
     d.text((32, PANEL_TOP + 84), "当前状态决定注入什么", font=small, fill=TEXT_MUTED)
 
-    d.text((32, PANEL_TOP + 106), "讨论中", font=head_font, fill=STATE_WARN)
-    d.rounded_rectangle([(32, PANEL_TOP + 126), (COL_W - 32, PANEL_TOP + 126 + 46)], radius=8, fill=CODE_BG, outline=CODE_BORDER, width=1)
-    d.text((44, PANEL_TOP + 138), "只讨论不动手：写操作被门禁拒绝。", font=code_font, fill=ROW_CHILD_TITLE)
-
-    d.text((32, PANEL_TOP + 188), "实现中", font=head_font, fill=STATE_BRAND)
-    d.text((32 + d.textlength("实现中", font=head_font) + 8, PANEL_TOP + 190), "当前态", font=dim_font, fill=ACCENT)
-    box_top = PANEL_TOP + 208
-    d.rounded_rectangle([(32, box_top), (COL_W - 32, box_top + 108)], radius=8, fill=CODE_BG, outline=(58, 86, 150), width=1)
-    lines = [
-        "按已确认的方案落地。",
-        "先读后改，改动越少越好。",
-        "完成后给出验证方式。",
-        "用 workflow_check 勾一层再停。",
+    sections = [
+        ("讨论中", STATE_WARN, [
+            "只讨论不动手：写操作被门禁拒绝。",
+        ]),
+        ("实现中", STATE_BRAND, [
+            "先读后改，改动越少越好。",
+            "用 workflow_check 勾一层再停。",
+        ]),
+        ("验收中", STATE_VERIFY, [
+            "只核对与报告，结论要带证据。",
+            "改动须在检查表里注明。",
+        ]),
     ]
-    ly = box_top + 14
-    for line in lines:
-        d.text((44, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
-        ly += 24
+    y = PANEL_TOP + 104
+    for index, (title, color, lines) in enumerate(sections):
+        d.text((32, y), title, font=head_font, fill=color)
+        if index == 1:
+            d.text((32 + d.textlength(title, font=head_font) + 8, y + 2), "当前态", font=dim_font, fill=ACCENT)
+        box_top = y + 18
+        box_h = 34 + (len(lines) - 1) * 18
+        d.rounded_rectangle([(32, box_top), (COL_W - 32, box_top + box_h)], radius=8, fill=CODE_BG,
+                            outline=(58, 86, 150) if index == 1 else CODE_BORDER, width=1)
+        line_y = box_top + 10
+        for line in lines:
+            d.text((44, line_y), line, font=code_font, fill=ROW_CHILD_TITLE)
+            line_y += 18
+        y = box_top + box_h + 20
 
-    d.text((32, box_top + 126), "可返工：实现中→讨论中", font=dim_font, fill=TEXT_MUTED)
-    d.text((32, box_top + 144), "验收中→实现中 / 讨论中", font=dim_font, fill=TEXT_MUTED)
+    d.text((32, y + 2), "推进前置：方案非空才能进实现中，", font=dim_font, fill=TEXT_MUTED)
+    d.text((32, y + 18), "清单全勾才能进验收中。", font=dim_font, fill=TEXT_MUTED)
     return layer
 
 
