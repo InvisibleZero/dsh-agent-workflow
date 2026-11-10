@@ -83,13 +83,14 @@ def build_sessions():
     d.text((32, PANEL_TOP + 18), "工作区", font=small, fill=TEXT_MUTED)
     d.text((32, PANEL_TOP + 38), "电商系统改造", font=proj, fill=TEXT_PRIMARY)
 
+    # 按状态从前往后排：两个讨论中、两个实现中、一个验收中、一个已完结。
     rows = [
-        ("登录模块", "实现中", STATE_BRAND, True),
-        ("支付回调加固", "已完结", STATE_SUCCESS, False),
         ("订单状态机", "讨论中", STATE_WARN, False),
+        ("用户中心", "讨论中", STATE_WARN, False),
+        ("登录模块", "实现中", STATE_BRAND, True),
+        ("支付回调加固", "实现中", STATE_BRAND, False),
         ("退货流程", "验收中", STATE_VERIFY, False),
         ("发票系统", "已完结", STATE_SUCCESS, False),
-        ("用户中心", "讨论中", STATE_WARN, False),
     ]
     y = PANEL_TOP + 76
     for title, state, color, selected in rows:
