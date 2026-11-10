@@ -7,7 +7,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
  * 不 import `workspace-browser`；共享的只有 `workspace-kind`（枚举）、`workspace-ui`（CSS/图标原语）、
  * `../schema/node-state-label`（状态中文名）。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
@@ -80,12 +80,6 @@ function WorkflowWorkspaceItem(props) {
     const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState(null);
     /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
     const [nodeMenu, setNodeMenu] = useState(null);
-    /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
-    const [nodeDetailNodeId, setNodeDetailNodeId] = useState(null);
-    /** 全局操作细节弹窗（从节点弹窗跳过来时单独开一层，不和节点弹窗叠加）。 */
-    const [settingsOpen, setSettingsOpen] = useState(false);
-    /** 从节点弹窗跳去设置时记住是谁，设置关掉后自动回到它。 */
-    const returnToNodeRef = useRef(null);
     /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
     const [busyNodeId, setBusyNodeId] = useState(null);
     const load = async () => {
@@ -327,7 +321,7 @@ function WorkflowWorkspaceItem(props) {
                                         event.currentTarget.focus({ preventScroll: true });
                                         const point = menuPointFromEvent(event);
                                         setNodeMenu((current) => (current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }));
-                                    }, children: _jsx(IconEllipsisOutlineRegular, {}) }), _jsx(Tooltip, { label: "\u64CD\u4F5C\u7EC6\u8282", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u64CD\u4F5C\u7EC6\u8282", onClick: () => setNodeDetailNodeId(node.node_id), children: _jsxs("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("circle", { cx: "12", cy: "12", r: "3" }), _jsx("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" })] }) }) }), _jsx(Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(node.node_id), children: _jsx("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: _jsx("path", { d: "M12 6v12M6 12h12" }) }) }) })] })] }), children.map((child) => renderNodeRow(child, depth + 1))] }, node.node_id));
+                                    }, children: _jsx(IconEllipsisOutlineRegular, {}) }), _jsx(Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(node.node_id), children: _jsx("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: _jsx("path", { d: "M12 6v12M6 12h12" }) }) }) })] })] }), children.map((child) => renderNodeRow(child, depth + 1))] }, node.node_id));
     };
     const rootNode = byId.get(rootId);
     /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
@@ -386,17 +380,7 @@ function WorkflowWorkspaceItem(props) {
                         { id: 'archive', label: '归档会话', icon: _jsx(IconArchiveOutlineRegular, {}), separatorBefore: true },
                     ];
                 return (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-            })() : null, nodeDetailNodeId !== null ? (_jsx(WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null), onOpenSettings: () => {
-                    // 记住是哪个节点的弹窗，设置关掉后自动回来。
-                    returnToNodeRef.current = nodeDetailNodeId;
-                    setSettingsOpen(true);
-                } })) : null, settingsOpen ? (_jsx(WorkflowSettingsDialog, { onClose: () => {
-                    setSettingsOpen(false);
-                    const back = returnToNodeRef.current;
-                    returnToNodeRef.current = null;
-                    if (back !== null)
-                        setNodeDetailNodeId(back);
-                } })) : null] }));
+            })() : null] }));
 }
 /**
  * 输入框工具条里的 workflow 状态徽标：
@@ -406,6 +390,10 @@ function WorkflowStateBadge(props) {
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
     const [nodeInfo, setNodeInfo] = useState(null);
     const [advancing, setAdvancing] = useState(false);
+    /** 点状态徽标打开「节点补充说明」；从那里跳设置，关掉设置再回来。 */
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [returnToDetail, setReturnToDetail] = useState(false);
     const readNode = async () => {
         try {
             const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
@@ -498,19 +486,21 @@ function WorkflowStateBadge(props) {
             setAdvancing(false);
         }
     };
-    return (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsxs("span", { title: "workflow \u8282\u70B9\u72B6\u6001", style: {
+    return (_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsxs("button", { type: "button", title: "\u67E5\u770B / \u7F16\u8F91\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282", onClick: () => setDetailOpen(true), style: {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 5,
                     height: 22,
                     padding: '0 8px',
                     borderRadius: 6,
+                    border: '1px solid transparent',
                     background: 'var(--dsw-alias-bg-layer-1)',
                     color: 'var(--dsw-alias-label-secondary)',
                     fontSize: 11,
                     lineHeight: '22px',
                     whiteSpace: 'nowrap',
-                }, children: [_jsx("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nextState === null ? null : (_jsx(Tooltip, { label: `推进到 ${NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: _jsx("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
+                    cursor: 'pointer',
+                }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [_jsx("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nextState === null ? null : (_jsx(Tooltip, { label: `推进到 ${NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: _jsx("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -522,7 +512,17 @@ function WorkflowStateBadge(props) {
                         color: 'var(--dsw-alias-label-secondary)',
                         cursor: advancing ? 'progress' : 'pointer',
                         opacity: advancing ? 0.6 : 1,
-                    }, children: _jsxs("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M5 12h13" }), _jsx("path", { d: "m12.5 6 6 6-6 6" })] }) }) }))] }));
+                    }, children: _jsxs("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M5 12h13" }), _jsx("path", { d: "m12.5 6 6 6-6 6" })] }) }) })), detailOpen ? (_jsx(WorkflowNodeDetailDialog, { workflowId: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, onClose: () => setDetailOpen(false), onOpenSettings: () => {
+                    setReturnToDetail(true);
+                    setDetailOpen(false);
+                    setSettingsOpen(true);
+                } })) : null, settingsOpen ? (_jsx(WorkflowSettingsDialog, { onClose: () => {
+                    setSettingsOpen(false);
+                    if (returnToDetail) {
+                        setReturnToDetail(false);
+                        setDetailOpen(true);
+                    }
+                } })) : null] }));
 }
 /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
 export function applyWorkflowComposerBadge(ctx) {

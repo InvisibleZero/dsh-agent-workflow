@@ -6,7 +6,7 @@
  * 不 import `workspace-browser`；共享的只有 `workspace-kind`（枚举）、`workspace-ui`（CSS/图标原语）、
  * `../schema/node-state-label`（状态中文名）。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
@@ -100,12 +100,6 @@ function WorkflowWorkspaceItem(props: {
   const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState<{ x: number; y: number } | null>(null);
   /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
-  /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
-  const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
-  /** 全局操作细节弹窗（从节点弹窗跳过来时单独开一层，不和节点弹窗叠加）。 */
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  /** 从节点弹窗跳去设置时记住是谁，设置关掉后自动回到它。 */
-  const returnToNodeRef = useRef<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
@@ -380,20 +374,6 @@ function WorkflowWorkspaceItem(props: {
             >
               <IconEllipsisOutlineRegular />
             </button>
-            {/* 操作细节：小齿轮。推进按钮已挪到会话里（状态徽标右侧）。 */}
-            <Tooltip label="操作细节" side="bottom" align="end" delayMs={500} portal>
-              <button
-                type="button"
-                className={rowsClass('iconButton')}
-                aria-label="操作细节"
-                onClick={() => setNodeDetailNodeId(node.node_id)}
-              >
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-            </Tooltip>
             <Tooltip label="新建子会话" side="bottom" align="end" delayMs={500} portal>
               <button type="button" className={rowsClass('iconButton')} aria-label="新建子会话" onClick={() => void addChildTo(node.node_id)}>
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden style={{ display: 'block' }}>
@@ -563,27 +543,6 @@ function WorkflowWorkspaceItem(props: {
           />
         );
       })() : null}
-
-      {nodeDetailNodeId !== null ? (
-        <WorkflowNodeDetailDialog
-          workflowId={summary.id}
-          nodeId={nodeDetailNodeId}
-          onClose={() => setNodeDetailNodeId(null)}
-          onOpenSettings={() => {
-            // 记住是哪个节点的弹窗，设置关掉后自动回来。
-            returnToNodeRef.current = nodeDetailNodeId;
-            setSettingsOpen(true);
-          }}
-        />
-      ) : null}
-      {settingsOpen ? (
-        <WorkflowSettingsDialog onClose={() => {
-          setSettingsOpen(false);
-          const back = returnToNodeRef.current;
-          returnToNodeRef.current = null;
-          if (back !== null) setNodeDetailNodeId(back);
-        }} />
-      ) : null}
     </div>
   );
 }
@@ -596,6 +555,10 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
   const [nodeInfo, setNodeInfo] = useState<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  /** 点状态徽标打开「节点补充说明」；从那里跳设置，关掉设置再回来。 */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [returnToDetail, setReturnToDetail] = useState(false);
 
   const readNode = async (): Promise<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null> => {
     try {
@@ -686,8 +649,10 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <span
-        title="workflow 节点状态"
+      <button
+        type="button"
+        title="查看 / 编辑本节点的操作细节"
+        onClick={() => setDetailOpen(true)}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -695,16 +660,20 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
           height: 22,
           padding: '0 8px',
           borderRadius: 6,
+          border: '1px solid transparent',
           background: 'var(--dsw-alias-bg-layer-1)',
           color: 'var(--dsw-alias-label-secondary)',
           fontSize: 11,
           lineHeight: '22px',
           whiteSpace: 'nowrap',
+          cursor: 'pointer',
         }}
+        onMouseEnter={(event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
+        onMouseLeave={(event) => { event.currentTarget.style.borderColor = 'transparent'; }}
       >
         <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' }} />
         {label}
-      </span>
+      </button>
       {nextState === null ? null : (
         <Tooltip label={`推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="top" delayMs={400} portal>
           <button
@@ -733,6 +702,27 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
           </button>
         </Tooltip>
       )}
+      {detailOpen ? (
+        <WorkflowNodeDetailDialog
+          workflowId={nodeInfo.workflowId}
+          nodeId={nodeInfo.nodeId}
+          onClose={() => setDetailOpen(false)}
+          onOpenSettings={() => {
+            setReturnToDetail(true);
+            setDetailOpen(false);
+            setSettingsOpen(true);
+          }}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <WorkflowSettingsDialog onClose={() => {
+          setSettingsOpen(false);
+          if (returnToDetail) {
+            setReturnToDetail(false);
+            setDetailOpen(true);
+          }
+        }} />
+      ) : null}
     </span>
   );
 }
