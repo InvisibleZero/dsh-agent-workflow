@@ -168,8 +168,9 @@ def build_state():
             line_y += 18
         y = box_top + box_h + 20
 
-    d.text((32, y + 2), "推进前置：方案非空才能进实现中，", font=dim_font, fill=TEXT_MUTED)
-    d.text((32, y + 18), "清单全勾才能进验收中。", font=dim_font, fill=TEXT_MUTED)
+    d.text((32, y + 2), "推进前置：", font=dim_font, fill=TEXT_MUTED)
+    d.text((32, y + 20), "方案非空才能进实现中。", font=dim_font, fill=TEXT_MUTED)
+    d.text((32, y + 38), "清单全勾才能进验收中。", font=dim_font, fill=TEXT_MUTED)
     return layer
 
 
