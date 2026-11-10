@@ -125,6 +125,10 @@ const [point, setPoint] = useState<MenuPoint | null>(null);
 ```
 
 - **验证**：点列表最下面那行的「⋯」，菜单应紧贴按钮下方；再切浅色主题，颜色应跟着变（菜单本体是宿主的，自动跟随主题变量）。
+- **附带坑：开菜单前先把焦点放到触发按钮**（`event.currentTarget.focus({ preventScroll: true })`）。
+  否则焦点留在打开前的位置，宿主菜单 dismiss 时无法归还焦点，而它又会给菜单容器加 `aria-hidden`，
+  浏览器就报 `Blocked aria-hidden on an element because its descendant retained focus`。
+  这个警告不影响功能，但控制台会一直刷。
 - **涉及文件**：`src/client/workspace-ui.tsx`（`menuPointFromEvent` / `menuAnchorRect`）、
   `workspace-browser.tsx`、`workflow-embedded.tsx`。
 

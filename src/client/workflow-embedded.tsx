@@ -282,6 +282,9 @@ function WorkflowWorkspaceItem(props: {
               aria-haspopup="menu"
               aria-expanded={nodeMenu?.nodeId === node.node_id}
               onClick={(event) => {
+                // 先把焦点落到触发按钮：宿主菜单关闭时要把焦点还回来，
+                // 否则菜单隐藏时焦点仍在菜单项上，浏览器会报 aria-hidden 警告。
+                event.currentTarget.focus({ preventScroll: true });
                 const point = menuPointFromEvent(event);
                 const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
                 if (nodeSessionId !== null) {
@@ -362,6 +365,7 @@ function WorkflowWorkspaceItem(props: {
             aria-haspopup="menu"
             aria-expanded={workspaceMenuPoint !== null}
             onClick={(event) => {
+              event.currentTarget.focus({ preventScroll: true });
               const point = menuPointFromEvent(event);
               setWorkspaceMenuPoint((current) => (current === null ? point : null));
             }}

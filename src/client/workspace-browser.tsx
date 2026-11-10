@@ -287,6 +287,7 @@ function WorkspaceNodeItem(props: {
           aria-haspopup="menu"
           aria-expanded={menuPoint !== null}
           onClick={(event) => {
+            event.currentTarget.focus({ preventScroll: true });
             const point = menuPointFromEvent(event);
             setMenuPoint((current) => (current === null ? point : null));
           }}
@@ -367,6 +368,7 @@ function ViewOptionsMenu(props: {
           aria-haspopup="menu"
           aria-expanded={point !== null}
           onClick={(event) => {
+            event.currentTarget.focus({ preventScroll: true });
             const next = menuPointFromEvent(event);
             setPoint((current) => (current === null ? next : null));
           }}
@@ -418,6 +420,7 @@ function AddWorkspaceMenu(props: { onSelectKind: (kind: WorkspaceKind) => void }
           aria-haspopup="menu"
           aria-expanded={point !== null}
           onClick={(event) => {
+            event.currentTarget.focus({ preventScroll: true });
             const next = menuPointFromEvent(event);
             setPoint((current) => (current === null ? next : null));
           }}
