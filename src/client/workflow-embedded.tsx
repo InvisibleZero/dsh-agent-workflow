@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { WorkflowNodeDetailDialog } from './workflow-dialogs';
+import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import {
   Menu,
@@ -102,6 +102,8 @@ function WorkflowWorkspaceItem(props: {
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
   const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
+  /** 全局操作细节弹窗（从节点弹窗跳过来时单独开一层，不和节点弹窗叠加）。 */
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
@@ -565,7 +567,11 @@ function WorkflowWorkspaceItem(props: {
           workflowId={summary.id}
           nodeId={nodeDetailNodeId}
           onClose={() => setNodeDetailNodeId(null)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
+      ) : null}
+      {settingsOpen ? (
+        <WorkflowSettingsDialog onClose={() => setSettingsOpen(false)} />
       ) : null}
     </div>
   );

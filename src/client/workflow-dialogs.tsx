@@ -257,9 +257,18 @@ export function applyWorkflowSettingsSection(ctx: any) {
   );
 }
 
+/** 全局操作细节的独立弹窗版（与设置页共用同一个编辑组件）。 */
+export function WorkflowSettingsDialog(props: { onClose: () => void }) {
+  return (
+    <Modal title="操作细节设置（全局）" onClose={props.onClose}>
+      <WorkflowGlobalSettingsSection />
+    </Modal>
+  );
+}
+
 /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
-export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void }) {
-  const { workflowId, nodeId, onClose } = props;
+export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void; onOpenSettings?: () => void }) {
+  const { workflowId, nodeId, onClose, onOpenSettings } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -283,7 +292,6 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [noteStatus, setNoteStatus] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const timers = useRef<Record<string, any>>({});
 
   // 读到数据后把节点自己的附加说明灌进本地草稿。
@@ -332,7 +340,11 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
             </span>
             <button
               type="button"
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => {
+                // 先关掉当前弹窗，再让上层打开设置：避免两层遮罩叠在一起。
+                onOpenSettings?.();
+                onClose();
+              }}
               style={{
                 height: 24,
                 padding: '0 10px',
@@ -372,11 +384,6 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           })}
         </>
       )}
-      {settingsOpen ? (
-        <Modal title="操作细节设置（全局）" onClose={() => setSettingsOpen(false)}>
-          <WorkflowGlobalSettingsSection />
-        </Modal>
-      ) : null}
     </Modal>
   );
 }
