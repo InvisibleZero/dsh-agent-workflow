@@ -212,6 +212,7 @@ window.__ModuleLoader__.load({
             if (advancing)
                 return;
             setAdvancing(true);
+            const startedAt = Date.now();
             try {
                 await fetch('/dsh-agent-workflow/transition', {
                     method: 'POST',
@@ -227,6 +228,7 @@ window.__ModuleLoader__.load({
                     void readChecklist(info.workflowId, info.nodeId);
                 else
                     setChecklist([]);
+                console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
             }
             catch (error) {
                 console.error('[dsh-agent-workflow] 推进状态失败：', error);

@@ -191,8 +191,15 @@ export function apply(ctx: any) {
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
         if (typeof body?.state !== 'string' || body.state === '') throw new Error('缺少 state');
         if (typeof body?.text !== 'string') throw new Error('缺少 text');
-        const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
-        return { snapshot };
+        const startedAt = Date.now();
+        try {
+          const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
+          ctx.logger?.info?.(`[workflow] node-note ok (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms)`);
+          return { snapshot };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] node-note failed (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
+          throw error;
+        }
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -221,7 +228,9 @@ export function apply(ctx: any) {
       handler: makeHandler(repository, 'GET', async (_body, query) => {
         const path = query.get('path');
         if (typeof path !== 'string' || path === '') return { nodes: {} };
+        const startedAt = Date.now();
         const nodes = await repository.getNodeStatesByDirectory(path);
+        ctx.logger?.info?.(`[workflow] sidebar-nodes ok (nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
         return { nodes };
       }),
     }));
@@ -337,13 +346,20 @@ export function apply(ctx: any) {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
         if (typeof body?.to !== 'string' || body.to === '') throw new Error('缺少 to');
-        const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
-        // 推进后立刻重算该会话的状态上下文：否则下一条消息还会带旧状态的规则。
-        const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
-        if (typeof moved?.session_id === 'string' && moved.session_id !== '') {
-          await stateContext.refreshNow(moved.session_id);
+        const startedAt = Date.now();
+        try {
+          const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
+          // 推进后立刻重算该会话的状态上下文：否则下一条消息还会带旧状态的规则。
+          const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
+          if (typeof moved?.session_id === 'string' && moved.session_id !== '') {
+            await stateContext.refreshNow(moved.session_id);
+          }
+          ctx.logger?.info?.(`[workflow] transition ok (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms)`);
+          return { snapshot };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] transition failed (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
+          throw error;
         }
-        return { snapshot };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

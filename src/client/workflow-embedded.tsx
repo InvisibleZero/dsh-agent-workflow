@@ -170,6 +170,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const transitionTo = async (to: string) => {
     if (advancing) return;
     setAdvancing(true);
+    const startedAt = Date.now();
     try {
       await fetch('/dsh-agent-workflow/transition', {
         method: 'POST',
@@ -182,6 +183,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       if (info !== null && info.enterTrigger !== '') pushDraft(info.enterTrigger);
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
       else setChecklist([]);
+      console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
     } catch (error) {
       console.error('[dsh-agent-workflow] 推进状态失败：', error);
     } finally {

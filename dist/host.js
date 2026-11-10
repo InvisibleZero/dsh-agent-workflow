@@ -958,7 +958,10 @@ function registerWorkflowStateContext(ctx, repository) {
     peek: async (sessionId) => buildText(sessionId),
     /** 立刻重算并等它完成：状态推进后调用，保证下一轮模型请求看到的就是新状态。 */
     refreshNow: async (sessionId) => {
-      await buildText(sessionId);
+      const startedAt = Date.now();
+      const text = await buildText(sessionId);
+      ctx.logger?.info?.(`[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, "utf8")}, ${Date.now() - startedAt}ms)`);
+      return text;
     }
   };
 }
@@ -1141,8 +1144,15 @@ function apply(ctx) {
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         if (typeof body?.state !== "string" || body.state === "") throw new Error("\u7F3A\u5C11 state");
         if (typeof body?.text !== "string") throw new Error("\u7F3A\u5C11 text");
-        const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
-        return { snapshot };
+        const startedAt = Date.now();
+        try {
+          const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
+          ctx.logger?.info?.(`[workflow] node-note ok (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms)`);
+          return { snapshot };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] node-note failed (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          throw error;
+        }
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -1170,7 +1180,9 @@ function apply(ctx) {
       handler: makeHandler(repository, "GET", async (_body, query) => {
         const path2 = query.get("path");
         if (typeof path2 !== "string" || path2 === "") return { nodes: {} };
+        const startedAt = Date.now();
         const nodes = await repository.getNodeStatesByDirectory(path2);
+        ctx.logger?.info?.(`[workflow] sidebar-nodes ok (nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
         return { nodes };
       })
     }));
@@ -1285,12 +1297,19 @@ function apply(ctx) {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         if (typeof body?.to !== "string" || body.to === "") throw new Error("\u7F3A\u5C11 to");
-        const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
-        const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
-        if (typeof moved?.session_id === "string" && moved.session_id !== "") {
-          await stateContext.refreshNow(moved.session_id);
+        const startedAt = Date.now();
+        try {
+          const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
+          const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
+          if (typeof moved?.session_id === "string" && moved.session_id !== "") {
+            await stateContext.refreshNow(moved.session_id);
+          }
+          ctx.logger?.info?.(`[workflow] transition ok (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms)`);
+          return { snapshot };
+        } catch (error) {
+          ctx.logger?.warn?.(`[workflow] transition failed (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          throw error;
         }
-        return { snapshot };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

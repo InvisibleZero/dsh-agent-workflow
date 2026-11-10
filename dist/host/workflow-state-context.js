@@ -149,7 +149,12 @@ export function registerWorkflowStateContext(ctx, repository) {
         /** 强制算一次并返回（调试/预览用）。 */
         peek: async (sessionId) => buildText(sessionId),
         /** 立刻重算并等它完成：状态推进后调用，保证下一轮模型请求看到的就是新状态。 */
-        refreshNow: async (sessionId) => { await buildText(sessionId); },
+        refreshNow: async (sessionId) => {
+            const startedAt = Date.now();
+            const text = await buildText(sessionId);
+            ctx.logger?.info?.(`[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, 'utf8')}, ${Date.now() - startedAt}ms)`);
+            return text;
+        },
     };
 }
 /** 从装配上下文里尽量解析出会话 id（不同版本字段位置不同，逐个试）。 */
