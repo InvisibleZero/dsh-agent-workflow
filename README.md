@@ -1,6 +1,6 @@
 # dsh-agent-workflow —— Agent 编排与 Workflow 状态机插件
 
-<img src="assets/cover.png" width="100%" alt="会话列表 / 四态状态机 / 两层手册">
+<img src="assets/cover.png" width="100%" alt="会话列表 / 四态状态机 + 门禁 / 两层手册">
 
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：**工作区 = 一个项目，会话 = 一个 workflow 单元**。每个会话走**四态状态机**（讨论 → 实现 → 验收），当前状态自动决定注入给模型的操作细节，并把项目的总览、决策、约束与坑沉淀进**两层手册**（项目手册 + 会话手册）。
 

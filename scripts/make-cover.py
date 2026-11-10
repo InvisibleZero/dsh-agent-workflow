@@ -1,7 +1,7 @@
-﻿"""生成插件封面：总宽 1200（与单图同宽），横向分三个区域：
+"""生成插件封面：总宽 1200（与单图同宽），横向分三个区域：
 
   左  ：会话列表（工作区 = 项目，会话 = 单元）
-  中  ：五态状态机 + 状态决定注入什么
+  中  ：四态状态机 + 状态决定注入什么 + 写操作门禁
   右  ：两层手册（项目手册 / 会话手册）
 
 每个区域先在 400 宽的图层上画，再整体拼到总图上。
@@ -28,13 +28,14 @@ ROW_CHILD_TITLE = (186, 196, 212)
 STATE_IDLE = (110, 120, 136)
 STATE_WARN = (214, 160, 72)
 STATE_BRAND = (95, 138, 255)
+STATE_VERIFY = (139, 92, 246)
 STATE_SUCCESS = (63, 185, 80)
 CODE_BG = (15, 19, 25)
 CODE_BORDER = (44, 52, 66)
 
 FONT_REG = "C:/Windows/Fonts/msyh.ttc"
 FONT_BOLD = "C:/Windows/Fonts/msyhbd.ttc"
-OUT = r"C:\Users\Administrator\Documents\deepseek-harness\default-workspace\dsh-agent-workflow\assets\cover.png"
+OUT = r"C:\Users\QINBAI\Documents\deepseek-harness\default-workspace\dsh-agent-workflow\assets\cover.png"
 
 PANEL_TOP, PANEL_BOTTOM = 92, H - 16
 
@@ -70,7 +71,7 @@ def panel_box(d):
 # ------------------------------------------------------------------ 左：会话
 def build_sessions():
     layer, d = new_column()
-    header(d, "工作区 = 项目，会话 = 单元", "打开会话即成为 workflow 节点")
+    header(d, "工作区 = 项目，会话 = 单元", "选工作流模式的会话，打开即成为节点")
     panel_box(d)
 
     small = ImageFont.truetype(FONT_REG, 12)
@@ -86,9 +87,9 @@ def build_sessions():
         ("登录模块", "实现中", STATE_BRAND, True),
         ("支付回调加固", "已完结", STATE_SUCCESS, False),
         ("订单状态机", "讨论中", STATE_WARN, False),
-        ("退货流程", "未开始", STATE_IDLE, False),
-        ("发票系统", "未开始", STATE_IDLE, False),
-        ("用户中心", "未开始", STATE_IDLE, False),
+        ("退货流程", "验收中", STATE_VERIFY, False),
+        ("发票系统", "已完结", STATE_SUCCESS, False),
+        ("用户中心", "讨论中", STATE_WARN, False),
     ]
     y = PANEL_TOP + 76
     for title, state, color, selected in rows:
@@ -107,7 +108,7 @@ def build_sessions():
 # ------------------------------------------------------------------ 中：状态机
 def build_state():
     layer, d = new_column()
-    header(d, "五态状态机", "推进即注入该状态的操作细节")
+    header(d, "四态状态机 + 门禁", "状态决定能做什么；切换要你点同意")
     panel_box(d)
 
     small = ImageFont.truetype(FONT_REG, 11)
@@ -116,13 +117,12 @@ def build_state():
     code_font = ImageFont.truetype(FONT_REG, 11)
     dim_font = ImageFont.truetype(FONT_REG, 10)
 
-    d.text((32, PANEL_TOP + 18), "每个会话走五态状态机", font=small, fill=TEXT_MUTED)
+    d.text((32, PANEL_TOP + 18), "每个会话走四态状态机", font=small, fill=TEXT_MUTED)
 
     states = [
-        ("未开始", STATE_IDLE, False),
         ("讨论中", STATE_WARN, False),
         ("实现中", STATE_BRAND, True),
-        ("验收中", STATE_WARN, False),
+        ("验收中", STATE_VERIFY, False),
         ("已完结", STATE_SUCCESS, False),
     ]
     pill_w, pill_h = 58, 26
@@ -142,7 +142,7 @@ def build_state():
 
     d.text((32, PANEL_TOP + 106), "讨论中", font=head_font, fill=STATE_WARN)
     d.rounded_rectangle([(32, PANEL_TOP + 126), (COL_W - 32, PANEL_TOP + 126 + 46)], radius=8, fill=CODE_BG, outline=CODE_BORDER, width=1)
-    d.text((44, PANEL_TOP + 138), "只讨论不动手：给方案、取舍。", font=code_font, fill=ROW_CHILD_TITLE)
+    d.text((44, PANEL_TOP + 138), "只讨论不动手：写操作被门禁拒绝。", font=code_font, fill=ROW_CHILD_TITLE)
 
     d.text((32, PANEL_TOP + 188), "实现中", font=head_font, fill=STATE_BRAND)
     d.text((32 + d.textlength("实现中", font=head_font) + 8, PANEL_TOP + 190), "当前态", font=dim_font, fill=ACCENT)
@@ -152,7 +152,7 @@ def build_state():
         "按已确认的方案落地。",
         "先读后改，改动越少越好。",
         "完成后给出验证方式。",
-        "每完成一层勾掉实施顺序。",
+        "用 workflow_check 勾一层再停。",
     ]
     ly = box_top + 14
     for line in lines:
@@ -185,8 +185,8 @@ def build_manual():
     d.rounded_rectangle([(x0, PANEL_TOP + 16), (x1, PANEL_TOP + 16 + 92)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
     file_icon(x0 + 12, PANEL_TOP + 32)
     d.text((x0 + 38, PANEL_TOP + 28), "项目手册.md", font=file_font, fill=TEXT_PRIMARY)
-    d.text((x0 + 38, PANEL_TOP + 50), "总览 / 决策 / 要点 · 共享", font=desc_font, fill=TEXT_MUTED)
-    d.text((x0 + 12, PANEL_TOP + 78), "收尾回写结论，项目「当前状态」", font=note_font, fill=STATE_SUCCESS)
+    d.text((x0 + 38, PANEL_TOP + 50), "总览 / 决策 / 约束 / 坑与防线", font=desc_font, fill=TEXT_MUTED)
+    d.text((x0 + 12, PANEL_TOP + 78), "收尾按三问回写（新决策 / 新坑）", font=note_font, fill=STATE_SUCCESS)
 
     # 会话手册
     box_top = PANEL_TOP + 120
