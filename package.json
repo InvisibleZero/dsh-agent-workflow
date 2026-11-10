@@ -1,10 +1,22 @@
 {
   "name": "dsh-agent-workflow",
   "version": "0.1.0",
-  "description": "Agent 编排与 Workflow 状态机插件：断点续传、状态持久化、树形可视化",
+  "description": "侧栏工作区 + 树形子节点 + 五态状态机：每个子节点即一个 DSH 会话，当前状态自动决定注入给模型的操作细节，并给每个节点维护 AI 自留的工作手册与手册摘要",
   "type": "module",
   "main": "dist/host.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/InvisibleZero/dsh-agent-workflow.git"
+  },
+  "homepage": "https://github.com/InvisibleZero/dsh-agent-workflow#readme",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "workflow",
+    "state-machine",
+    "agent-orchestration"
+  ],
   "exports": {
     ".": "./dist/host.js",
     "./client": "./dist/client-bundle.js",
