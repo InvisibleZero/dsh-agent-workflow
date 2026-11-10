@@ -52,6 +52,11 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
     if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
       parts.push('', effective.full_detail.trim());
     }
+    // 全局附加说明：所有状态都追加，排在 A 之后、节点附加之前。
+    const globalAdditional = typeof global?.global_additional === 'string' ? global.global_additional.trim() : '';
+    if (globalAdditional !== '') {
+      parts.push('', globalAdditional);
+    }
     // 节点级附加说明：纯增量，接在全局细节后面。
     const addition = typeof node.additional_detail === 'object' && node.additional_detail !== null
       ? node.additional_detail[node.current_state]

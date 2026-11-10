@@ -185,9 +185,16 @@ export function WorkflowGlobalSettingsSection() {
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
             <textarea
-              style={{ ...FIELD_STYLE, flex: '1 1 auto' }}
+              style={{ ...FIELD_STYLE, flex: '1 1 60%' }}
               value={detail.shared_detail ?? ''}
               onChange={(event) => update({ ...detail, shared_detail: event.target.value })}
+            />
+            <label style={{ ...LABEL_STYLE, marginTop: 10 }}>全局附加说明（所有状态都会追加，节点附加排在它后面）</label>
+            <textarea
+              style={{ ...FIELD_STYLE, flex: '1 1 40%' }}
+              placeholder="留空则不追加"
+              value={detail.global_additional ?? ''}
+              onChange={(event) => update({ ...detail, global_additional: event.target.value })}
             />
           </>
         ) : (

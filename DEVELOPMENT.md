@@ -104,6 +104,12 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
   点开的是**同一个编辑组件**（`WorkflowGlobalSettingsSection`）的弹窗版。
   为什么不用 `layout.selectPanel('settings')`：那套面板 id 里根本没有设置页（`sidebar.panellist` 只有
   `plugins` / `schedules`），点了没反应；设置页没有可用的深链入口，所以复用组件自开弹窗。
+- **注入顺序**：A（公共）→ 全局附加 → 当前状态细节 → 节点附加。
+- **全局附加说明**：`GlobalOperationDetail.global_additional`（有 `.default('')`，旧文件无需迁移），
+  所有状态都追加；编辑入口在设置页「公共」页签的第二块文本框。
+- **弹窗必须在侧栏那棵树渲染**：输入框工具条所在容器带 `transform`，会让 `position: fixed` 相对它定位、
+  弹窗跑到右下角。所以会话里的状态徽标只 `window.dispatchEvent('dsh-agent-workflow:open-node-detail')`，
+  由 `WorkflowWorkspaceItem` 监听并渲染弹窗。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
 ### 3.3 数据层与渲染层的对应

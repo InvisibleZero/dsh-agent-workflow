@@ -84,8 +84,22 @@ function WorkflowWorkspaceItem(props) {
     const [workspaceMenuPoint, setWorkspaceMenuPoint] = (0, react_1.useState)(null);
     /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
     const [nodeMenu, setNodeMenu] = (0, react_1.useState)(null);
+    /** 节点补充说明弹窗（由会话里的状态徽标点开，但在这棵树里渲染，避免输入框容器的 transform 让 fixed 弹窗跑偏）。 */
+    const [nodeDetailNodeId, setNodeDetailNodeId] = (0, react_1.useState)(null);
+    const [settingsOpen, setSettingsOpen] = (0, react_1.useState)(false);
+    const returnToNodeRef = (0, react_1.useRef)(null);
     /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
     const [busyNodeId, setBusyNodeId] = (0, react_1.useState)(null);
+    // 会话里的状态徽标只发事件，弹窗由这里渲染（输入框容器带 transform，fixed 会跑偏）。
+    (0, react_1.useEffect)(() => {
+        const onOpenNodeDetail = (event) => {
+            const nodeId = event?.detail?.nodeId;
+            if (typeof nodeId === 'string' && nodeId !== '')
+                setNodeDetailNodeId(nodeId);
+        };
+        window.addEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
+        return () => window.removeEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
+    }, []);
     const load = async () => {
         if (snapshot !== null)
             return;
@@ -384,7 +398,16 @@ function WorkflowWorkspaceItem(props) {
                         { id: 'archive', label: '归档会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutlineRegular, {}), separatorBefore: true },
                     ];
                 return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-            })() : null] }));
+            })() : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null), onOpenSettings: () => {
+                    returnToNodeRef.current = nodeDetailNodeId;
+                    setSettingsOpen(true);
+                } })) : null, settingsOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowSettingsDialog, { onClose: () => {
+                    setSettingsOpen(false);
+                    const back = returnToNodeRef.current;
+                    returnToNodeRef.current = null;
+                    if (back !== null)
+                        setNodeDetailNodeId(back);
+                } })) : null] }));
 }
 /**
  * 输入框工具条里的 workflow 状态徽标：
@@ -394,10 +417,6 @@ function WorkflowStateBadge(props) {
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
     const [nodeInfo, setNodeInfo] = (0, react_1.useState)(null);
     const [advancing, setAdvancing] = (0, react_1.useState)(false);
-    /** 点状态徽标打开「节点补充说明」；从那里跳设置，关掉设置再回来。 */
-    const [detailOpen, setDetailOpen] = (0, react_1.useState)(false);
-    const [settingsOpen, setSettingsOpen] = (0, react_1.useState)(false);
-    const [returnToDetail, setReturnToDetail] = (0, react_1.useState)(false);
     const readNode = async () => {
         try {
             const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
@@ -490,7 +509,12 @@ function WorkflowStateBadge(props) {
             setAdvancing(false);
         }
     };
-    return ((0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u67E5\u770B / \u7F16\u8F91\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282", onClick: () => setDetailOpen(true), style: {
+    return ((0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u67E5\u770B / \u7F16\u8F91\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282", onClick: () => {
+                    // 弹窗由侧栏那棵树渲染：输入框所在容器带 transform，fixed 定位会歪。
+                    window.dispatchEvent(new CustomEvent('dsh-agent-workflow:open-node-detail', {
+                        detail: { workflowId: nodeInfo.workflowId, nodeId: nodeInfo.nodeId },
+                    }));
+                }, style: {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 5,
@@ -516,17 +540,7 @@ function WorkflowStateBadge(props) {
                         color: 'var(--dsw-alias-label-secondary)',
                         cursor: advancing ? 'progress' : 'pointer',
                         opacity: advancing ? 0.6 : 1,
-                    }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) })), detailOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, onClose: () => setDetailOpen(false), onOpenSettings: () => {
-                    setReturnToDetail(true);
-                    setDetailOpen(false);
-                    setSettingsOpen(true);
-                } })) : null, settingsOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowSettingsDialog, { onClose: () => {
-                    setSettingsOpen(false);
-                    if (returnToDetail) {
-                        setReturnToDetail(false);
-                        setDetailOpen(true);
-                    }
-                } })) : null] }));
+                    }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M5 12h13" }), (0, jsx_runtime_1.jsx)("path", { d: "m12.5 6 6 6-6 6" })] }) }) }))] }));
 }
 /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
 function applyWorkflowComposerBadge(ctx) {

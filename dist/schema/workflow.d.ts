@@ -2,6 +2,8 @@ import { z } from 'zod';
 /** 全局操作细节 = A（公共）+ B/C/D（三态专属），只在设置里改。 */
 export declare const GlobalOperationDetail: z.ZodObject<{
     shared_detail: z.ZodString;
+    /** 全局附加说明：所有状态都会追加在 A 后面，节点附加再追加在最后。 */
+    global_additional: z.ZodDefault<z.ZodString>;
     discussing: z.ZodObject<{
         operation_detail: z.ZodString;
         enter_trigger: z.ZodNullable<z.ZodString>;
@@ -46,6 +48,7 @@ export declare const GlobalOperationDetail: z.ZodObject<{
         enter_trigger: string | null;
     };
     shared_detail: string;
+    global_additional: string;
 }, {
     discussing: {
         operation_detail: string;
@@ -60,6 +63,7 @@ export declare const GlobalOperationDetail: z.ZodObject<{
         enter_trigger: string | null;
     };
     shared_detail: string;
+    global_additional?: string | undefined;
 }>;
 export type GlobalOperationDetail = z.infer<typeof GlobalOperationDetail>;
 /** 父节点状态聚合方式。 */
@@ -69,6 +73,8 @@ export type AggregationMode = z.infer<typeof AggregationMode>;
 export declare const WorkflowSettings: z.ZodObject<{
     global_operation_detail: z.ZodObject<{
         shared_detail: z.ZodString;
+        /** 全局附加说明：所有状态都会追加在 A 后面，节点附加再追加在最后。 */
+        global_additional: z.ZodDefault<z.ZodString>;
         discussing: z.ZodObject<{
             operation_detail: z.ZodString;
             enter_trigger: z.ZodNullable<z.ZodString>;
@@ -113,6 +119,7 @@ export declare const WorkflowSettings: z.ZodObject<{
             enter_trigger: string | null;
         };
         shared_detail: string;
+        global_additional: string;
     }, {
         discussing: {
             operation_detail: string;
@@ -127,6 +134,7 @@ export declare const WorkflowSettings: z.ZodObject<{
             enter_trigger: string | null;
         };
         shared_detail: string;
+        global_additional?: string | undefined;
     }>;
     default_max_depth: z.ZodNumber;
     default_max_steps: z.ZodNumber;
@@ -146,6 +154,7 @@ export declare const WorkflowSettings: z.ZodObject<{
             enter_trigger: string | null;
         };
         shared_detail: string;
+        global_additional: string;
     };
     default_max_depth: number;
     default_max_steps: number;
@@ -165,6 +174,7 @@ export declare const WorkflowSettings: z.ZodObject<{
             enter_trigger: string | null;
         };
         shared_detail: string;
+        global_additional?: string | undefined;
     };
     default_max_depth: number;
     default_max_steps: number;
@@ -188,6 +198,8 @@ export declare const WorkflowSnapshot: z.ZodObject<{
     settings: z.ZodObject<{
         global_operation_detail: z.ZodObject<{
             shared_detail: z.ZodString;
+            /** 全局附加说明：所有状态都会追加在 A 后面，节点附加再追加在最后。 */
+            global_additional: z.ZodDefault<z.ZodString>;
             discussing: z.ZodObject<{
                 operation_detail: z.ZodString;
                 enter_trigger: z.ZodNullable<z.ZodString>;
@@ -232,6 +244,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional: string;
         }, {
             discussing: {
                 operation_detail: string;
@@ -246,6 +259,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional?: string | undefined;
         }>;
         default_max_depth: z.ZodNumber;
         default_max_steps: z.ZodNumber;
@@ -265,6 +279,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional: string;
         };
         default_max_depth: number;
         default_max_steps: number;
@@ -284,6 +299,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional?: string | undefined;
         };
         default_max_depth: number;
         default_max_steps: number;
@@ -460,6 +476,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional: string;
         };
         default_max_depth: number;
         default_max_steps: number;
@@ -521,6 +538,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional?: string | undefined;
         };
         default_max_depth: number;
         default_max_steps: number;

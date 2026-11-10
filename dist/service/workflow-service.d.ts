@@ -34,6 +34,7 @@ export declare class WorkflowService {
                 enter_trigger: string | null;
             };
             shared_detail: string;
+            global_additional: string;
         };
         default_max_depth: number;
         default_max_steps: number;

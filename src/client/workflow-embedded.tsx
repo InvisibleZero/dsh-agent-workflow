@@ -6,7 +6,7 @@
  * 不 import `workspace-browser`；共享的只有 `workspace-kind`（枚举）、`workspace-ui`（CSS/图标原语）、
  * `../schema/node-state-label`（状态中文名）。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
@@ -100,8 +100,22 @@ function WorkflowWorkspaceItem(props: {
   const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState<{ x: number; y: number } | null>(null);
   /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  /** 节点补充说明弹窗（由会话里的状态徽标点开，但在这棵树里渲染，避免输入框容器的 transform 让 fixed 弹窗跑偏）。 */
+  const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const returnToNodeRef = useRef<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
+
+  // 会话里的状态徽标只发事件，弹窗由这里渲染（输入框容器带 transform，fixed 会跑偏）。
+  useEffect(() => {
+    const onOpenNodeDetail = (event: any) => {
+      const nodeId = event?.detail?.nodeId;
+      if (typeof nodeId === 'string' && nodeId !== '') setNodeDetailNodeId(nodeId);
+    };
+    window.addEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
+    return () => window.removeEventListener('dsh-agent-workflow:open-node-detail', onOpenNodeDetail);
+  }, []);
 
   const load = async () => {
     if (snapshot !== null) return;
@@ -543,6 +557,26 @@ function WorkflowWorkspaceItem(props: {
           />
         );
       })() : null}
+
+      {nodeDetailNodeId !== null ? (
+        <WorkflowNodeDetailDialog
+          workflowId={summary.id}
+          nodeId={nodeDetailNodeId}
+          onClose={() => setNodeDetailNodeId(null)}
+          onOpenSettings={() => {
+            returnToNodeRef.current = nodeDetailNodeId;
+            setSettingsOpen(true);
+          }}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <WorkflowSettingsDialog onClose={() => {
+          setSettingsOpen(false);
+          const back = returnToNodeRef.current;
+          returnToNodeRef.current = null;
+          if (back !== null) setNodeDetailNodeId(back);
+        }} />
+      ) : null}
     </div>
   );
 }
@@ -555,10 +589,6 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
   const [nodeInfo, setNodeInfo] = useState<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null>(null);
   const [advancing, setAdvancing] = useState(false);
-  /** 点状态徽标打开「节点补充说明」；从那里跳设置，关掉设置再回来。 */
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [returnToDetail, setReturnToDetail] = useState(false);
 
   const readNode = async (): Promise<{ state: string; workflowId: string; nodeId: string; enterTrigger: string } | null> => {
     try {
@@ -652,7 +682,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
       <button
         type="button"
         title="查看 / 编辑本节点的操作细节"
-        onClick={() => setDetailOpen(true)}
+        onClick={() => {
+          // 弹窗由侧栏那棵树渲染：输入框所在容器带 transform，fixed 定位会歪。
+          window.dispatchEvent(new CustomEvent('dsh-agent-workflow:open-node-detail', {
+            detail: { workflowId: nodeInfo.workflowId, nodeId: nodeInfo.nodeId },
+          }));
+        }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -702,27 +737,6 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
           </button>
         </Tooltip>
       )}
-      {detailOpen ? (
-        <WorkflowNodeDetailDialog
-          workflowId={nodeInfo.workflowId}
-          nodeId={nodeInfo.nodeId}
-          onClose={() => setDetailOpen(false)}
-          onOpenSettings={() => {
-            setReturnToDetail(true);
-            setDetailOpen(false);
-            setSettingsOpen(true);
-          }}
-        />
-      ) : null}
-      {settingsOpen ? (
-        <WorkflowSettingsDialog onClose={() => {
-          setSettingsOpen(false);
-          if (returnToDetail) {
-            setReturnToDetail(false);
-            setDetailOpen(true);
-          }
-        }} />
-      ) : null}
     </span>
   );
 }
