@@ -244,8 +244,6 @@ function WorkflowWorkspaceItem(props: {
 
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
-    /** 根节点代表工作区本身，不绑会话：点它只做展开/折叠。 */
-    const isRootNode = node.parent_id === null;
     const children = (node.child_ids ?? [])
       .map((id: string) => byId.get(id))
       .filter((child: any) => child !== undefined);
@@ -261,14 +259,11 @@ function WorkflowWorkspaceItem(props: {
           role="treeitem"
           aria-selected={isCurrent}
           className={joinClasses(rowsClass('sessionRow'), isCurrent && rowsClass('selected'))}
-          title={isRootNode ? '工作区根节点' : (busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话')}
-          onClick={() => {
-            if (isRootNode) onToggle();
-            else void openNodeSession(node);
-          }}
+          title={busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'}
+          onClick={() => void openNodeSession(node)}
           style={{
             paddingLeft: 4 + depth * 14,
-            cursor: isRootNode ? 'default' : (busyNodeId === node.node_id ? 'progress' : 'pointer'),
+            cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
             opacity: busyNodeId === node.node_id ? 0.6 : 1,
           }}
         >
@@ -280,30 +275,28 @@ function WorkflowWorkspaceItem(props: {
             <span className={rowsClass('time')}>{NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state}</span>
           </span>
           <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
-            {isRootNode ? null : (
-              <button
-                type="button"
-                className={rowsClass('iconButton')}
-                aria-label="会话菜单"
-                aria-haspopup="menu"
-                aria-expanded={nodeMenu?.nodeId === node.node_id}
-                onClick={(event) => {
-                  const point = menuPointFromEvent(event);
-                  const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
-                  if (nodeSessionId !== null) {
-                    // 已绑定会话：直接打开宿主原生的「会话」菜单（置顶/重命名/复制 ID/归档…全都有）。
-                    setNodeMenu(null);
-                    runtime?.requestSessionMenu?.(nodeSessionId, node.title ?? '', point);
-                    return;
-                  }
-                  setNodeMenu((current) => (
-                    current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
-                  ));
-                }}
-              >
-                <IconEllipsisOutlineRegular />
-              </button>
-            )}
+            <button
+              type="button"
+              className={rowsClass('iconButton')}
+              aria-label="会话菜单"
+              aria-haspopup="menu"
+              aria-expanded={nodeMenu?.nodeId === node.node_id}
+              onClick={(event) => {
+                const point = menuPointFromEvent(event);
+                const nodeSessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
+                if (nodeSessionId !== null) {
+                  // 已绑定会话：直接打开宿主原生的「会话」菜单（置顶/重命名/复制 ID/归档…全都有）。
+                  setNodeMenu(null);
+                  runtime?.requestSessionMenu?.(nodeSessionId, node.title ?? '', point);
+                  return;
+                }
+                setNodeMenu((current) => (
+                  current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
+                ));
+              }}
+            >
+              <IconEllipsisOutlineRegular />
+            </button>
             {/* 推进到下一阶段：向右方向键（位于「…」和「+」中间）；已完结时禁用。 */}
             <Tooltip label={nextState === null ? '已完结' : `推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="bottom" align="end" delayMs={500} portal>
               <button
@@ -337,6 +330,12 @@ function WorkflowWorkspaceItem(props: {
   };
 
   const rootNode = byId.get(rootId);
+  /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
+  const rootState = typeof rootNode?.current_state === 'string' ? rootNode.current_state : null;
+  const rootNextState = rootState === null ? null : (NEXT_NODE_STATE[rootState] ?? null);
+  const rootChildNodes = (rootNode?.child_ids ?? [])
+    .map((id: string) => byId.get(id))
+    .filter((child: any) => child !== undefined);
 
   return (
     <div className={rowsClass('groupSection')} style={{ display: 'flex', flexDirection: 'column', '--dsh-workspace-indent': '0px' }}>
@@ -350,6 +349,11 @@ function WorkflowWorkspaceItem(props: {
         <span className={rowsClass('projectText')} onClick={onToggle}>
           <span className={rowsClass('title')}>{summary.title}</span>
         </span>
+        {rootState !== null ? (
+          <span className={rowsClass('rowResting')}>
+            <span className={rowsClass('time')}>{NODE_STATE_LABEL[rootState as keyof typeof NODE_STATE_LABEL] ?? rootState}</span>
+          </span>
+        ) : null}
         <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
           <button
             type="button"
@@ -364,6 +368,25 @@ function WorkflowWorkspaceItem(props: {
           >
             <IconEllipsisOutlineRegular />
           </button>
+          {rootNode !== undefined ? (
+            <Tooltip label={rootNextState === null ? '已完结' : `推进到 ${NODE_STATE_LABEL[rootNextState as keyof typeof NODE_STATE_LABEL] ?? rootNextState}`} side="bottom" align="end" delayMs={500} portal>
+              <button
+                type="button"
+                className={rowsClass('iconButton')}
+                aria-label="推进到下一阶段"
+                disabled={rootNextState === null}
+                onClick={() => {
+                  if (rootNextState !== null) void transition(rootNode.node_id, rootNextState);
+                }}
+                style={{ opacity: rootNextState === null ? 0.35 : 1 }}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
+                  <path d="M5 12h13" />
+                  <path d="m12.5 6 6 6-6 6" />
+                </svg>
+              </button>
+            </Tooltip>
+          ) : null}
           <Tooltip label="新建子会话" side="bottom" align="end" delayMs={500} portal>
             <button type="button" className={rowsClass('iconButton')} aria-label="新建子会话" onClick={() => void addChildTo(rootId)}>
               <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden style={{ display: 'block' }}>
@@ -379,9 +402,9 @@ function WorkflowWorkspaceItem(props: {
         <div style={{ paddingBottom: 4 }}>
           {loading ? (
             <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }}>加载中…</div>
-          ) : rootNode ? (
-            renderNodeRow(rootNode, 0)
-          ) : null}
+          ) : (
+            rootChildNodes.map((child: any) => renderNodeRow(child, 1))
+          )}
         </div>
       ) : null}
 

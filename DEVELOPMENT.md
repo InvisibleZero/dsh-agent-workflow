@@ -45,7 +45,40 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 
 ---
 
-## 3. 交付前自检
+## 3. 侧栏行结构模型（重要，改 UI 前先看这节）
+
+一个 workflow 工作区在侧栏只有**两行层级**，不要再加第三层：
+
+### 3.1 工作区行（= 根节点，同一行）
+
+`_AI` 这一行同时代表「workflow 工作区」和「它的根节点」：
+
+| 位置 | 内容 |
+| --- | --- |
+| 左 | 类型图标（树）+ 展开三角 |
+| 中 | 标题（取宿主工作区标题，改名后立刻同步） |
+| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
+
+- **点整行 = 展开 / 收起节点树，不打开会话**（和 usual 工作区行一致）。
+- 根节点**不绑会话**，所以这一行没有会话菜单。
+
+### 3.2 节点行（子节点，递归）
+
+- 左：状态色点；中：节点标题；右：状态文字 +「⋯」（宿主会话菜单）+「→」（推进状态）+「+」（加子节点）。
+- **点整行 = 打开该节点绑定的会话**（没有就新建并绑定）。
+- 缩进按层级递增（每层 14px）。
+
+### 3.3 数据层与渲染层的对应
+
+- 数据里根节点依然存在：`parent_id === null`、`node_type === 'workspace'`、`title` 为空。
+- 渲染时**跳过根节点那一行**，只把它的状态/操作挂到工作区行上，子节点从 `child_ids` 递归渲染。
+- `node_type` 枚举有 `workspace / feature / task` 三个值，但 UI **只按"是否根节点"分支**，不按 node_type 分支；`feature` 目前未被使用（新建一律写 `task`）。
+
+> 历史教训见 D-14：根节点单独成行会变成「两层皮」。
+
+---
+
+## 4. 交付前自检
 
 1. `build` + `smoke` 都过；
 2. 客户端改动后**实际刷新页面**看一眼（只装不刷等于没改）；
@@ -55,7 +88,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 
 ---
 
-## 4. 踩坑清单
+## 5. 踩坑清单
 
 ### D-01 弹菜单的位置：必须用 `getAnchorRect()`，不要传 anchor 元素，更不要自绘
 
@@ -228,9 +261,17 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 - **验证**：侧栏同一目录只有一行；新建 workflow 后立刻只出现一行（树图标），不会多出同名文件夹行；点节点建会话不再产生新行。
 - **涉及文件**：`workspace-kind-registry.ts`（`matchWorkspace` / `normalizeWorkspacePath`）、`workflow-embedded.tsx`、`workspace-browser.tsx`、`src/host/workflow-repository.ts`（`host_workspace_id`）、`src/host.ts`（create 路由）。
 
+### D-14 同一个东西不要渲染成两层皮
+
+- **现象**：侧栏里出现「`_AI`（树图标 + 三角）」和「`workspace`（圆点 + 状态）」两行；后者名字是英文 `workspace`，看着像另一种东西。
+- **根因**：工作区行和根节点行是两套渲染路径，但代表的是同一个实体；根节点没有 `title`，渲染回退成 `node_type` 字面量，于是显示成了 `workspace`。
+- **正确做法**：根节点**不单独渲染**，它的状态与「推进/加子节点」操作挂到工作区行上；子节点从 `child_ids` 递归渲染。见第 3 节的行结构模型。
+- **验证**：展开一个 workflow，只看到「一行工作区（带状态）」+「若干缩进的子节点」，没有第二行同义节点。
+- **涉及文件**：`src/client/workflow-embedded.tsx`（`WorkflowWorkspaceItem` / `renderNodeRow`）。
+
 ---
 
-## 5. 记录格式（新增条目照抄）
+## 6. 记录格式（新增条目照抄）
 
 ```
 ### D-XX 一句话标题（现象层面的说法）
