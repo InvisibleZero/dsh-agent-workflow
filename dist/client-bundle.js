@@ -1151,6 +1151,9 @@ window.__ModuleLoader__.load({
                 void load();
         }, [collapsed]);
         const addChildTo = async (parentId) => {
+            if (busyNodeId !== null)
+                return;
+            setBusyNodeId(parentId);
             try {
                 const response = await fetch('/dsh-agent-workflow/add-node', {
                     method: 'POST',
@@ -1158,11 +1161,39 @@ window.__ModuleLoader__.load({
                     body: JSON.stringify({ id: summary.id, parentId, title: '新子会话' }),
                 });
                 const data = await response.json();
-                if (data?.ok === true)
-                    setSnapshot(data.snapshot);
+                if (data?.ok !== true)
+                    throw new Error(String(data?.error ?? '新建子节点失败'));
+                const nodeId = typeof data.nodeId === 'string' ? data.nodeId : '';
+                const createdNode = data.snapshot?.nodes?.find((candidate) => candidate.node_id === nodeId);
+                const workDir = typeof createdNode?.work_dir === 'string' ? createdNode.work_dir : '';
+                setSnapshot(data.snapshot);
+                // 子节点 = 子会话：顺带建会话，cwd 指向它自己的文件夹（隔离靠路径）。
+                if (nodeId !== '' && workDir !== '') {
+                    const workingDirectory = typeof snapshot?.working_directory === 'string' ? snapshot.working_directory : '';
+                    const workspaceId = workingDirectory !== '' ? await resolveWorkspaceId(workingDirectory) : null;
+                    const sessions = readClientService(ctx, 'sessions');
+                    if (sessions !== undefined && typeof sessions.create === 'function') {
+                        const createdSessionId = await sessions.create(workspaceId !== null && workspaceId !== ''
+                            ? { workspaceId, cwd: workDir }
+                            : { cwd: workDir });
+                        if (typeof createdSessionId === 'string' && createdSessionId !== '') {
+                            const bindResponse = await fetch('/dsh-agent-workflow/bind-session', {
+                                method: 'POST',
+                                headers: { 'content-type': 'application/json' },
+                                body: JSON.stringify({ id: summary.id, nodeId, sessionId: createdSessionId }),
+                            });
+                            const bindData = await bindResponse.json().catch(() => null);
+                            if (bindData?.ok === true)
+                                setSnapshot(bindData.snapshot);
+                        }
+                    }
+                }
             }
             catch (error) {
                 console.error('[dsh-agent-workflow] 新建子会话失败：', error);
+            }
+            finally {
+                setBusyNodeId(null);
             }
         };
         const transition = async (nodeId, to) => {
@@ -1800,6 +1831,7 @@ window.__ModuleLoader__.load({
         const { workflowId, nodeId, onClose, onOpenSettings } = props;
         const [payload, setPayload] = (0, react_1.useState)(null);
         const [error, setError] = (0, react_1.useState)(null);
+        const [manualData, setManualData] = (0, react_1.useState)(null);
         (0, react_1.useEffect)(() => {
             let cancelled = false;
             void (async () => {
@@ -1816,6 +1848,30 @@ window.__ModuleLoader__.load({
                 catch (reason) {
                     if (!cancelled)
                         setError(String(reason));
+                }
+            })();
+            return () => { cancelled = true; };
+        }, [workflowId, nodeId]);
+        // 工作手册 / 摘要只读展示（AI 自留记录，人只读）。
+        (0, react_1.useEffect)(() => {
+            let cancelled = false;
+            void (async () => {
+                try {
+                    const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                    const data = await response.json().catch(() => null);
+                    if (cancelled || data?.ok !== true)
+                        return;
+                    setManualData(data.manual === null
+                        ? null
+                        : {
+                            manual: String(data.manual?.manual ?? ''),
+                            summary: String(data.manual?.summary ?? ''),
+                            workDir: String(data.manual?.workDir ?? ''),
+                            parentSummary: String(data.parentSummary ?? ''),
+                        });
+                }
+                catch {
+                    // 读不到就不展示。
                 }
             })();
             return () => { cancelled = true; };
@@ -1872,12 +1928,27 @@ window.__ModuleLoader__.load({
                                         border: '1px solid var(--dsw-alias-border-l1)',
                                         background: 'transparent',
                                         color: 'var(--dsw-alias-brand-primary)',
-                                    }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" })] }), (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }, children: "\u5168\u5C40\u7684\u64CD\u4F5C\u7EC6\u8282\u5728\u300C\u8BBE\u7F6E \u2192 Agent \u5DE5\u4F5C\u6D41\u300D\u91CC\uFF1B\u8FD9\u91CC\u53EA\u5199\u8FD9\u4E2A\u8282\u70B9\u989D\u5916\u8981\u6CE8\u610F\u7684\uFF0C\u4F1A\u63A5\u5728\u5168\u5C40\u540E\u9762\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
+                                    }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.workDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
+                                        void fetch('/dsh-agent-workflow/open-folder', {
+                                            method: 'POST',
+                                            headers: { 'content-type': 'application/json' },
+                                            body: JSON.stringify({ path: manualData.workDir }),
+                                        });
+                                    }, style: {
+                                        height: 24,
+                                        padding: '0 10px',
+                                        borderRadius: 6,
+                                        cursor: 'pointer',
+                                        fontSize: 12,
+                                        border: '1px solid var(--dsw-alias-border-l1)',
+                                        background: 'transparent',
+                                        color: 'var(--dsw-alias-label-primary)',
+                                    }, children: "\u6253\u5F00\u6587\u4EF6\u5939" })) : null] }), (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }, children: "\u5168\u5C40\u7684\u64CD\u4F5C\u7EC6\u8282\u5728\u300C\u8BBE\u7F6E \u2192 Agent \u5DE5\u4F5C\u6D41\u300D\u91CC\uFF1B\u8FD9\u91CC\u53EA\u5199\u8FD9\u4E2A\u8282\u70B9\u989D\u5916\u8981\u6CE8\u610F\u7684\uFF0C\u4F1A\u63A5\u5728\u5168\u5C40\u540E\u9762\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
                                 border: '1px solid var(--dsw-alias-border-l1)',
                                 borderRadius: 8,
                                 padding: 10,
                                 marginBottom: 10,
-                            }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u672C\u8282\u70B9\u9644\u52A0\uFF08\u6240\u6709\u72B6\u6001\u90FD\u4F1A\u8FFD\u52A0\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes.global ?? '', onChange: (event) => saveNote('global', event.target.value) })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
+                            }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u672C\u8282\u70B9\u9644\u52A0\uFF08\u6240\u6709\u72B6\u6001\u90FD\u4F1A\u8FFD\u52A0\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes.global ?? '', onChange: (event) => saveNote('global', event.target.value) })] }), manualData !== null ? ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u5DE5\u4F5C\u624B\u518C\uFF08AI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）' }), manualData.parentSummary.trim() !== '' ? ((0, jsx_runtime_1.jsxs)("div", { style: { marginTop: 8 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }, children: "\u4E0A\u7EA7\u624B\u518C\u6458\u8981\uFF08\u4EC5\u4E00\u5C42\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.parentSummary })] })) : null] })) : null, ['discussing', 'implementing', 'verifying'].map((state) => {
                             return ((0, jsx_runtime_1.jsxs)("div", { style: {
                                     border: '1px solid var(--dsw-alias-border-l1)',
                                     borderRadius: 8,

@@ -19,6 +19,83 @@ export function buildRootNode(id, maxDepth, maxSteps) {
         max_steps: maxSteps,
     };
 }
+/** 子节点文件夹下的隐藏子目录与两篇 md 的文件名。 */
+const WORKFLOW_SUBDIR = '.workflow';
+const MANUAL_FILE = '工作手册.md';
+const SUMMARY_FILE = '手册摘要.md';
+const MANUAL_MAX_BYTES = 200 * 1024;
+const SUMMARY_MAX_BYTES = 32 * 1024;
+/** 标题 → 目录名：去非法字符、控制字符、尾点空格、Windows 保留名，空则用 fallback。 */
+function slugify(title, fallback) {
+    let slug = (title ?? '').trim()
+        .replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/[\x00-\x1f]/g, '')
+        .replace(/[. ]+$/g, '')
+        .trim();
+    if (slug === '')
+        slug = fallback;
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug))
+        slug = `${slug}_`;
+    if (slug.length > 40)
+        slug = slug.slice(0, 40).replace(/[. ]+$/g, '');
+    return slug;
+}
+/** 目录名冲突时追加 -2、-3…（Windows 大小写不敏感，靠 access 判存在）。 */
+async function uniqueDir(parentDir, base) {
+    let candidate = join(parentDir, base);
+    let suffix = 1;
+    for (;;) {
+        try {
+            await fs.access(candidate);
+            suffix += 1;
+            candidate = join(parentDir, `${base}-${suffix}`);
+        }
+        catch {
+            return candidate;
+        }
+    }
+}
+async function writeIfMissing(path, content) {
+    try {
+        await fs.access(path);
+    }
+    catch {
+        await fs.writeFile(path, content, 'utf8');
+    }
+}
+async function readTextCapped(path, maxBytes) {
+    try {
+        const raw = await fs.readFile(path, 'utf8');
+        if (Buffer.byteLength(raw, 'utf8') <= maxBytes)
+            return raw;
+        return `${raw.slice(0, maxBytes)}\n…（已截断）`;
+    }
+    catch {
+        return '';
+    }
+}
+/** 往根工作目录的 .gitignore 追加 .workflow/（文件不存在则跳过，不主动新建）。 */
+async function appendGitignore(workingDir) {
+    if (typeof workingDir !== 'string' || workingDir === '')
+        return;
+    const target = join(workingDir, '.gitignore');
+    try {
+        await fs.access(target);
+    }
+    catch {
+        return;
+    }
+    try {
+        const content = await fs.readFile(target, 'utf8');
+        if (content.includes('.workflow'))
+            return;
+        const separator = content !== '' && !content.endsWith('\n') ? '\n' : '';
+        await fs.writeFile(target, `${content}${separator}.workflow/\n`, 'utf8');
+    }
+    catch {
+        // 读写失败不阻塞建节点。
+    }
+}
 export class WorkflowRepository {
     baseDir;
     storage;
@@ -299,6 +376,7 @@ export class WorkflowRepository {
     }
     /**
      * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
+     * 同时新建该子节点自己的文件夹 + `.workflow/` 两份 md，并写回 work_dir。
      * 只改我们自己的快照，与 dsh 的 workspace 无关。
      */
     async addNode(input) {
@@ -311,12 +389,28 @@ export class WorkflowRepository {
         if (parent.depth + 1 > parent.max_depth)
             throw new Error(`超过最大深度（${String(parent.max_depth)}）`);
         const nodeId = randomUUID();
+        const title = input.title?.trim() !== '' && input.title !== undefined ? input.title.trim() : '新子节点';
+        // 父目录：根节点用 working_directory，子节点用 work_dir；都缺就不建文件夹。
+        const parentDir = typeof parent.work_dir === 'string' && parent.work_dir !== ''
+            ? parent.work_dir
+            : snapshot.working_directory;
+        let workDir;
+        if (typeof parentDir === 'string' && parentDir.trim() !== '') {
+            const dir = await uniqueDir(parentDir, slugify(title, `node-${nodeId.slice(0, 8)}`));
+            const wfDir = join(dir, WORKFLOW_SUBDIR);
+            await fs.mkdir(wfDir, { recursive: true });
+            await writeIfMissing(join(wfDir, MANUAL_FILE), '# 工作手册\n\n（本节点 AI 自留记录：要点、需求、疑难杂症。）\n');
+            await writeIfMissing(join(wfDir, SUMMARY_FILE), '# 手册摘要\n\n（本手册的概要，供子节点查看一层。）\n');
+            workDir = dir;
+            await appendGitignore(snapshot.working_directory);
+        }
         const child = {
             ...buildRootNode(nodeId, parent.max_depth, parent.max_steps),
             parent_id: parent.node_id,
-            title: input.title?.trim() !== '' && input.title !== undefined ? input.title.trim() : '新子节点',
+            title,
             node_type: 'task',
             depth: parent.depth + 1,
+            ...(workDir === undefined ? {} : { work_dir: workDir }),
         };
         const updated = {
             ...snapshot,
@@ -326,7 +420,33 @@ export class WorkflowRepository {
             ],
         };
         await this.storage.save(updated);
-        return updated;
+        return { snapshot: updated, nodeId };
+    }
+    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）。 */
+    async readNodeManual(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            return null;
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined || typeof node.work_dir !== 'string' || node.work_dir === '')
+            return null;
+        const wfDir = join(node.work_dir, WORKFLOW_SUBDIR);
+        const manual = await readTextCapped(join(wfDir, MANUAL_FILE), MANUAL_MAX_BYTES);
+        const summary = await readTextCapped(join(wfDir, SUMMARY_FILE), SUMMARY_MAX_BYTES);
+        return { manual, summary, workDir: node.work_dir };
+    }
+    /** 读父节点的手册摘要（只看一层；父是根且没有 work_dir 时返回空串）。 */
+    async readParentSummary(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            return '';
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined || node.parent_id === null)
+            return '';
+        const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
+        if (parent === undefined || typeof parent.work_dir !== 'string' || parent.work_dir === '')
+            return '';
+        return readTextCapped(join(parent.work_dir, WORKFLOW_SUBDIR, SUMMARY_FILE), SUMMARY_MAX_BYTES);
     }
 }
 //# sourceMappingURL=workflow-repository.js.map

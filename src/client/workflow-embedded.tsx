@@ -136,6 +136,8 @@ function WorkflowWorkspaceItem(props: {
   }, [collapsed]);
 
   const addChildTo = async (parentId: string) => {
+    if (busyNodeId !== null) return;
+    setBusyNodeId(parentId);
     try {
       const response = await fetch('/dsh-agent-workflow/add-node', {
         method: 'POST',
@@ -143,9 +145,37 @@ function WorkflowWorkspaceItem(props: {
         body: JSON.stringify({ id: summary.id, parentId, title: '新子会话' }),
       });
       const data = await response.json();
-      if (data?.ok === true) setSnapshot(data.snapshot);
+      if (data?.ok !== true) throw new Error(String(data?.error ?? '新建子节点失败'));
+      const nodeId = typeof data.nodeId === 'string' ? data.nodeId : '';
+      const createdNode = data.snapshot?.nodes?.find((candidate: any) => candidate.node_id === nodeId);
+      const workDir = typeof createdNode?.work_dir === 'string' ? createdNode.work_dir : '';
+      setSnapshot(data.snapshot);
+      // 子节点 = 子会话：顺带建会话，cwd 指向它自己的文件夹（隔离靠路径）。
+      if (nodeId !== '' && workDir !== '') {
+        const workingDirectory = typeof snapshot?.working_directory === 'string' ? snapshot.working_directory : '';
+        const workspaceId = workingDirectory !== '' ? await resolveWorkspaceId(workingDirectory) : null;
+        const sessions = readClientService(ctx, 'sessions');
+        if (sessions !== undefined && typeof sessions.create === 'function') {
+          const createdSessionId = await sessions.create(
+            workspaceId !== null && workspaceId !== ''
+              ? { workspaceId, cwd: workDir }
+              : { cwd: workDir },
+          );
+          if (typeof createdSessionId === 'string' && createdSessionId !== '') {
+            const bindResponse = await fetch('/dsh-agent-workflow/bind-session', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: summary.id, nodeId, sessionId: createdSessionId }),
+            });
+            const bindData = await bindResponse.json().catch(() => null);
+            if (bindData?.ok === true) setSnapshot(bindData.snapshot);
+          }
+        }
+      }
     } catch (error) {
       console.error('[dsh-agent-workflow] 新建子会话失败：', error);
+    } finally {
+      setBusyNodeId(null);
     }
   };
 

@@ -9,6 +9,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { WorkflowRepository } from './host/workflow-repository';
 import { effectiveDetail } from './engine/state-machine';
 import { registerWorkflowStateContext } from './host/workflow-state-context';
@@ -253,12 +254,35 @@ export function apply(ctx: any) {
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.parentId !== 'string' || body.parentId === '') throw new Error('缺少 parentId');
-        const snapshot = await repository.addNode({
+        const result = await repository.addNode({
           id: body.id,
           parentId: body.parentId,
           title: typeof body.title === 'string' ? body.title : undefined,
         });
-        return { snapshot };
+        return { snapshot: result.snapshot, nodeId: result.nodeId };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/node-manual',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const id = query.get('id');
+        const nodeId = query.get('nodeId');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
+        const manual = await repository.readNodeManual(id, nodeId);
+        const parentSummary = await repository.readParentSummary(id, nodeId);
+        return { manual, parentSummary };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/open-folder',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        const target = body?.path;
+        if (typeof target !== 'string' || target.trim() === '') throw new Error('缺少 path');
+        spawn('explorer.exe', [target.trim()], { stdio: 'ignore', detached: true }).unref();
+        return { opened: true };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

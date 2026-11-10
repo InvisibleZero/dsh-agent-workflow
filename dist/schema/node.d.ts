@@ -106,6 +106,12 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     }>>;
+    /**
+     * 该节点的物理工作目录（绝对路径）：子节点创建时在父目录下新建一个同名文件夹，
+     * `.workflow/` 里放两份 md（工作手册.md / 手册摘要.md）。
+     * 根节点（workspace）不写此字段——它直接用 WorkflowSnapshot.working_directory。
+     */
+    work_dir: z.ZodOptional<z.ZodString>;
     depth: z.ZodNumber;
     max_depth: z.ZodNumber;
     step_count: z.ZodNumber;
@@ -144,6 +150,7 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     } | undefined;
+    work_dir?: string | undefined;
 }, {
     node_id: string;
     parent_id: string | null;
@@ -178,6 +185,7 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     } | undefined;
+    work_dir?: string | undefined;
 }>;
 export type AgentNode = z.infer<typeof AgentNode>;
 export declare const NODE_TYPE_LABEL: Record<AgentNode['node_type'], string>;

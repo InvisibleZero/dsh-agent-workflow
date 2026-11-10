@@ -1,6 +1,7 @@
 // src/host.ts
 import { homedir } from "node:os";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
+import { spawn } from "node:child_process";
 
 // src/host/workflow-repository.ts
 import { promises as fs2 } from "node:fs";
@@ -99,6 +100,12 @@ var AgentNode = z2.object({
     implementing: z2.string().optional(),
     verifying: z2.string().optional()
   }).optional(),
+  /**
+   * 该节点的物理工作目录（绝对路径）：子节点创建时在父目录下新建一个同名文件夹，
+   * `.workflow/` 里放两份 md（工作手册.md / 手册摘要.md）。
+   * 根节点（workspace）不写此字段——它直接用 WorkflowSnapshot.working_directory。
+   */
+  work_dir: z2.string().optional(),
   // —— 防御性约束 ——
   depth: z2.number().int().nonnegative(),
   max_depth: z2.number().int().positive(),
@@ -259,6 +266,65 @@ function buildRootNode(id, maxDepth, maxSteps) {
     step_count: 0,
     max_steps: maxSteps
   };
+}
+var WORKFLOW_SUBDIR = ".workflow";
+var MANUAL_FILE = "\u5DE5\u4F5C\u624B\u518C.md";
+var SUMMARY_FILE = "\u624B\u518C\u6458\u8981.md";
+var MANUAL_MAX_BYTES = 200 * 1024;
+var SUMMARY_MAX_BYTES = 32 * 1024;
+function slugify(title, fallback) {
+  let slug = (title ?? "").trim().replace(/[\\/:*?"<>|]/g, "-").replace(/[\x00-\x1f]/g, "").replace(/[. ]+$/g, "").trim();
+  if (slug === "") slug = fallback;
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `${slug}_`;
+  if (slug.length > 40) slug = slug.slice(0, 40).replace(/[. ]+$/g, "");
+  return slug;
+}
+async function uniqueDir(parentDir, base) {
+  let candidate = join(parentDir, base);
+  let suffix = 1;
+  for (; ; ) {
+    try {
+      await fs2.access(candidate);
+      suffix += 1;
+      candidate = join(parentDir, `${base}-${suffix}`);
+    } catch {
+      return candidate;
+    }
+  }
+}
+async function writeIfMissing(path2, content) {
+  try {
+    await fs2.access(path2);
+  } catch {
+    await fs2.writeFile(path2, content, "utf8");
+  }
+}
+async function readTextCapped(path2, maxBytes) {
+  try {
+    const raw = await fs2.readFile(path2, "utf8");
+    if (Buffer.byteLength(raw, "utf8") <= maxBytes) return raw;
+    return `${raw.slice(0, maxBytes)}
+\u2026\uFF08\u5DF2\u622A\u65AD\uFF09`;
+  } catch {
+    return "";
+  }
+}
+async function appendGitignore(workingDir) {
+  if (typeof workingDir !== "string" || workingDir === "") return;
+  const target = join(workingDir, ".gitignore");
+  try {
+    await fs2.access(target);
+  } catch {
+    return;
+  }
+  try {
+    const content = await fs2.readFile(target, "utf8");
+    if (content.includes(".workflow")) return;
+    const separator = content !== "" && !content.endsWith("\n") ? "\n" : "";
+    await fs2.writeFile(target, `${content}${separator}.workflow/
+`, "utf8");
+  } catch {
+  }
 }
 var WorkflowRepository = class {
   constructor(baseDir) {
@@ -502,6 +568,7 @@ var WorkflowRepository = class {
   }
   /**
    * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
+   * 同时新建该子节点自己的文件夹 + `.workflow/` 两份 md，并写回 work_dir。
    * 只改我们自己的快照，与 dsh 的 workspace 无关。
    */
   async addNode(input) {
@@ -511,12 +578,25 @@ var WorkflowRepository = class {
     if (parent === void 0) throw new Error("\u627E\u4E0D\u5230\u7236\u8282\u70B9");
     if (parent.depth + 1 > parent.max_depth) throw new Error(`\u8D85\u8FC7\u6700\u5927\u6DF1\u5EA6\uFF08${String(parent.max_depth)}\uFF09`);
     const nodeId = randomUUID();
+    const title = input.title?.trim() !== "" && input.title !== void 0 ? input.title.trim() : "\u65B0\u5B50\u8282\u70B9";
+    const parentDir = typeof parent.work_dir === "string" && parent.work_dir !== "" ? parent.work_dir : snapshot.working_directory;
+    let workDir;
+    if (typeof parentDir === "string" && parentDir.trim() !== "") {
+      const dir = await uniqueDir(parentDir, slugify(title, `node-${nodeId.slice(0, 8)}`));
+      const wfDir = join(dir, WORKFLOW_SUBDIR);
+      await fs2.mkdir(wfDir, { recursive: true });
+      await writeIfMissing(join(wfDir, MANUAL_FILE), "# \u5DE5\u4F5C\u624B\u518C\n\n\uFF08\u672C\u8282\u70B9 AI \u81EA\u7559\u8BB0\u5F55\uFF1A\u8981\u70B9\u3001\u9700\u6C42\u3001\u7591\u96BE\u6742\u75C7\u3002\uFF09\n");
+      await writeIfMissing(join(wfDir, SUMMARY_FILE), "# \u624B\u518C\u6458\u8981\n\n\uFF08\u672C\u624B\u518C\u7684\u6982\u8981\uFF0C\u4F9B\u5B50\u8282\u70B9\u67E5\u770B\u4E00\u5C42\u3002\uFF09\n");
+      workDir = dir;
+      await appendGitignore(snapshot.working_directory);
+    }
     const child = {
       ...buildRootNode(nodeId, parent.max_depth, parent.max_steps),
       parent_id: parent.node_id,
-      title: input.title?.trim() !== "" && input.title !== void 0 ? input.title.trim() : "\u65B0\u5B50\u8282\u70B9",
+      title,
       node_type: "task",
-      depth: parent.depth + 1
+      depth: parent.depth + 1,
+      ...workDir === void 0 ? {} : { work_dir: workDir }
     };
     const updated = {
       ...snapshot,
@@ -528,7 +608,28 @@ var WorkflowRepository = class {
       ]
     };
     await this.storage.save(updated);
-    return updated;
+    return { snapshot: updated, nodeId };
+  }
+  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）。 */
+  async readNodeManual(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) return null;
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0 || typeof node.work_dir !== "string" || node.work_dir === "") return null;
+    const wfDir = join(node.work_dir, WORKFLOW_SUBDIR);
+    const manual = await readTextCapped(join(wfDir, MANUAL_FILE), MANUAL_MAX_BYTES);
+    const summary = await readTextCapped(join(wfDir, SUMMARY_FILE), SUMMARY_MAX_BYTES);
+    return { manual, summary, workDir: node.work_dir };
+  }
+  /** 读父节点的手册摘要（只看一层；父是根且没有 work_dir 时返回空串）。 */
+  async readParentSummary(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) return "";
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0 || node.parent_id === null) return "";
+    const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
+    if (parent === void 0 || typeof parent.work_dir !== "string" || parent.work_dir === "") return "";
+    return readTextCapped(join(parent.work_dir, WORKFLOW_SUBDIR, SUMMARY_FILE), SUMMARY_MAX_BYTES);
   }
 };
 
@@ -549,7 +650,10 @@ ${specific.operation_detail}`,
 }
 
 // src/host/workflow-state-context.ts
-var MAX_TEXT_BYTES = 3200;
+import { join as join2 } from "node:path";
+var MAX_TEXT_BYTES = 8e3;
+var MANUAL_RECENT_CHARS = 2e3;
+var PARENT_SUMMARY_CHARS = 800;
 function registerWorkflowStateContext(ctx, repository) {
   const cache = /* @__PURE__ */ new Map();
   const pending = /* @__PURE__ */ new Set();
@@ -588,6 +692,20 @@ function registerWorkflowStateContext(ctx, repository) {
     if (typeof addition === "string" && addition.trim() !== "") {
       parts.push("", `\u672C\u8282\u70B9\u8865\u5145\u8981\u6C42\uFF1A${addition.trim()}`);
     }
+    const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
+    if (manualData !== null) {
+      const manual = manualData.manual;
+      const recent = manual.length > MANUAL_RECENT_CHARS ? `${manual.slice(-MANUAL_RECENT_CHARS)}
+\u2026\uFF08\u66F4\u65E9\u5185\u5BB9\u89C1\u6587\u4EF6\uFF09` : manual;
+      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.workDir, ".workflow", "\u5DE5\u4F5C\u624B\u518C.md")}`);
+      if (recent.trim() !== "") parts.push(recent);
+    }
+    const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);
+    const parentSummaryTrimmed = parentSummary.trim();
+    if (parentSummaryTrimmed !== "") {
+      parts.push("", "\u4E0A\u7EA7\u624B\u518C\u6458\u8981\uFF08\u4EC5\u4E00\u5C42\uFF09\uFF1A", parentSummaryTrimmed.slice(0, PARENT_SUMMARY_CHARS));
+    }
+    parts.push("", "\u5DE5\u4F5C\u6536\u5C3E\u6216\u63A8\u8FDB\u72B6\u6001\u524D\uFF0C\u628A\u672C\u8F6E\u8981\u70B9\u5199\u8FDB\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF0C\u5E76\u540C\u6B65\u66F4\u65B0\u624B\u518C\u6458\u8981\u3002");
     parts.push("</workflow-state>");
     let text = parts.join("\n");
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
@@ -661,8 +779,8 @@ function pickSessionId(context) {
 var inject = [];
 function resolveDataDir() {
   const profileDir = process.env.DSH_PROFILE_DIR;
-  const base = profileDir && profileDir.trim() !== "" ? profileDir : join2(homedir(), ".dsh");
-  return join2(base, "dsh-agent-workflow");
+  const base = profileDir && profileDir.trim() !== "" ? profileDir : join3(homedir(), ".dsh");
+  return join3(base, "dsh-agent-workflow");
 }
 function isLoopbackRequest(req) {
   try {
@@ -883,12 +1001,35 @@ function apply(ctx) {
       handler: makeHandler(repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.parentId !== "string" || body.parentId === "") throw new Error("\u7F3A\u5C11 parentId");
-        const snapshot = await repository.addNode({
+        const result = await repository.addNode({
           id: body.id,
           parentId: body.parentId,
           title: typeof body.title === "string" ? body.title : void 0
         });
-        return { snapshot };
+        return { snapshot: result.snapshot, nodeId: result.nodeId };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/node-manual",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const id = query.get("id");
+        const nodeId = query.get("nodeId");
+        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        const manual = await repository.readNodeManual(id, nodeId);
+        const parentSummary = await repository.readParentSummary(id, nodeId);
+        return { manual, parentSummary };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/open-folder",
+      handler: makeHandler(repository, "POST", async (body) => {
+        const target = body?.path;
+        if (typeof target !== "string" || target.trim() === "") throw new Error("\u7F3A\u5C11 path");
+        spawn("explorer.exe", [target.trim()], { stdio: "ignore", detached: true }).unref();
+        return { opened: true };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

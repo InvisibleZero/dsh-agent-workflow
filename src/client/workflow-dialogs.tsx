@@ -271,6 +271,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const { workflowId, nodeId, onClose, onOpenSettings } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [manualData, setManualData] = useState<{ manual: string; summary: string; workDir: string; parentSummary: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,6 +284,29 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
         else setError(String(data?.error ?? '读取失败'));
       } catch (reason) {
         if (!cancelled) setError(String(reason));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [workflowId, nodeId]);
+
+  // 工作手册 / 摘要只读展示（AI 自留记录，人只读）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+        const data = await response.json().catch(() => null);
+        if (cancelled || data?.ok !== true) return;
+        setManualData(data.manual === null
+          ? null
+          : {
+              manual: String(data.manual?.manual ?? ''),
+              summary: String(data.manual?.summary ?? ''),
+              workDir: String(data.manual?.workDir ?? ''),
+              parentSummary: String(data.parentSummary ?? ''),
+            });
+      } catch {
+        // 读不到就不展示。
       }
     })();
     return () => { cancelled = true; };
@@ -357,6 +381,28 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                 color: 'var(--dsw-alias-brand-primary)',
               }}
             >打开操作细节设置 →</button>
+            {manualData !== null && manualData.workDir !== '' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void fetch('/dsh-agent-workflow/open-folder', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ path: manualData.workDir }),
+                  });
+                }}
+                style={{
+                  height: 24,
+                  padding: '0 10px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  border: '1px solid var(--dsw-alias-border-l1)',
+                  background: 'transparent',
+                  color: 'var(--dsw-alias-label-primary)',
+                }}
+              >打开文件夹</button>
+            ) : null}
           </div>
           <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
             全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
@@ -375,6 +421,22 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
               onChange={(event) => saveNote('global', event.target.value)}
             />
           </div>
+          {manualData !== null ? (
+            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>工作手册（AI 自留，只读）</div>
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                {manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）'}
+              </div>
+              {manualData.parentSummary.trim() !== '' ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }}>上级手册摘要（仅一层）</div>
+                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                    {manualData.parentSummary}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
             return (
               <div key={state} style={{

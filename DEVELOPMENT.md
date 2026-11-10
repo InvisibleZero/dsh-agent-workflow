@@ -424,6 +424,23 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 
 ---
 
+### D-22 节点工作手册 / 摘要：文件夹、cwd 与「只对新节点生效」
+
+- **语义**：子节点 = 子会话。建子节点时在父目录下新建 `<slug>` 文件夹，`.workflow/` 里放
+  `工作手册.md`（AI 自留记录）和 `手册摘要.md`（随手册同步改）。根节点（workspace）**不建**。
+- **cwd 独立于 workspace**：客户端 `sessions.create({ workspaceId, cwd })` 两个字段独立，
+  `workspaceId` 决定侧栏归组（仍归根工作区），`cwd` 决定文件工具相对起点（指向子节点文件夹）。
+  隔离是「约定级」的——模型仍能 `cd ..` 读父级，只是默认落点在子目录。
+- **只对新节点生效**：存量节点没有 `work_dir`，注入时静默跳过手册段，不做迁移。
+- **注入**：本节点手册「最近 2000 字 + 文件路径」+ 父级摘要（`readParentSummary`，只看一层，父是根则空）。
+  整块上限从 3.2KB 提到 8KB。常驻一句「收尾把要点写进手册并同步摘要」；推进会刷新本块，天然是强提示。
+- **幂等与原子性**：建目录/写 md 用 `writeIfMissing`（已存在不覆盖）；建会话失败会留下空目录（未回滚，
+  已知可优化）。`.gitignore` 只在文件已存在时追加 `.workflow/` 一行。
+- **Windows 路径**：slug 去非法字符 + 保留名 + 尾点空格，目录冲突追加 `-2`；未做 260 字符防护。
+- **涉及文件**：`schema/node.ts`（work_dir）、`host/workflow-repository.ts`（addNode 建目录/readNodeManual/readParentSummary）、
+  `host.ts`（/add-node 返回 nodeId、/node-manual、/open-folder）、`host/workflow-state-context.ts`（注入）、
+  `client/workflow-embedded.tsx`（addChildTo 带 cwd）、`client/workflow-dialogs.tsx`（只读手册 + 打开文件夹）。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```
