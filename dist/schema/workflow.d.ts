@@ -606,8 +606,9 @@ export declare const WorkflowSnapshot: z.ZodObject<{
 }>;
 export type WorkflowSnapshot = z.infer<typeof WorkflowSnapshot>;
 /**
- * 内置通用示例预设（开源友好，不携带任何私有约定）。
- * 使用者可在设置里自行替换为符合自己场景的操作细节。
+ * 内置预设（默认 A/B/C/D）：工作流方法论——
+ * 结论先行 + 讨论中三段式方案 + 实现中按「实施顺序」逐层落地 + 验收检查表。
+ * 使用者可在设置里替换成自己的操作细节；这份只是出厂默认。
  */
 export declare const DEFAULT_GLOBAL_OPERATION_DETAIL: GlobalOperationDetail;
 export declare const DEFAULT_SETTINGS: WorkflowSettings;
