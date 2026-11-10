@@ -310,12 +310,12 @@ window.__ModuleLoader__.load({
     }
     /** 会话行：slot / title / time / rowActions + HoverCard；「⋯」直接打开宿主的上下文菜单。 */
     function SessionRow(props) {
-        const { node, onOpen, renderSlot, onOpenMenu } = props;
+        const { node, current, onOpen, renderSlot, onOpenMenu } = props;
         const statuses = sessionStatuses(node);
         const primaryStatus = statuses[0];
         const showStatus = primaryStatus.state !== 'idle';
         const now = Date.now();
-        const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `session:${node.id}`, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), node.archived && (0, workspace_ui_1.rowsClass)('archived')), onClick: () => onOpen(node.id), onContextMenu: (event) => {
+        const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `session:${node.id}`, "aria-selected": current, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), node.archived && (0, workspace_ui_1.rowsClass)('archived'), current && (0, workspace_ui_1.rowsClass)('selected')), onClick: () => onOpen(node.id), onContextMenu: (event) => {
                 event.preventDefault();
                 onOpenMenu(node.id, node.title ?? '', event);
             }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: !node.archived && !node.blank && (showStatus
@@ -382,6 +382,19 @@ window.__ModuleLoader__.load({
         const sessionsSnapshot = typeof useSessions === 'function' ? useSessions((s) => s) : null;
         const workspaceItems = workspacesSnapshot?.items ?? [];
         const sessionsById = sessionsSnapshot?.byId ?? {};
+        /**
+         * 当前打开着的会话：宿主用 `retainedBy.mainView > 0` 标记正在主视图里显示的那一条
+         * （见宿主 ui-workspace 的快捷键实现），这里沿用同一判据，保证和原生列表一致。
+         */
+        const currentSessionId = (() => {
+            for (const summary of Object.values(sessionsById)) {
+                const retainedByMainView = summary?.retainedBy?.mainView;
+                if (typeof retainedByMainView === 'number' && retainedByMainView > 0) {
+                    return typeof summary.id === 'string' ? summary.id : null;
+                }
+            }
+            return null;
+        })();
         const uiWorkspace = getService(ctx, 'uiWorkspace');
         const workspacesSvc = getService(ctx, 'workspaces');
         const openSession = (sessionId) => {
@@ -506,7 +519,7 @@ window.__ModuleLoader__.load({
             }
         };
         const keyword = query.trim().toLowerCase();
-        const renderSessionRow = (session) => ((0, jsx_runtime_1.jsx)(SessionRow, { node: session, onOpen: session.archived ? unarchiveSession : openSession, renderSlot: renderSlot, onOpenMenu: openSessionMenu }, session.id));
+        const renderSessionRow = (session) => ((0, jsx_runtime_1.jsx)(SessionRow, { node: session, current: currentSessionId !== null && session.id === currentSessionId, onOpen: session.archived ? unarchiveSession : openSession, renderSlot: renderSlot, onOpenMenu: openSessionMenu }, session.id));
         const archivedSessionIds = new Set(workspacesSnapshot?.archivedSessionIds ?? []);
         // 置顶读宿主的 pinnedSessionIds（宿主自己的置顶星标/菜单项本来就能用）。
         const pinnedSet = new Set(workspacesSnapshot?.pinnedSessionIds ?? []);
@@ -602,7 +615,7 @@ window.__ModuleLoader__.load({
                                                         next.add(key);
                                                     return next;
                                                 });
-                                            }, () => void loadPluginLists(), ctx) }, key));
+                                            }, () => void loadPluginLists(), ctx, currentSessionId) }, key));
                                     });
                                 })] })) })) }), renameTarget !== null ? ((0, jsx_runtime_1.jsx)("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: (0, jsx_runtime_1.jsxs)("div", { style: {
                             minWidth: 320,
@@ -860,7 +873,7 @@ window.__ModuleLoader__.load({
      * 工作区行有「⋯」和「新建子会话」；节点行点击打开该节点绑定的会话。
      */
     function WorkflowWorkspaceItem(props) {
-        const { summary, collapsed, onToggle, onChanged, ctx } = props;
+        const { summary, collapsed, onToggle, onChanged, ctx, currentSessionId } = props;
         const [snapshot, setSnapshot] = (0, react_1.useState)(null);
         const [loading, setLoading] = (0, react_1.useState)(false);
         const [workspaceMenuOpen, setWorkspaceMenuOpen] = (0, react_1.useState)(false);
@@ -998,7 +1011,12 @@ window.__ModuleLoader__.load({
             const children = (node.child_ids ?? [])
                 .map((id) => byId.get(id))
                 .filter((child) => child !== undefined);
-            return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", className: (0, workspace_ui_1.rowsClass)('sessionRow'), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
+            /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
+            const isCurrent = currentSessionId !== null
+                && typeof node.session_id === 'string'
+                && node.session_id !== ''
+                && node.session_id === currentSessionId;
+            return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "aria-selected": isCurrent, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), isCurrent && (0, workspace_ui_1.rowsClass)('selected')), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
                             paddingLeft: 4 + depth * 14,
                             cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
                             opacity: busyNodeId === node.node_id ? 0.6 : 1,
@@ -1030,7 +1048,7 @@ window.__ModuleLoader__.load({
         kind: workspace_kind_1.WorkspaceKind.Workflow,
         list: listWorkflows,
         create: createWorkflow,
-        renderItem: (summary, collapsed, onToggle, onChanged, ctx) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, ctx: ctx })),
+        renderItem: (summary, collapsed, onToggle, onChanged, ctx, currentSessionId) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, ctx: ctx, currentSessionId: currentSessionId })),
     };
     //# sourceMappingURL=workflow-embedded.js.map
     },

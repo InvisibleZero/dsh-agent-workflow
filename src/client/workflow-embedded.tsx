@@ -74,8 +74,15 @@ function readClientService(ctx: any, serviceName: string): any {
  * workflow 工作区的可嵌入渲染：与 usual 工作区同一套交互——
  * 工作区行有「⋯」和「新建子会话」；节点行点击打开该节点绑定的会话。
  */
-function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onToggle: () => void; onChanged?: () => void; ctx: any }) {
-  const { summary, collapsed, onToggle, onChanged, ctx } = props;
+function WorkflowWorkspaceItem(props: {
+  summary: any;
+  collapsed: boolean;
+  onToggle: () => void;
+  onChanged?: () => void;
+  ctx: any;
+  currentSessionId: string | null;
+}) {
+  const { summary, collapsed, onToggle, onChanged, ctx, currentSessionId } = props;
   const [snapshot, setSnapshot] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -208,12 +215,18 @@ function WorkflowWorkspaceItem(props: { summary: any; collapsed: boolean; onTogg
     const children = (node.child_ids ?? [])
       .map((id: string) => byId.get(id))
       .filter((child: any) => child !== undefined);
+    /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
+    const isCurrent = currentSessionId !== null
+      && typeof node.session_id === 'string'
+      && node.session_id !== ''
+      && node.session_id === currentSessionId;
 
     return (
       <div key={node.node_id}>
         <div
           role="treeitem"
-          className={rowsClass('sessionRow')}
+          aria-selected={isCurrent}
+          className={joinClasses(rowsClass('sessionRow'), isCurrent && rowsClass('selected'))}
           title={busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'}
           onClick={() => void openNodeSession(node)}
           style={{
@@ -346,7 +359,14 @@ export const workflowKindPlugin: WorkspaceKindPlugin = {
   kind: WorkspaceKind.Workflow,
   list: listWorkflows,
   create: createWorkflow,
-  renderItem: (summary, collapsed, onToggle, onChanged, ctx) => (
-    <WorkflowWorkspaceItem summary={summary} collapsed={collapsed} onToggle={onToggle} onChanged={onChanged} ctx={ctx} />
+  renderItem: (summary, collapsed, onToggle, onChanged, ctx, currentSessionId) => (
+    <WorkflowWorkspaceItem
+      summary={summary}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      onChanged={onChanged}
+      ctx={ctx}
+      currentSessionId={currentSessionId}
+    />
   ),
 };

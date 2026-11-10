@@ -29,6 +29,8 @@ export interface WorkspaceKindPlugin {
    * 渲染该类型工作区在侧栏里的嵌入内容（含标题行 + 展开体）。
    * `ctx` 是客户端插件上下文：类型插件用它取 uiWorkspace / sessions 等服务，
    * 不需要为了拿服务反向 import workspace-browser。
+   * `currentSessionId` 是当前打开着的会话（宿主用 retainedBy.mainView 判定），
+   * 用来给对应节点行加选中态。
    */
   renderItem: (
     summary: WorkspaceKindItem,
@@ -36,6 +38,7 @@ export interface WorkspaceKindPlugin {
     onToggle: () => void,
     onChanged: (() => void) | undefined,
     ctx: any,
+    currentSessionId: string | null,
   ) => any;
 }
 

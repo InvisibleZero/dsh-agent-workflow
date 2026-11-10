@@ -437,11 +437,12 @@ function SessionHoverContent(props: { node: any; renderSlot: any }) {
 /** 会话行：slot / title / time / rowActions + HoverCard；「⋯」直接打开宿主的上下文菜单。 */
 function SessionRow(props: {
   node: any;
+  current: boolean;
   onOpen: (id: string) => void;
   renderSlot: any;
   onOpenMenu: (sessionId: string, displayTitle: string, event: any) => void;
 }) {
-  const { node, onOpen, renderSlot, onOpenMenu } = props;
+  const { node, current, onOpen, renderSlot, onOpenMenu } = props;
   const statuses = sessionStatuses(node);
   const primaryStatus = statuses[0];
   const showStatus = primaryStatus.state !== 'idle';
@@ -451,7 +452,12 @@ function SessionRow(props: {
     <div
       role="treeitem"
       data-row-key={`session:${node.id}`}
-      className={joinClasses(rowsClass('sessionRow'), node.archived && rowsClass('archived'))}
+      aria-selected={current}
+      className={joinClasses(
+        rowsClass('sessionRow'),
+        node.archived && rowsClass('archived'),
+        current && rowsClass('selected'),
+      )}
       onClick={() => onOpen(node.id)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -586,6 +592,20 @@ function WorkspaceBrowser(props: any) {
   const workspaceItems: any[] = workspacesSnapshot?.items ?? [];
   const sessionsById: Record<string, any> = sessionsSnapshot?.byId ?? {};
 
+  /**
+   * 当前打开着的会话：宿主用 `retainedBy.mainView > 0` 标记正在主视图里显示的那一条
+   * （见宿主 ui-workspace 的快捷键实现），这里沿用同一判据，保证和原生列表一致。
+   */
+  const currentSessionId: string | null = (() => {
+    for (const summary of Object.values(sessionsById)) {
+      const retainedByMainView = (summary as any)?.retainedBy?.mainView;
+      if (typeof retainedByMainView === 'number' && retainedByMainView > 0) {
+        return typeof (summary as any).id === 'string' ? (summary as any).id : null;
+      }
+    }
+    return null;
+  })();
+
   const uiWorkspace = getService(ctx, 'uiWorkspace');
   const workspacesSvc = getService(ctx, 'workspaces');
 
@@ -714,6 +734,7 @@ function WorkspaceBrowser(props: any) {
     <SessionRow
       key={session.id}
       node={session}
+      current={currentSessionId !== null && session.id === currentSessionId}
       onOpen={session.archived ? unarchiveSession : openSession}
       renderSlot={renderSlot}
       onOpenMenu={openSessionMenu}
@@ -912,7 +933,7 @@ function WorkspaceBrowser(props: any) {
                             else next.add(key);
                             return next;
                           });
-                        }, () => void loadPluginLists(), ctx)}
+                        }, () => void loadPluginLists(), ctx, currentSessionId)}
                       </div>
                     );
                   });

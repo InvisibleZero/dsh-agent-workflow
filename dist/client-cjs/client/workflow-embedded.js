@@ -72,7 +72,7 @@ function readClientService(ctx, serviceName) {
  * 工作区行有「⋯」和「新建子会话」；节点行点击打开该节点绑定的会话。
  */
 function WorkflowWorkspaceItem(props) {
-    const { summary, collapsed, onToggle, onChanged, ctx } = props;
+    const { summary, collapsed, onToggle, onChanged, ctx, currentSessionId } = props;
     const [snapshot, setSnapshot] = (0, react_1.useState)(null);
     const [loading, setLoading] = (0, react_1.useState)(false);
     const [workspaceMenuOpen, setWorkspaceMenuOpen] = (0, react_1.useState)(false);
@@ -210,7 +210,12 @@ function WorkflowWorkspaceItem(props) {
         const children = (node.child_ids ?? [])
             .map((id) => byId.get(id))
             .filter((child) => child !== undefined);
-        return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", className: (0, workspace_ui_1.rowsClass)('sessionRow'), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
+        /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
+        const isCurrent = currentSessionId !== null
+            && typeof node.session_id === 'string'
+            && node.session_id !== ''
+            && node.session_id === currentSessionId;
+        return ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "aria-selected": isCurrent, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), isCurrent && (0, workspace_ui_1.rowsClass)('selected')), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
                         paddingLeft: 4 + depth * 14,
                         cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
                         opacity: busyNodeId === node.node_id ? 0.6 : 1,
@@ -242,6 +247,6 @@ exports.workflowKindPlugin = {
     kind: workspace_kind_1.WorkspaceKind.Workflow,
     list: listWorkflows,
     create: createWorkflow,
-    renderItem: (summary, collapsed, onToggle, onChanged, ctx) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, ctx: ctx })),
+    renderItem: (summary, collapsed, onToggle, onChanged, ctx, currentSessionId) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, ctx: ctx, currentSessionId: currentSessionId })),
 };
 //# sourceMappingURL=workflow-embedded.js.map

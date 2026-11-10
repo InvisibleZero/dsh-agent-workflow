@@ -270,12 +270,12 @@ function SessionHoverContent(props) {
 }
 /** 会话行：slot / title / time / rowActions + HoverCard；「⋯」直接打开宿主的上下文菜单。 */
 function SessionRow(props) {
-    const { node, onOpen, renderSlot, onOpenMenu } = props;
+    const { node, current, onOpen, renderSlot, onOpenMenu } = props;
     const statuses = sessionStatuses(node);
     const primaryStatus = statuses[0];
     const showStatus = primaryStatus.state !== 'idle';
     const now = Date.now();
-    const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `session:${node.id}`, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), node.archived && (0, workspace_ui_1.rowsClass)('archived')), onClick: () => onOpen(node.id), onContextMenu: (event) => {
+    const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `session:${node.id}`, "aria-selected": current, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('sessionRow'), node.archived && (0, workspace_ui_1.rowsClass)('archived'), current && (0, workspace_ui_1.rowsClass)('selected')), onClick: () => onOpen(node.id), onContextMenu: (event) => {
             event.preventDefault();
             onOpenMenu(node.id, node.title ?? '', event);
         }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: !node.archived && !node.blank && (showStatus
@@ -342,6 +342,19 @@ function WorkspaceBrowser(props) {
     const sessionsSnapshot = typeof useSessions === 'function' ? useSessions((s) => s) : null;
     const workspaceItems = workspacesSnapshot?.items ?? [];
     const sessionsById = sessionsSnapshot?.byId ?? {};
+    /**
+     * 当前打开着的会话：宿主用 `retainedBy.mainView > 0` 标记正在主视图里显示的那一条
+     * （见宿主 ui-workspace 的快捷键实现），这里沿用同一判据，保证和原生列表一致。
+     */
+    const currentSessionId = (() => {
+        for (const summary of Object.values(sessionsById)) {
+            const retainedByMainView = summary?.retainedBy?.mainView;
+            if (typeof retainedByMainView === 'number' && retainedByMainView > 0) {
+                return typeof summary.id === 'string' ? summary.id : null;
+            }
+        }
+        return null;
+    })();
     const uiWorkspace = getService(ctx, 'uiWorkspace');
     const workspacesSvc = getService(ctx, 'workspaces');
     const openSession = (sessionId) => {
@@ -466,7 +479,7 @@ function WorkspaceBrowser(props) {
         }
     };
     const keyword = query.trim().toLowerCase();
-    const renderSessionRow = (session) => ((0, jsx_runtime_1.jsx)(SessionRow, { node: session, onOpen: session.archived ? unarchiveSession : openSession, renderSlot: renderSlot, onOpenMenu: openSessionMenu }, session.id));
+    const renderSessionRow = (session) => ((0, jsx_runtime_1.jsx)(SessionRow, { node: session, current: currentSessionId !== null && session.id === currentSessionId, onOpen: session.archived ? unarchiveSession : openSession, renderSlot: renderSlot, onOpenMenu: openSessionMenu }, session.id));
     const archivedSessionIds = new Set(workspacesSnapshot?.archivedSessionIds ?? []);
     // 置顶读宿主的 pinnedSessionIds（宿主自己的置顶星标/菜单项本来就能用）。
     const pinnedSet = new Set(workspacesSnapshot?.pinnedSessionIds ?? []);
@@ -562,7 +575,7 @@ function WorkspaceBrowser(props) {
                                                     next.add(key);
                                                 return next;
                                             });
-                                        }, () => void loadPluginLists(), ctx) }, key));
+                                        }, () => void loadPluginLists(), ctx, currentSessionId) }, key));
                                 });
                             })] })) })) }), renameTarget !== null ? ((0, jsx_runtime_1.jsx)("div", { style: { position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onClick: () => setRenameTarget(null), children: (0, jsx_runtime_1.jsxs)("div", { style: {
                         minWidth: 320,
