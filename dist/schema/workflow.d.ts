@@ -178,6 +178,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
     title: z.ZodString;
     /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
     working_directory: z.ZodOptional<z.ZodString>;
+    /**
+     * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
+     * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+     */
+    host_workspace_id: z.ZodOptional<z.ZodString>;
     /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */
     pinned: z.ZodOptional<z.ZodBoolean>;
     settings: z.ZodObject<{
@@ -467,6 +472,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         } | undefined;
     }[];
     working_directory?: string | undefined;
+    host_workspace_id?: string | undefined;
     pinned?: boolean | undefined;
 }, {
     title: string;
@@ -522,6 +528,7 @@ export declare const WorkflowSnapshot: z.ZodObject<{
         } | undefined;
     }[];
     working_directory?: string | undefined;
+    host_workspace_id?: string | undefined;
     pinned?: boolean | undefined;
 }>;
 export type WorkflowSnapshot = z.infer<typeof WorkflowSnapshot>;

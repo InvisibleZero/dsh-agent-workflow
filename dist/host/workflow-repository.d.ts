@@ -12,6 +12,8 @@ export interface WorkflowSummary {
     title: string;
     /** 用户创建时选的工作目录；旧快照可能没有。 */
     path: string | null;
+    /** 对应的宿主目录工作区 id；旧快照可能没有（靠 path 反查）。 */
+    workspaceId?: string;
     /** 是否置顶（只影响侧栏排序）。 */
     pinned: boolean;
     /** 文件最后修改时间（ISO），用于列表排序；不是严格意义上的"创建时间"。 */
@@ -29,6 +31,7 @@ export declare class WorkflowRepository {
     create(input: {
         title?: string;
         path: string;
+        hostWorkspaceId?: string;
     }): Promise<WorkflowSummary>;
     get(id: string): Promise<WorkflowSnapshot | null>;
     /** 置顶 / 取消置顶（只影响侧栏排序，不碰宿主的工作区置顶集合）。 */

@@ -52,6 +52,7 @@ export class WorkflowRepository {
                     id,
                     title: snapshot.title,
                     path: snapshot.working_directory ?? null,
+                    ...(snapshot.host_workspace_id === undefined ? {} : { workspaceId: snapshot.host_workspace_id }),
                     pinned: snapshot.pinned === true,
                     updatedAt: stat.mtime.toISOString(),
                 });
@@ -68,16 +69,27 @@ export class WorkflowRepository {
         const id = randomUUID();
         const trimmedTitle = input.title?.trim() ?? '';
         const title = trimmedTitle !== '' ? trimmedTitle : basename(input.path);
+        const hostWorkspaceId = typeof input.hostWorkspaceId === 'string' && input.hostWorkspaceId !== ''
+            ? input.hostWorkspaceId
+            : undefined;
         const snapshot = {
             version: 1,
             workspace_id: id,
             title,
             working_directory: input.path,
+            ...(hostWorkspaceId === undefined ? {} : { host_workspace_id: hostWorkspaceId }),
             settings: DEFAULT_SETTINGS,
             nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)],
         };
         await this.storage.save(snapshot);
-        return { id, title, path: input.path, pinned: false, updatedAt: new Date().toISOString() };
+        return {
+            id,
+            title,
+            path: input.path,
+            ...(hostWorkspaceId === undefined ? {} : { workspaceId: hostWorkspaceId }),
+            pinned: false,
+            updatedAt: new Date().toISOString(),
+        };
     }
     async get(id) {
         return this.storage.load(id);

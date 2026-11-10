@@ -18,6 +18,8 @@ export interface WorkflowSummary {
   title: string;
   /** 用户创建时选的工作目录；旧快照可能没有。 */
   path: string | null;
+  /** 对应的宿主目录工作区 id；旧快照可能没有（靠 path 反查）。 */
+  workspaceId?: string;
   /** 是否置顶（只影响侧栏排序）。 */
   pinned: boolean;
   /** 文件最后修改时间（ISO），用于列表排序；不是严格意义上的"创建时间"。 */
@@ -71,6 +73,7 @@ export class WorkflowRepository {
           id,
           title: snapshot.title,
           path: snapshot.working_directory ?? null,
+          ...(snapshot.host_workspace_id === undefined ? {} : { workspaceId: snapshot.host_workspace_id }),
           pinned: snapshot.pinned === true,
           updatedAt: stat.mtime.toISOString(),
         });
@@ -83,20 +86,31 @@ export class WorkflowRepository {
   }
 
   /** 新建一个 workflow 工作区：自动建根节点，标题缺省用目录名。 */
-  async create(input: { title?: string; path: string }): Promise<WorkflowSummary> {
+  async create(input: { title?: string; path: string; hostWorkspaceId?: string }): Promise<WorkflowSummary> {
     const id = randomUUID();
     const trimmedTitle = input.title?.trim() ?? '';
     const title = trimmedTitle !== '' ? trimmedTitle : basename(input.path);
+    const hostWorkspaceId = typeof input.hostWorkspaceId === 'string' && input.hostWorkspaceId !== ''
+      ? input.hostWorkspaceId
+      : undefined;
     const snapshot: WorkflowSnapshot = {
       version: 1,
       workspace_id: id,
       title,
       working_directory: input.path,
+      ...(hostWorkspaceId === undefined ? {} : { host_workspace_id: hostWorkspaceId }),
       settings: DEFAULT_SETTINGS,
       nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)],
     };
     await this.storage.save(snapshot);
-    return { id, title, path: input.path, pinned: false, updatedAt: new Date().toISOString() };
+    return {
+      id,
+      title,
+      path: input.path,
+      ...(hostWorkspaceId === undefined ? {} : { workspaceId: hostWorkspaceId }),
+      pinned: false,
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   async get(id: string): Promise<WorkflowSnapshot | null> {

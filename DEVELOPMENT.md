@@ -204,6 +204,24 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 - **验证**：行尾「⋯」与时间文字之间有明显间距；空白会话行不渲染这两段。
 - **通用教训**：用宿主 CSS 类复刻行样式时，**连包装层一起抄**，只抄叶子类名会缺定位/间距规则。
 
+### D-13 一个目录工作区只能有一种类型：workflow 工作区**就是**宿主目录工作区
+
+- **现象**：建 workflow 工作区、或第一次点它的节点后，侧栏同一个目录出现两行（树图标的 workflow + 文件夹图标的同名目录工作区）。
+- **根因**：早期把 workflow 当成「插件自造的另一种工作区」，于是宿主那边还要再建一个目录工作区来装会话，两者并存。
+- **正确模型**：workflow 工作区 = 宿主目录工作区 + 类型插件认领。侧栏按 `matchWorkspace` 判断认领关系，认领的用类型插件渲染，否则按 usual 渲染；**同一目录只会渲染一行**。
+- **创建流程**（必须这个顺序）：
+
+```
+1) workspaces.create({ path })            -> hostWorkspaceId
+2) POST /dsh-agent-workflow/create { path, hostWorkspaceId }
+3) 快照里写 host_workspace_id（类型 z.string().optional()）
+```
+
+- **列表契约**：`/list` 返回的每一项带 `workspaceId`（= `host_workspace_id`）；旧快照没有该字段，侧栏用 `path` 兜底匹配。
+- **侧栏渲染顺序**：先遍历宿主 `useWorkspaces()`，命中被认领的交给 `plugin.renderItem`；没被认领的类型项再单独渲染（兼容旧数据/建工作区失败的孤儿）。
+- **验证**：侧栏同一目录只有一行；新建 workflow 后立刻只出现一行（树图标），不会多出同名文件夹行；点节点建会话不再产生新行。
+- **涉及文件**：`workspace-kind-registry.ts`（`matchWorkspace` / `normalizeWorkspacePath`）、`workflow-embedded.tsx`、`workspace-browser.tsx`、`src/host/workflow-repository.ts`（`host_workspace_id`）、`src/host.ts`（create 路由）。
+
 ---
 
 ## 5. 记录格式（新增条目照抄）

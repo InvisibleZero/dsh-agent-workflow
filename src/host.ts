@@ -109,7 +109,11 @@ export function apply(ctx: any) {
         if (typeof body?.path !== 'string' || body.path.trim() === '') {
           throw new Error('缺少工作目录 path');
         }
-        const workspace = await repository.create({ title: body.title, path: body.path.trim() });
+        const workspace = await repository.create({
+          title: body.title,
+          path: body.path.trim(),
+          hostWorkspaceId: typeof body.hostWorkspaceId === 'string' ? body.hostWorkspaceId : undefined,
+        });
         return { workspace };
       }),
     }));

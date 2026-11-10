@@ -9,14 +9,28 @@ import type { WorkspaceKind } from './workspace-kind';
  *   ① 这个注册表（无具体实现，只传回调）；
  *   ② `workspace-kind` 的枚举；
  *   ③ 装配点 `dsh-plugin`（唯一知道两边的地方）。
+ *
+ * 重要模型：**一个宿主的目录工作区只属于一种类型**。
+ * workflow 工作区就是一个真实的目录工作区，只是类型插件认领了它、用树形逻辑渲染；
+ * 侧栏按 `matchWorkspace` 判断认领关系，因此同一个目录不会出现两行。
  */
 
 /** 侧栏列表里一项非 usual 工作区的摘要（workflow 等自己定义）。 */
 export interface WorkspaceKindItem {
   id: string;
   title: string;
+  /** 对应的宿主目录工作区 id（认领关系的主键）。 */
+  workspaceId?: string;
+  /** 对应的磁盘目录（认领关系的兜底判据，旧数据没有 workspaceId 时用）。 */
+  path?: string;
   pinned?: boolean;
   updatedAt?: string;
+}
+
+/** 宿主目录工作区的最小外观（只读，侧栏提供）。 */
+export interface HostWorkspaceRef {
+  workspaceId?: string;
+  path?: string;
 }
 
 /** 类型插件在侧栏里渲染时拿到的运行环境（由侧栏浏览器提供，避免反向 import）。 */
@@ -33,8 +47,14 @@ export interface WorkspaceKindPlugin {
   kind: WorkspaceKind;
   /** 列出该类型的所有工作区（侧栏合并显示用）。 */
   list(): Promise<WorkspaceKindItem[]>;
-  /** 新建一个该类型工作区（传入已选的目录路径）。 */
-  create(path: string): Promise<void>;
+  /**
+   * 新建一个该类型工作区（传入已选的目录路径）。
+   * `context.workspaceId` 是侧栏已经建好的宿主目录工作区 id——
+   * workflow 工作区本质就是它，所以创建时就要把两者绑在一起。
+   */
+  create(path: string, context?: { workspaceId?: string | null }): Promise<void>;
+  /** 判断这一项是否就是这个宿主目录工作区（类型认领）。 */
+  matchWorkspace(item: WorkspaceKindItem, workspace: HostWorkspaceRef): boolean;
   /** 渲染该类型工作区在侧栏里的嵌入内容（含标题行 + 展开体）。 */
   renderItem: (
     summary: WorkspaceKindItem,
@@ -58,4 +78,16 @@ export function getWorkspaceKindPlugin(kind: WorkspaceKind): WorkspaceKindPlugin
 /** 侧栏需要合并显示的非 usual 类型（当前只有 workflow）。 */
 export function nonUsualWorkspaceKinds(): WorkspaceKind[] {
   return Array.from(plugins.keys());
+}
+
+/** 目录路径归一化：Windows 下大小写、路径分隔符、结尾斜杠都不敏感。 */
+export function normalizeWorkspacePath(path: string): string {
+  return path.trim().replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+}
+
+/** 这一项类型工作区是否认领了某个宿主目录工作区。 */
+export function workspaceKindClaims(kind: WorkspaceKind, item: WorkspaceKindItem, workspace: HostWorkspaceRef): boolean {
+  const plugin = plugins.get(kind);
+  if (plugin === undefined || typeof plugin.matchWorkspace !== 'function') return false;
+  return plugin.matchWorkspace(item, workspace) === true;
 }

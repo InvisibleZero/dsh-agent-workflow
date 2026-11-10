@@ -27,6 +27,11 @@ exports.WorkflowSnapshot = zod_1.z.object({
     title: zod_1.z.string(),
     /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
     working_directory: zod_1.z.string().optional(),
+    /**
+     * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
+     * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+     */
+    host_workspace_id: zod_1.z.string().optional(),
     /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */
     pinned: zod_1.z.boolean().optional(),
     settings: exports.WorkflowSettings,

@@ -16,7 +16,7 @@ import { Component, useEffect, useState } from 'react';
 import { WorkspaceKind, WORKSPACE_KINDS } from './workspace-kind';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import type { MenuPoint } from './workspace-ui';
-import { getWorkspaceKindPlugin, nonUsualWorkspaceKinds } from './workspace-kind-registry';
+import { getWorkspaceKindPlugin, nonUsualWorkspaceKinds, normalizeWorkspacePath } from './workspace-kind-registry';
 import {
   StateDot,
   IconPinFillRegular,
@@ -676,6 +676,34 @@ function WorkspaceBrowser(props: any) {
   const uiWorkspace = getService(ctx, 'uiWorkspace');
   const workspacesSvc = getService(ctx, 'workspaces');
 
+  /**
+   * 类型认领表：哪些宿主目录工作区其实是非 usual 类型（当前即 workflow）。
+   * 认领后侧栏只渲染类型插件的那一行，不再按 usual 渲染——同一目录不会出现两行。
+   */
+  const workspaceClaims = (() => {
+    const workspaceKey = (workspace: any): string => (
+      typeof workspace?.workspaceId === 'string'
+        ? `id:${workspace.workspaceId}`
+        : `path:${normalizeWorkspacePath(String(workspace?.path ?? ''))}`
+    );
+    const byWorkspace = new Map<string, { kind: WorkspaceKind; summary: any }>();
+    const claimedItems = new Set<string>();
+    for (const kind of nonUsualWorkspaceKinds()) {
+      const plugin = getWorkspaceKindPlugin(kind);
+      if (plugin === undefined || typeof plugin.matchWorkspace !== 'function') continue;
+      for (const summary of pluginItems[kind] ?? []) {
+        const target = workspaceItems.find((workspace: any) => plugin.matchWorkspace(summary, {
+          workspaceId: workspace?.workspaceId,
+          path: workspace?.path,
+        }));
+        if (target === undefined) continue;
+        byWorkspace.set(workspaceKey(target), { kind, summary });
+        claimedItems.add(`${kind}:${summary.id}`);
+      }
+    }
+    return { byWorkspace, claimedItems, workspaceKey };
+  })();
+
   const openSession = (sessionId: string) => {
     try {
       if (typeof uiWorkspace?.openSession !== 'function') {
@@ -704,7 +732,18 @@ function WorkspaceBrowser(props: any) {
         console.error(`[dsh-agent-workflow] 未注册的工作区类型：${kind}`);
         return;
       }
-      await plugin.create(path);
+      // 非 usual 类型的工作区本质上就是一个宿主目录工作区：先把它建出来，
+      // 再把 id 交给类型插件，两者从此是同一个东西（侧栏只显示一行）。
+      let hostWorkspaceId = findWorkspaceIdByPath(path);
+      if (hostWorkspaceId === null && typeof workspacesSvc?.create === 'function') {
+        try {
+          const created = await workspacesSvc.create({ path });
+          hostWorkspaceId = typeof created?.workspaceId === 'string' ? created.workspaceId : null;
+        } catch (error) {
+          console.error('[dsh-agent-workflow] 建立目录工作区失败：', error);
+        }
+      }
+      await plugin.create(path, { workspaceId: hostWorkspaceId });
       await loadPluginLists();
     } catch (error) {
       console.error('[dsh-agent-workflow] 新建工作区失败：', error);
@@ -957,6 +996,32 @@ function WorkspaceBrowser(props: any) {
               <>
                 {workspaceItems.map((ws: any) => {
                   const wsId = ws.workspaceId ?? ws.path;
+                  const claim = workspaceClaims.byWorkspace.get(workspaceClaims.workspaceKey(ws));
+                  if (claim !== undefined) {
+                    // 这个目录工作区其实是非 usual 类型：交给类型插件渲染成它自己的那一行。
+                    const plugin = getWorkspaceKindPlugin(claim.kind);
+                    if (plugin !== undefined) {
+                      const key = `${claim.kind}:${claim.summary.id}`;
+                      return (
+                        <div key={wsId}>
+                          {plugin.renderItem(
+                            claim.summary,
+                            collapsedPlugin.has(key),
+                            () => {
+                              setCollapsedPlugin((previous) => {
+                                const next = new Set(previous);
+                                if (next.has(key)) next.delete(key);
+                                else next.add(key);
+                                return next;
+                              });
+                            },
+                            () => void loadPluginLists(),
+                            workspaceKindRuntime,
+                          )}
+                        </div>
+                      );
+                    }
+                  }
                   const isCollapsed = collapsedWorkspaces.has(wsId);
                   const wsSessions = buildWorkspaceSessions(ws);
                   return (
@@ -984,10 +1049,10 @@ function WorkspaceBrowser(props: any) {
                 {nonUsualWorkspaceKinds().flatMap((kind) => {
                   const plugin = getWorkspaceKindPlugin(kind);
                   if (plugin === undefined) return [];
-                  // 置顶的排前面（只影响同一类型内部的顺序）。
-                  const items = [...(pluginItems[kind] ?? [])].sort(
-                    (left: any, right: any) => Number(right.pinned === true) - Number(left.pinned === true),
-                  );
+                  // 置顶的排前面（只影响同一类型内部的顺序）；已被认领的不再重复渲染。
+                  const items = [...(pluginItems[kind] ?? [])]
+                    .filter((summary: any) => !workspaceClaims.claimedItems.has(`${kind}:${summary.id}`))
+                    .sort((left: any, right: any) => Number(right.pinned === true) - Number(left.pinned === true));
                   return items.map((summary: any) => {
                     const key = `${kind}:${summary.id}`;
                     const isCollapsed = collapsedPlugin.has(key);

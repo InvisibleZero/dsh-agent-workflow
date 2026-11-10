@@ -9,4 +9,15 @@ export function getWorkspaceKindPlugin(kind) {
 export function nonUsualWorkspaceKinds() {
     return Array.from(plugins.keys());
 }
+/** 目录路径归一化：Windows 下大小写、路径分隔符、结尾斜杠都不敏感。 */
+export function normalizeWorkspacePath(path) {
+    return path.trim().replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+}
+/** 这一项类型工作区是否认领了某个宿主目录工作区。 */
+export function workspaceKindClaims(kind, item, workspace) {
+    const plugin = plugins.get(kind);
+    if (plugin === undefined || typeof plugin.matchWorkspace !== 'function')
+        return false;
+    return plugin.matchWorkspace(item, workspace) === true;
+}
 //# sourceMappingURL=workspace-kind-registry.js.map

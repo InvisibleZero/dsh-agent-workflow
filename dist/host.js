@@ -100,6 +100,11 @@ var WorkflowSnapshot = z3.object({
   title: z3.string(),
   /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
   working_directory: z3.string().optional(),
+  /**
+   * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
+   * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+   */
+  host_workspace_id: z3.string().optional(),
   /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */
   pinned: z3.boolean().optional(),
   settings: WorkflowSettings,
@@ -253,6 +258,7 @@ var WorkflowRepository = class {
           id,
           title: snapshot.title,
           path: snapshot.working_directory ?? null,
+          ...snapshot.host_workspace_id === void 0 ? {} : { workspaceId: snapshot.host_workspace_id },
           pinned: snapshot.pinned === true,
           updatedAt: stat.mtime.toISOString()
         });
@@ -267,16 +273,25 @@ var WorkflowRepository = class {
     const id = randomUUID();
     const trimmedTitle = input.title?.trim() ?? "";
     const title = trimmedTitle !== "" ? trimmedTitle : basename(input.path);
+    const hostWorkspaceId = typeof input.hostWorkspaceId === "string" && input.hostWorkspaceId !== "" ? input.hostWorkspaceId : void 0;
     const snapshot = {
       version: 1,
       workspace_id: id,
       title,
       working_directory: input.path,
+      ...hostWorkspaceId === void 0 ? {} : { host_workspace_id: hostWorkspaceId },
       settings: DEFAULT_SETTINGS,
       nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)]
     };
     await this.storage.save(snapshot);
-    return { id, title, path: input.path, pinned: false, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    return {
+      id,
+      title,
+      path: input.path,
+      ...hostWorkspaceId === void 0 ? {} : { workspaceId: hostWorkspaceId },
+      pinned: false,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
   }
   async get(id) {
     return this.storage.load(id);
@@ -451,7 +466,11 @@ function apply(ctx) {
         if (typeof body?.path !== "string" || body.path.trim() === "") {
           throw new Error("\u7F3A\u5C11\u5DE5\u4F5C\u76EE\u5F55 path");
         }
-        const workspace = await repository.create({ title: body.title, path: body.path.trim() });
+        const workspace = await repository.create({
+          title: body.title,
+          path: body.path.trim(),
+          hostWorkspaceId: typeof body.hostWorkspaceId === "string" ? body.hostWorkspaceId : void 0
+        });
         return { workspace };
       })
     }));

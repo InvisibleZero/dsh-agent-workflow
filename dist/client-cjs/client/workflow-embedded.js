@@ -15,6 +15,7 @@ const workspace_kind_1 = require("./workspace-kind");
 const node_state_label_1 = require("../schema/node-state-label");
 const workspace_ui_1 = require("./workspace-ui");
 const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
+const workspace_kind_registry_1 = require("./workspace-kind-registry");
 /** 五态单向推进表。 */
 const NEXT_NODE_STATE = {
     not_started: 'discussing',
@@ -36,11 +37,12 @@ async function listWorkflows() {
     const data = await response.json();
     return data?.ok === true && Array.isArray(data.items) ? data.items : [];
 }
-async function createWorkflow(path) {
+async function createWorkflow(path, context) {
+    const hostWorkspaceId = typeof context?.workspaceId === 'string' ? context.workspaceId : undefined;
     const response = await fetch('/dsh-agent-workflow/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify(hostWorkspaceId === undefined ? { path } : { path, hostWorkspaceId }),
     });
     const data = await response.json().catch(() => null);
     if (data?.ok !== true)
@@ -156,6 +158,10 @@ function WorkflowWorkspaceItem(props) {
      * 会话必须挂在真实工作区上，否则打开后只会停在「选择工作区」。
      */
     const resolveWorkspaceId = async (workingDirectory) => {
+        // workflow 自己就是某个宿主目录工作区，快照里记着就直接用。
+        const recorded = snapshot?.host_workspace_id;
+        if (typeof recorded === 'string' && recorded !== '')
+            return recorded;
         const existing = typeof runtime?.findWorkspaceIdByPath === 'function'
             ? runtime.findWorkspaceIdByPath(workingDirectory)
             : null;
@@ -307,6 +313,19 @@ exports.workflowKindPlugin = {
     kind: workspace_kind_1.WorkspaceKind.Workflow,
     list: listWorkflows,
     create: createWorkflow,
+    /**
+     * 认领一个宿主目录工作区：优先按 workspaceId，旧快照没有就按目录路径比对。
+     * 认领之后侧栏不再把它当 usual 渲染，同一个目录因此只有一行。
+     */
+    matchWorkspace: (item, workspace) => {
+        const itemWorkspaceId = typeof item.workspaceId === 'string' ? item.workspaceId : null;
+        const hostWorkspaceId = typeof workspace.workspaceId === 'string' ? workspace.workspaceId : null;
+        if (itemWorkspaceId !== null && hostWorkspaceId !== null)
+            return itemWorkspaceId === hostWorkspaceId;
+        const itemPath = typeof item.path === 'string' ? (0, workspace_kind_registry_1.normalizeWorkspacePath)(item.path) : '';
+        const hostPath = typeof workspace.path === 'string' ? (0, workspace_kind_registry_1.normalizeWorkspacePath)(workspace.path) : '';
+        return itemPath !== '' && hostPath !== '' && itemPath === hostPath;
+    },
     renderItem: (summary, collapsed, onToggle, onChanged, runtime) => ((0, jsx_runtime_1.jsx)(WorkflowWorkspaceItem, { summary: summary, collapsed: collapsed, onToggle: onToggle, onChanged: onChanged, runtime: runtime })),
 };
 //# sourceMappingURL=workflow-embedded.js.map
