@@ -589,7 +589,12 @@ function registerWorkflowStateContext(ctx, repository) {
     }));
   });
   return {
-    peek: async (sessionId) => buildText(sessionId)
+    /** 强制算一次并返回（调试/预览用）。 */
+    peek: async (sessionId) => buildText(sessionId),
+    /** 立刻重算并等它完成：状态推进后调用，保证下一轮模型请求看到的就是新状态。 */
+    refreshNow: async (sessionId) => {
+      await buildText(sessionId);
+    }
   };
 }
 function pickSessionId(context) {
@@ -789,6 +794,8 @@ function apply(ctx) {
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         if (typeof body?.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
         const snapshot = await repository.bindSession({ id: body.id, nodeId: body.nodeId, sessionId: body.sessionId });
+        const sessionId = body.sessionId.trim();
+        if (sessionId !== "") await stateContext.refreshNow(sessionId);
         return { snapshot };
       })
     }));
@@ -833,6 +840,10 @@ function apply(ctx) {
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         if (typeof body?.to !== "string" || body.to === "") throw new Error("\u7F3A\u5C11 to");
         const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
+        const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
+        if (typeof moved?.session_id === "string" && moved.session_id !== "") {
+          await stateContext.refreshNow(moved.session_id);
+        }
         return { snapshot };
       })
     }));

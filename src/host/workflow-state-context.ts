@@ -112,7 +112,10 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
   });
 
   return {
+    /** 强制算一次并返回（调试/预览用）。 */
     peek: async (sessionId: string) => buildText(sessionId),
+    /** 立刻重算并等它完成：状态推进后调用，保证下一轮模型请求看到的就是新状态。 */
+    refreshNow: async (sessionId: string) => { await buildText(sessionId); },
   };
 }
 

@@ -400,6 +400,8 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **作用域**：主通道在 `agent/created` 里用 `this.systemPrompt.context(...)` 注册（按 agent 作用域，闭包拿到 sessionId）；
   另注册一份全局同名的做兜底——**同名会被作用域那份覆盖**，不会重复注入。
 - **调试**：`GET /state-context?sessionId=` 返回"将要注入的文本"，不依赖模型就能验证拼装是否正确。
+- **推进后立刻刷新**：`/transition` 与 `/bind-session` 成功后会 `await refreshNow(sessionId)`，
+  保证**下一条消息**看到的就是新状态（否则 pre-step 才刷新，会慢一拍用旧规则回答）。
 - **验证注入是否真的进了提示**：在绑定会话里发一句话，然后看会话日志（`~/.dsh/sessions/.../session-*.jsonl`）里
   是否出现 `<workflow-state>` 段。
 - **涉及文件**：`src/host/workflow-state-context.ts`、`src/host.ts`。

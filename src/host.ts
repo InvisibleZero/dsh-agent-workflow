@@ -209,6 +209,9 @@ export function apply(ctx: any) {
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
         if (typeof body?.sessionId !== 'string') throw new Error('缺少 sessionId');
         const snapshot = await repository.bindSession({ id: body.id, nodeId: body.nodeId, sessionId: body.sessionId });
+        // 绑定/解绑后立刻刷新该会话的状态上下文（绑定：注入；解绑：清掉）。
+        const sessionId = body.sessionId.trim();
+        if (sessionId !== '') await stateContext.refreshNow(sessionId);
         return { snapshot };
       }),
     }));
@@ -253,6 +256,11 @@ export function apply(ctx: any) {
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
         if (typeof body?.to !== 'string' || body.to === '') throw new Error('缺少 to');
         const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
+        // 推进后立刻重算该会话的状态上下文：否则下一条消息还会带旧状态的规则。
+        const moved = snapshot.nodes.find((node) => node.node_id === body.nodeId);
+        if (typeof moved?.session_id === 'string' && moved.session_id !== '') {
+          await stateContext.refreshNow(moved.session_id);
+        }
         return { snapshot };
       }),
     }));
