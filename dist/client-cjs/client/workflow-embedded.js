@@ -135,18 +135,14 @@ function WorkflowWorkspaceItem(props) {
             if (data?.ok !== true)
                 throw new Error(String(data?.error ?? '新建子节点失败'));
             const nodeId = typeof data.nodeId === 'string' ? data.nodeId : '';
-            const createdNode = data.snapshot?.nodes?.find((candidate) => candidate.node_id === nodeId);
-            const workDir = typeof createdNode?.work_dir === 'string' ? createdNode.work_dir : '';
             setSnapshot(data.snapshot);
-            // 子节点 = 子会话：顺带建会话，cwd 指向它自己的文件夹（隔离靠路径）。
-            if (nodeId !== '' && workDir !== '') {
+            // 子节点 = 子会话：顺带建会话并绑定。cwd 用工作区根（手册在 .workflow 平铺，隔离靠注入）。
+            if (nodeId !== '') {
                 const workingDirectory = typeof snapshot?.working_directory === 'string' ? snapshot.working_directory : '';
                 const workspaceId = workingDirectory !== '' ? await resolveWorkspaceId(workingDirectory) : null;
                 const sessions = readClientService(ctx, 'sessions');
                 if (sessions !== undefined && typeof sessions.create === 'function') {
-                    const createdSessionId = await sessions.create(workspaceId !== null && workspaceId !== ''
-                        ? { workspaceId, cwd: workDir }
-                        : { cwd: workDir });
+                    const createdSessionId = await sessions.create(workspaceId !== null && workspaceId !== '' ? { workspaceId } : {});
                     if (typeof createdSessionId === 'string' && createdSessionId !== '') {
                         const bindResponse = await fetch('/dsh-agent-workflow/bind-session', {
                             method: 'POST',

@@ -94,7 +94,7 @@ export declare class WorkflowRepository {
     }): Promise<WorkflowSnapshot>;
     /**
      * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-     * 同时新建该子节点自己的文件夹 + `.workflow/` 两份 md，并写回 work_dir。
+     * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
      * 只改我们自己的快照，与 dsh 的 workspace 无关。
      */
     addNode(input: {
@@ -105,13 +105,13 @@ export declare class WorkflowRepository {
         snapshot: WorkflowSnapshot;
         nodeId: string;
     }>;
-    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）。 */
+    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
     readNodeManual(workflowId: string, nodeId: string): Promise<{
         manual: string;
         summary: string;
-        workDir: string;
+        manualDir: string;
     } | null>;
-    /** 读父节点的手册摘要（只看一层；父是根且没有 work_dir 时返回空串）。 */
+    /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
     readParentSummary(workflowId: string, nodeId: string): Promise<string>;
 }
 //# sourceMappingURL=workflow-repository.d.ts.map

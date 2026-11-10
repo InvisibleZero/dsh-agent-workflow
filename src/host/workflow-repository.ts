@@ -43,39 +43,16 @@ export function buildRootNode(id: string, maxDepth: number, maxSteps: number): A
   };
 }
 
-/** 子节点文件夹下的隐藏子目录与两篇 md 的文件名。 */
+/** 子节点手册/摘要统一平铺在工作区根目录的 .workflow/ 下，文件名自索引 node_id。 */
 const WORKFLOW_SUBDIR = '.workflow';
-const MANUAL_FILE = '工作手册.md';
-const SUMMARY_FILE = '手册摘要.md';
 const MANUAL_MAX_BYTES = 200 * 1024;
 const SUMMARY_MAX_BYTES = 32 * 1024;
 
-/** 标题 → 目录名：去非法字符、控制字符、尾点空格、Windows 保留名，空则用 fallback。 */
-function slugify(title: string | undefined, fallback: string): string {
-  let slug = (title ?? '').trim()
-    .replace(/[\\/:*?"<>|]/g, '-')
-    .replace(/[\x00-\x1f]/g, '')
-    .replace(/[. ]+$/g, '')
-    .trim();
-  if (slug === '') slug = fallback;
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `${slug}_`;
-  if (slug.length > 40) slug = slug.slice(0, 40).replace(/[. ]+$/g, '');
-  return slug;
+function manualFileName(nodeId: string): string {
+  return `工作手册-${nodeId}.md`;
 }
-
-/** 目录名冲突时追加 -2、-3…（Windows 大小写不敏感，靠 access 判存在）。 */
-async function uniqueDir(parentDir: string, base: string): Promise<string> {
-  let candidate = join(parentDir, base);
-  let suffix = 1;
-  for (;;) {
-    try {
-      await fs.access(candidate);
-      suffix += 1;
-      candidate = join(parentDir, `${base}-${suffix}`);
-    } catch {
-      return candidate;
-    }
-  }
+function summaryFileName(nodeId: string): string {
+  return `手册摘要-${nodeId}.md`;
 }
 
 async function writeIfMissing(path: string, content: string): Promise<void> {
@@ -391,7 +368,7 @@ export class WorkflowRepository {
 
   /**
    * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-   * 同时新建该子节点自己的文件夹 + `.workflow/` 两份 md，并写回 work_dir。
+   * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
    * 只改我们自己的快照，与 dsh 的 workspace 无关。
    */
   async addNode(input: { id: string; parentId: string; title?: string }): Promise<{ snapshot: WorkflowSnapshot; nodeId: string }> {
@@ -404,19 +381,14 @@ export class WorkflowRepository {
     const nodeId = randomUUID();
     const title = input.title?.trim() !== '' && input.title !== undefined ? input.title.trim() : '新子节点';
 
-    // 父目录：根节点用 working_directory，子节点用 work_dir；都缺就不建文件夹。
-    const parentDir = typeof parent.work_dir === 'string' && parent.work_dir !== ''
-      ? parent.work_dir
-      : snapshot.working_directory;
-    let workDir: string | undefined;
-    if (typeof parentDir === 'string' && parentDir.trim() !== '') {
-      const dir = await uniqueDir(parentDir, slugify(title, `node-${nodeId.slice(0, 8)}`));
-      const wfDir = join(dir, WORKFLOW_SUBDIR);
+    // 平铺到工作区根 .workflow/，只 mkdir 一次目录；文件名带 node_id。
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir === 'string' && workingDir.trim() !== '') {
+      const wfDir = join(workingDir, WORKFLOW_SUBDIR);
       await fs.mkdir(wfDir, { recursive: true });
-      await writeIfMissing(join(wfDir, MANUAL_FILE), '# 工作手册\n\n（本节点 AI 自留记录：要点、需求、疑难杂症。）\n');
-      await writeIfMissing(join(wfDir, SUMMARY_FILE), '# 手册摘要\n\n（本手册的概要，供子节点查看一层。）\n');
-      workDir = dir;
-      await appendGitignore(snapshot.working_directory);
+      await writeIfMissing(join(wfDir, manualFileName(nodeId)), '# 工作手册\n\n（本节点 AI 自留记录：要点、需求、疑难杂症。）\n');
+      await writeIfMissing(join(wfDir, summaryFileName(nodeId)), '# 手册摘要\n\n（本手册的概要，供子节点查看一层。）\n');
+      await appendGitignore(workingDir);
     }
 
     const child: AgentNode = {
@@ -425,7 +397,6 @@ export class WorkflowRepository {
       title,
       node_type: 'task',
       depth: parent.depth + 1,
-      ...(workDir === undefined ? {} : { work_dir: workDir }),
     };
 
     const updated: WorkflowSnapshot = {
@@ -441,26 +412,30 @@ export class WorkflowRepository {
     return { snapshot: updated, nodeId };
   }
 
-  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）。 */
-  async readNodeManual(workflowId: string, nodeId: string): Promise<{ manual: string; summary: string; workDir: string } | null> {
+  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
+  async readNodeManual(workflowId: string, nodeId: string): Promise<{ manual: string; summary: string; manualDir: string } | null> {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return null;
     const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
-    if (node === undefined || typeof node.work_dir !== 'string' || node.work_dir === '') return null;
-    const wfDir = join(node.work_dir, WORKFLOW_SUBDIR);
-    const manual = await readTextCapped(join(wfDir, MANUAL_FILE), MANUAL_MAX_BYTES);
-    const summary = await readTextCapped(join(wfDir, SUMMARY_FILE), SUMMARY_MAX_BYTES);
-    return { manual, summary, workDir: node.work_dir };
+    if (node === undefined) return null;
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== 'string' || workingDir === '') return null;
+    const wfDir = join(workingDir, WORKFLOW_SUBDIR);
+    const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
+    const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
+    return { manual, summary, manualDir: wfDir };
   }
 
-  /** 读父节点的手册摘要（只看一层；父是根且没有 work_dir 时返回空串）。 */
+  /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
   async readParentSummary(workflowId: string, nodeId: string): Promise<string> {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return '';
     const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
     if (node === undefined || node.parent_id === null) return '';
     const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
-    if (parent === undefined || typeof parent.work_dir !== 'string' || parent.work_dir === '') return '';
-    return readTextCapped(join(parent.work_dir, WORKFLOW_SUBDIR, SUMMARY_FILE), SUMMARY_MAX_BYTES);
+    if (parent === undefined) return '';
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== 'string' || workingDir === '') return '';
+    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
   }
 }

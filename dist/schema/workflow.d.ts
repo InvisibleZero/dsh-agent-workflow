@@ -373,7 +373,6 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         }>>;
-        work_dir: z.ZodOptional<z.ZodString>;
         depth: z.ZodNumber;
         max_depth: z.ZodNumber;
         step_count: z.ZodNumber;
@@ -412,7 +411,6 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
-        work_dir?: string | undefined;
     }, {
         node_id: string;
         parent_id: string | null;
@@ -447,7 +445,6 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
-        work_dir?: string | undefined;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
     title: string;
@@ -507,7 +504,6 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
-        work_dir?: string | undefined;
     }[];
     working_directory?: string | undefined;
     host_workspace_id?: string | undefined;
@@ -570,7 +566,6 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
-        work_dir?: string | undefined;
     }[];
     working_directory?: string | undefined;
     host_workspace_id?: string | undefined;

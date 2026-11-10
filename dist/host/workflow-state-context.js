@@ -75,7 +75,7 @@ export function registerWorkflowStateContext(ctx, repository) {
             const recent = manual.length > MANUAL_RECENT_CHARS
                 ? `${manual.slice(-MANUAL_RECENT_CHARS)}\n…（更早内容见文件）`
                 : manual;
-            parts.push('', `本节点工作手册：${join(manualData.workDir, '.workflow', '工作手册.md')}`);
+            parts.push('', `本节点工作手册：${join(manualData.manualDir, `工作手册-${found.nodeId}.md`)}`);
             if (recent.trim() !== '')
                 parts.push(recent);
         }

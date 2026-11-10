@@ -271,7 +271,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const { workflowId, nodeId, onClose, onOpenSettings } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [manualData, setManualData] = useState<{ manual: string; summary: string; workDir: string; parentSummary: string } | null>(null);
+  const [manualData, setManualData] = useState<{ manual: string; summary: string; manualDir: string; parentSummary: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,7 +302,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           : {
               manual: String(data.manual?.manual ?? ''),
               summary: String(data.manual?.summary ?? ''),
-              workDir: String(data.manual?.workDir ?? ''),
+              manualDir: String(data.manual?.manualDir ?? ''),
               parentSummary: String(data.parentSummary ?? ''),
             });
       } catch {
@@ -381,14 +381,14 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                 color: 'var(--dsw-alias-brand-primary)',
               }}
             >打开操作细节设置 →</button>
-            {manualData !== null && manualData.workDir !== '' ? (
+            {manualData !== null && manualData.manualDir !== '' ? (
               <button
                 type="button"
                 onClick={() => {
                   void fetch('/dsh-agent-workflow/open-folder', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ path: manualData.workDir }),
+                    body: JSON.stringify({ path: manualData.manualDir }),
                   });
                 }}
                 style={{

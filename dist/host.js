@@ -100,12 +100,6 @@ var AgentNode = z2.object({
     implementing: z2.string().optional(),
     verifying: z2.string().optional()
   }).optional(),
-  /**
-   * 该节点的物理工作目录（绝对路径）：子节点创建时在父目录下新建一个同名文件夹，
-   * `.workflow/` 里放两份 md（工作手册.md / 手册摘要.md）。
-   * 根节点（workspace）不写此字段——它直接用 WorkflowSnapshot.working_directory。
-   */
-  work_dir: z2.string().optional(),
   // —— 防御性约束 ——
   depth: z2.number().int().nonnegative(),
   max_depth: z2.number().int().positive(),
@@ -268,29 +262,13 @@ function buildRootNode(id, maxDepth, maxSteps) {
   };
 }
 var WORKFLOW_SUBDIR = ".workflow";
-var MANUAL_FILE = "\u5DE5\u4F5C\u624B\u518C.md";
-var SUMMARY_FILE = "\u624B\u518C\u6458\u8981.md";
 var MANUAL_MAX_BYTES = 200 * 1024;
 var SUMMARY_MAX_BYTES = 32 * 1024;
-function slugify(title, fallback) {
-  let slug = (title ?? "").trim().replace(/[\\/:*?"<>|]/g, "-").replace(/[\x00-\x1f]/g, "").replace(/[. ]+$/g, "").trim();
-  if (slug === "") slug = fallback;
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(slug)) slug = `${slug}_`;
-  if (slug.length > 40) slug = slug.slice(0, 40).replace(/[. ]+$/g, "");
-  return slug;
+function manualFileName(nodeId) {
+  return `\u5DE5\u4F5C\u624B\u518C-${nodeId}.md`;
 }
-async function uniqueDir(parentDir, base) {
-  let candidate = join(parentDir, base);
-  let suffix = 1;
-  for (; ; ) {
-    try {
-      await fs2.access(candidate);
-      suffix += 1;
-      candidate = join(parentDir, `${base}-${suffix}`);
-    } catch {
-      return candidate;
-    }
-  }
+function summaryFileName(nodeId) {
+  return `\u624B\u518C\u6458\u8981-${nodeId}.md`;
 }
 async function writeIfMissing(path2, content) {
   try {
@@ -568,7 +546,7 @@ var WorkflowRepository = class {
   }
   /**
    * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-   * 同时新建该子节点自己的文件夹 + `.workflow/` 两份 md，并写回 work_dir。
+   * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
    * 只改我们自己的快照，与 dsh 的 workspace 无关。
    */
   async addNode(input) {
@@ -579,24 +557,20 @@ var WorkflowRepository = class {
     if (parent.depth + 1 > parent.max_depth) throw new Error(`\u8D85\u8FC7\u6700\u5927\u6DF1\u5EA6\uFF08${String(parent.max_depth)}\uFF09`);
     const nodeId = randomUUID();
     const title = input.title?.trim() !== "" && input.title !== void 0 ? input.title.trim() : "\u65B0\u5B50\u8282\u70B9";
-    const parentDir = typeof parent.work_dir === "string" && parent.work_dir !== "" ? parent.work_dir : snapshot.working_directory;
-    let workDir;
-    if (typeof parentDir === "string" && parentDir.trim() !== "") {
-      const dir = await uniqueDir(parentDir, slugify(title, `node-${nodeId.slice(0, 8)}`));
-      const wfDir = join(dir, WORKFLOW_SUBDIR);
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir === "string" && workingDir.trim() !== "") {
+      const wfDir = join(workingDir, WORKFLOW_SUBDIR);
       await fs2.mkdir(wfDir, { recursive: true });
-      await writeIfMissing(join(wfDir, MANUAL_FILE), "# \u5DE5\u4F5C\u624B\u518C\n\n\uFF08\u672C\u8282\u70B9 AI \u81EA\u7559\u8BB0\u5F55\uFF1A\u8981\u70B9\u3001\u9700\u6C42\u3001\u7591\u96BE\u6742\u75C7\u3002\uFF09\n");
-      await writeIfMissing(join(wfDir, SUMMARY_FILE), "# \u624B\u518C\u6458\u8981\n\n\uFF08\u672C\u624B\u518C\u7684\u6982\u8981\uFF0C\u4F9B\u5B50\u8282\u70B9\u67E5\u770B\u4E00\u5C42\u3002\uFF09\n");
-      workDir = dir;
-      await appendGitignore(snapshot.working_directory);
+      await writeIfMissing(join(wfDir, manualFileName(nodeId)), "# \u5DE5\u4F5C\u624B\u518C\n\n\uFF08\u672C\u8282\u70B9 AI \u81EA\u7559\u8BB0\u5F55\uFF1A\u8981\u70B9\u3001\u9700\u6C42\u3001\u7591\u96BE\u6742\u75C7\u3002\uFF09\n");
+      await writeIfMissing(join(wfDir, summaryFileName(nodeId)), "# \u624B\u518C\u6458\u8981\n\n\uFF08\u672C\u624B\u518C\u7684\u6982\u8981\uFF0C\u4F9B\u5B50\u8282\u70B9\u67E5\u770B\u4E00\u5C42\u3002\uFF09\n");
+      await appendGitignore(workingDir);
     }
     const child = {
       ...buildRootNode(nodeId, parent.max_depth, parent.max_steps),
       parent_id: parent.node_id,
       title,
       node_type: "task",
-      depth: parent.depth + 1,
-      ...workDir === void 0 ? {} : { work_dir: workDir }
+      depth: parent.depth + 1
     };
     const updated = {
       ...snapshot,
@@ -610,26 +584,30 @@ var WorkflowRepository = class {
     await this.storage.save(updated);
     return { snapshot: updated, nodeId };
   }
-  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）。 */
+  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；manualDir 指向 .workflow 根目录。 */
   async readNodeManual(workflowId, nodeId) {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return null;
     const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
-    if (node === void 0 || typeof node.work_dir !== "string" || node.work_dir === "") return null;
-    const wfDir = join(node.work_dir, WORKFLOW_SUBDIR);
-    const manual = await readTextCapped(join(wfDir, MANUAL_FILE), MANUAL_MAX_BYTES);
-    const summary = await readTextCapped(join(wfDir, SUMMARY_FILE), SUMMARY_MAX_BYTES);
-    return { manual, summary, workDir: node.work_dir };
+    if (node === void 0) return null;
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return null;
+    const wfDir = join(workingDir, WORKFLOW_SUBDIR);
+    const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
+    const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
+    return { manual, summary, manualDir: wfDir };
   }
-  /** 读父节点的手册摘要（只看一层；父是根且没有 work_dir 时返回空串）。 */
+  /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
   async readParentSummary(workflowId, nodeId) {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return "";
     const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
     if (node === void 0 || node.parent_id === null) return "";
     const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
-    if (parent === void 0 || typeof parent.work_dir !== "string" || parent.work_dir === "") return "";
-    return readTextCapped(join(parent.work_dir, WORKFLOW_SUBDIR, SUMMARY_FILE), SUMMARY_MAX_BYTES);
+    if (parent === void 0) return "";
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return "";
+    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
   }
 };
 
@@ -697,7 +675,7 @@ function registerWorkflowStateContext(ctx, repository) {
       const manual = manualData.manual;
       const recent = manual.length > MANUAL_RECENT_CHARS ? `${manual.slice(-MANUAL_RECENT_CHARS)}
 \u2026\uFF08\u66F4\u65E9\u5185\u5BB9\u89C1\u6587\u4EF6\uFF09` : manual;
-      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.workDir, ".workflow", "\u5DE5\u4F5C\u624B\u518C.md")}`);
+      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.manualDir, `\u5DE5\u4F5C\u624B\u518C-${found.nodeId}.md`)}`);
       if (recent.trim() !== "") parts.push(recent);
     }
     const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);

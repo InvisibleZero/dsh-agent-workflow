@@ -205,7 +205,7 @@ export function WorkflowNodeDetailDialog(props) {
                     : {
                         manual: String(data.manual?.manual ?? ''),
                         summary: String(data.manual?.summary ?? ''),
-                        workDir: String(data.manual?.workDir ?? ''),
+                        manualDir: String(data.manual?.manualDir ?? ''),
                         parentSummary: String(data.parentSummary ?? ''),
                     });
             }
@@ -267,11 +267,11 @@ export function WorkflowNodeDetailDialog(props) {
                                     border: '1px solid var(--dsw-alias-border-l1)',
                                     background: 'transparent',
                                     color: 'var(--dsw-alias-brand-primary)',
-                                }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.workDir !== '' ? (_jsx("button", { type: "button", onClick: () => {
+                                }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.manualDir !== '' ? (_jsx("button", { type: "button", onClick: () => {
                                     void fetch('/dsh-agent-workflow/open-folder', {
                                         method: 'POST',
                                         headers: { 'content-type': 'application/json' },
-                                        body: JSON.stringify({ path: manualData.workDir }),
+                                        body: JSON.stringify({ path: manualData.manualDir }),
                                     });
                                 }, style: {
                                     height: 24,

@@ -424,22 +424,22 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 
 ---
 
-### D-22 节点工作手册 / 摘要：文件夹、cwd 与「只对新节点生效」
+### D-22 节点工作手册 / 摘要：平铺在 `.workflow/`，文件名自索引，不建文件夹
 
-- **语义**：子节点 = 子会话。建子节点时在父目录下新建 `<slug>` 文件夹，`.workflow/` 里放
-  `工作手册.md`（AI 自留记录）和 `手册摘要.md`（随手册同步改）。根节点（workspace）**不建**。
-- **cwd 独立于 workspace**：客户端 `sessions.create({ workspaceId, cwd })` 两个字段独立，
-  `workspaceId` 决定侧栏归组（仍归根工作区），`cwd` 决定文件工具相对起点（指向子节点文件夹）。
-  隔离是「约定级」的——模型仍能 `cd ..` 读父级，只是默认落点在子目录。
-- **只对新节点生效**：存量节点没有 `work_dir`，注入时静默跳过手册段，不做迁移。
+- **语义**：子节点 = 子会话。建子节点时在工作区根目录 `.workflow/` 下平铺两份 md，
+  文件名带 node_id 自索引：`工作手册-<node_id>.md`（AI 自留记录）、`手册摘要-<node_id>.md`（随手册同步改）。
+  根节点（workspace）**不建**。**不为节点建目录**——树是快照里的虚拟结构，文件系统只是键值存储。
+- **为什么不用目录、不用标题命名**：目录/标题都会因改名、重名、Windows 保留名、260 路径而出问题；
+  node_id（完整 UUID）唯一且稳定，文件名自索引，零冲突、零查重、零额外表。
+- **cwd 回到工作区根**：会话 `sessions.create({ workspaceId })` 只带归组工作区，不设 cwd。
+  隔离是「约定级」的——只注入自己的手册 + 父级摘要，提示语要求别碰别人的 `.workflow/<id>/`。
+- **只对新节点生效**：存量节点没有对应文件，注入时静默跳过手册段，不做迁移。
 - **注入**：本节点手册「最近 2000 字 + 文件路径」+ 父级摘要（`readParentSummary`，只看一层，父是根则空）。
-  整块上限从 3.2KB 提到 8KB。常驻一句「收尾把要点写进手册并同步摘要」；推进会刷新本块，天然是强提示。
-- **幂等与原子性**：建目录/写 md 用 `writeIfMissing`（已存在不覆盖）；建会话失败会留下空目录（未回滚，
-  已知可优化）。`.gitignore` 只在文件已存在时追加 `.workflow/` 一行。
-- **Windows 路径**：slug 去非法字符 + 保留名 + 尾点空格，目录冲突追加 `-2`；未做 260 字符防护。
-- **涉及文件**：`schema/node.ts`（work_dir）、`host/workflow-repository.ts`（addNode 建目录/readNodeManual/readParentSummary）、
+  整块上限提到 8KB。常驻一句「收尾把要点写进手册并同步摘要」；推进会刷新本块，天然是强提示。
+- **幂等**：写 md 用 `writeIfMissing`（已存在不覆盖）；`.gitignore` 只在文件已存在时追加 `.workflow/` 一行。
+- **涉及文件**：`host/workflow-repository.ts`（addNode 平铺写 md / readNodeManual / readParentSummary）、
   `host.ts`（/add-node 返回 nodeId、/node-manual、/open-folder）、`host/workflow-state-context.ts`（注入）、
-  `client/workflow-embedded.tsx`（addChildTo 带 cwd）、`client/workflow-dialogs.tsx`（只读手册 + 打开文件夹）。
+  `client/workflow-embedded.tsx`（addChildTo 建会话 + 绑定）、`client/workflow-dialogs.tsx`（只读手册 + 打开 .workflow 目录）。
 
 ## 6. 记录格式（新增条目照抄）
 

@@ -47,12 +47,6 @@ exports.AgentNode = zod_1.z.object({
         implementing: zod_1.z.string().optional(),
         verifying: zod_1.z.string().optional(),
     }).optional(),
-    /**
-     * 该节点的物理工作目录（绝对路径）：子节点创建时在父目录下新建一个同名文件夹，
-     * `.workflow/` 里放两份 md（工作手册.md / 手册摘要.md）。
-     * 根节点（workspace）不写此字段——它直接用 WorkflowSnapshot.working_directory。
-     */
-    work_dir: zod_1.z.string().optional(),
     // —— 防御性约束 ——
     depth: zod_1.z.number().int().nonnegative(),
     max_depth: zod_1.z.number().int().positive(),
