@@ -34,6 +34,14 @@ export declare class WorkflowRepository {
         hostWorkspaceId?: string;
     }): Promise<WorkflowSummary>;
     get(id: string): Promise<WorkflowSnapshot | null>;
+    /**
+     * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
+     * 已写过就不重复写；传空串等于清空。
+     */
+    linkWorkspace(input: {
+        id: string;
+        hostWorkspaceId: string;
+    }): Promise<WorkflowSnapshot>;
     /** 置顶 / 取消置顶（只影响侧栏排序，不碰宿主的工作区置顶集合）。 */
     setPinned(input: {
         id: string;

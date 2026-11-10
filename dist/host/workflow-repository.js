@@ -94,6 +94,24 @@ export class WorkflowRepository {
     async get(id) {
         return this.storage.load(id);
     }
+    /**
+     * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
+     * 已写过就不重复写；传空串等于清空。
+     */
+    async linkWorkspace(input) {
+        const snapshot = await this.storage.load(input.id);
+        if (snapshot === null)
+            throw new Error('找不到该 workflow');
+        const hostWorkspaceId = input.hostWorkspaceId.trim();
+        const updated = hostWorkspaceId === ''
+            ? (() => {
+                const { host_workspace_id: _removed, ...rest } = snapshot;
+                return rest;
+            })()
+            : { ...snapshot, host_workspace_id: hostWorkspaceId };
+        await this.storage.save(updated);
+        return updated;
+    }
     /** 置顶 / 取消置顶（只影响侧栏排序，不碰宿主的工作区置顶集合）。 */
     async setPinned(input) {
         const snapshot = await this.storage.load(input.id);

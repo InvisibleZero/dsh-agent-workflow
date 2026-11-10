@@ -141,6 +141,16 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
+      path: '/dsh-agent-workflow/link-workspace',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.hostWorkspaceId !== 'string') throw new Error('缺少 hostWorkspaceId');
+        const snapshot = await repository.linkWorkspace({ id: body.id, hostWorkspaceId: body.hostWorkspaceId });
+        return { snapshot };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
       path: '/dsh-agent-workflow/add-node',
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');

@@ -296,6 +296,21 @@ var WorkflowRepository = class {
   async get(id) {
     return this.storage.load(id);
   }
+  /**
+   * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
+   * 已写过就不重复写；传空串等于清空。
+   */
+  async linkWorkspace(input) {
+    const snapshot = await this.storage.load(input.id);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    const hostWorkspaceId = input.hostWorkspaceId.trim();
+    const updated = hostWorkspaceId === "" ? (() => {
+      const { host_workspace_id: _removed, ...rest } = snapshot;
+      return rest;
+    })() : { ...snapshot, host_workspace_id: hostWorkspaceId };
+    await this.storage.save(updated);
+    return updated;
+  }
   /** 置顶 / 取消置顶（只影响侧栏排序，不碰宿主的工作区置顶集合）。 */
   async setPinned(input) {
     const snapshot = await this.storage.load(input.id);
@@ -493,6 +508,16 @@ function apply(ctx) {
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         if (typeof body?.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
         const snapshot = await repository.bindSession({ id: body.id, nodeId: body.nodeId, sessionId: body.sessionId });
+        return { snapshot };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/link-workspace",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof body?.hostWorkspaceId !== "string") throw new Error("\u7F3A\u5C11 hostWorkspaceId");
+        const snapshot = await repository.linkWorkspace({ id: body.id, hostWorkspaceId: body.hostWorkspaceId });
         return { snapshot };
       })
     }));

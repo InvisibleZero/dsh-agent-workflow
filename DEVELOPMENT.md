@@ -218,6 +218,9 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 ```
 
 - **列表契约**：`/list` 返回的每一项带 `workspaceId`（= `host_workspace_id`）；旧快照没有该字段，侧栏用 `path` 兜底匹配。
+- **旧数据一次性回写**：侧栏加载时，若某条 workflow 没有 `workspaceId` 但按路径找到了宿主目录工作区，
+  就 `POST /dsh-agent-workflow/link-workspace { id, hostWorkspaceId }` 写回快照（客户端用 ref 记录已处理项，只跑一次）。
+  写回后认领不再依赖路径比对；传空串 `hostWorkspaceId` 可清除绑定。
 - **侧栏渲染顺序**：先遍历宿主 `useWorkspaces()`，命中被认领的交给 `plugin.renderItem`；没被认领的类型项再单独渲染（兼容旧数据/建工作区失败的孤儿）。
 - **验证**：侧栏同一目录只有一行；新建 workflow 后立刻只出现一行（树图标），不会多出同名文件夹行；点节点建会话不再产生新行。
 - **涉及文件**：`workspace-kind-registry.ts`（`matchWorkspace` / `normalizeWorkspacePath`）、`workflow-embedded.tsx`、`workspace-browser.tsx`、`src/host/workflow-repository.ts`（`host_workspace_id`）、`src/host.ts`（create 路由）。

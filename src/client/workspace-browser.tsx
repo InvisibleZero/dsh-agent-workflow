@@ -12,7 +12,7 @@
  * - 菜单项经 renderSlot 第三参 { hookContext: [open, setOpen] } 传开合状态。
  */
 
-import { Component, useEffect, useState } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import { WorkspaceKind, WORKSPACE_KINDS } from './workspace-kind';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import type { MenuPoint } from './workspace-ui';
@@ -675,6 +675,47 @@ function WorkspaceBrowser(props: any) {
   const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
   const uiWorkspace = getService(ctx, 'uiWorkspace');
   const workspacesSvc = getService(ctx, 'workspaces');
+
+  const backfilledWorkflowIds = useRef<Set<string>>(new Set());
+
+  /**
+   * 一次性迁移：老快照只有 working_directory、没有 host_workspace_id。
+   * 这里按路径找到对应的宿主目录工作区，把 id 写回快照，从此认领不再依赖路径比对。
+   */
+  useEffect(() => {
+    const workflows: any[] = pluginItems[WorkspaceKind.Workflow] ?? [];
+    const pending = workflows.filter((item: any) => (
+      typeof item.workspaceId !== 'string' || item.workspaceId === ''
+    ) && item.id !== undefined && !backfilledWorkflowIds.current.has(item.id));
+    if (pending.length === 0) return undefined;
+
+    let cancelled = false;
+    void (async () => {
+      for (const item of pending) {
+        const path = typeof item.path === 'string' ? item.path : '';
+        if (path === '') continue;
+        const hostWorkspaceId = findWorkspaceIdByPath(path);
+        if (hostWorkspaceId === null) continue;
+        backfilledWorkflowIds.current.add(item.id);
+        try {
+          const response = await fetch('/dsh-agent-workflow/link-workspace', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: item.id, hostWorkspaceId }),
+          });
+          const data = await response.json().catch(() => null);
+          if (data?.ok !== true) console.error('[dsh-agent-workflow] 回写工作区 id 失败：', data);
+        } catch (error) {
+          console.error('[dsh-agent-workflow] 回写工作区 id 失败：', error);
+        }
+      }
+      if (!cancelled) await loadPluginLists();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pluginItems, workspaceItems]);
 
   /**
    * 类型认领表：哪些宿主目录工作区其实是非 usual 类型（当前即 workflow）。

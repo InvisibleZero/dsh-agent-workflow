@@ -385,6 +385,47 @@ function WorkspaceBrowser(props) {
     const workspaceKindRuntime = { ctx, currentSessionId, findWorkspaceIdByPath };
     const uiWorkspace = getService(ctx, 'uiWorkspace');
     const workspacesSvc = getService(ctx, 'workspaces');
+    const backfilledWorkflowIds = (0, react_1.useRef)(new Set());
+    /**
+     * 一次性迁移：老快照只有 working_directory、没有 host_workspace_id。
+     * 这里按路径找到对应的宿主目录工作区，把 id 写回快照，从此认领不再依赖路径比对。
+     */
+    (0, react_1.useEffect)(() => {
+        const workflows = pluginItems[workspace_kind_1.WorkspaceKind.Workflow] ?? [];
+        const pending = workflows.filter((item) => (typeof item.workspaceId !== 'string' || item.workspaceId === '') && item.id !== undefined && !backfilledWorkflowIds.current.has(item.id));
+        if (pending.length === 0)
+            return undefined;
+        let cancelled = false;
+        void (async () => {
+            for (const item of pending) {
+                const path = typeof item.path === 'string' ? item.path : '';
+                if (path === '')
+                    continue;
+                const hostWorkspaceId = findWorkspaceIdByPath(path);
+                if (hostWorkspaceId === null)
+                    continue;
+                backfilledWorkflowIds.current.add(item.id);
+                try {
+                    const response = await fetch('/dsh-agent-workflow/link-workspace', {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ id: item.id, hostWorkspaceId }),
+                    });
+                    const data = await response.json().catch(() => null);
+                    if (data?.ok !== true)
+                        console.error('[dsh-agent-workflow] 回写工作区 id 失败：', data);
+                }
+                catch (error) {
+                    console.error('[dsh-agent-workflow] 回写工作区 id 失败：', error);
+                }
+            }
+            if (!cancelled)
+                await loadPluginLists();
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [pluginItems, workspaceItems]);
     /**
      * 类型认领表：哪些宿主目录工作区其实是非 usual 类型（当前即 workflow）。
      * 认领后侧栏只渲染类型插件的那一行，不再按 usual 渲染——同一目录不会出现两行。
