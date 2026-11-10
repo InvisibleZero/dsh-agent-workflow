@@ -192,14 +192,14 @@ export function WorkflowGlobalSettingsSection() {
           </>
         ) : (
           <>
-            <label style={LABEL_STYLE}>进入该状态后自动灌入输入框的默认文本（20%，可空）</label>
+            <label style={LABEL_STYLE}>进入该状态后自动灌入输入框的默认文本（可空）</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }}
               value={detail[activeTab]?.enter_trigger ?? ''}
               placeholder="留空则不自动灌入"
               onChange={(event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value })}
             />
-            <label style={{ ...LABEL_STYLE, marginTop: 10 }}>该状态的操作细节（80%）</label>
+            <label style={{ ...LABEL_STYLE, marginTop: 10 }}>该状态的操作细节</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '1 1 80%' }}
               value={detail[activeTab]?.operation_detail ?? ''}
