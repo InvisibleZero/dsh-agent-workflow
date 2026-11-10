@@ -1060,7 +1060,10 @@ function WorkspaceBrowser(props: any) {
         <div
           className={joinClasses(C.headerActions, wide && searchOpen ? C.headerActionsHidden : undefined)}
           // 兜底：即使类名没生效也不让搜索框把这两个按钮挤走。
-          style={wide && searchOpen ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' } : undefined}
+          style={wide && searchOpen
+            ? { maxWidth: 0, opacity: 0, pointerEvents: 'none' }
+            // 锁死宽度 + 右对齐：菜单开合时哪怕内部多出一个包裹元素，三个按钮也不会横向挪动。
+            : { flex: 'none', width: 60, minWidth: 60, maxWidth: 60, justifyContent: 'flex-end' }}
         >
           <ViewOptionsMenu
             groupBy={viewOptions.groupBy}
