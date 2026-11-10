@@ -14,7 +14,8 @@
 
 import { Component, useEffect, useState } from 'react';
 import { WorkspaceKind, WORKSPACE_KINDS } from './workspace-kind';
-import { rowsClass, joinClasses, WorkspaceKindIcon } from './workspace-ui';
+import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
+import type { MenuPoint } from './workspace-ui';
 import { getWorkspaceKindPlugin, nonUsualWorkspaceKinds } from './workspace-kind-registry';
 import {
   StateDot,
@@ -251,7 +252,7 @@ function WorkspaceNodeItem(props: {
   onDelete: () => void;
 }) {
   const { ws, expanded, label, onToggle, onNewSession, onRenameRequest, onDelete } = props;
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPoint, setMenuPoint] = useState<MenuPoint | null>(null);
   const items = [
     { id: 'rename', label: '重命名', icon: <IconEditOutlineRegular /> },
     { id: 'delete', label: '删除工作区', icon: <IconTrashOutlineRegular />, danger: true },
@@ -262,7 +263,7 @@ function WorkspaceNodeItem(props: {
       role="treeitem"
       data-row-key={`workspace:${ws.workspaceId ?? ws.path}`}
       aria-expanded={expanded}
-      className={joinClasses(rowsClass('projectRow'), menuOpen && rowsClass('menuOpen'))}
+      className={joinClasses(rowsClass('projectRow'), menuPoint !== null && rowsClass('menuOpen'))}
       onClick={onToggle}
     >
       {/* 宿主老图里文件夹是固定的强调蓝；token 在本主题下不一定解析成蓝，直接用字面色更稳。 */}
@@ -279,23 +280,34 @@ function WorkspaceNodeItem(props: {
         <span className={rowsClass('title')}>{label}</span>
       </span>
       <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
-        <Menu
-          open={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          items={items}
-          onSelect={(id: string) => {
-            setMenuOpen(false);
-            if (id === 'rename') onRenameRequest();
-            else onDelete();
+        <button
+          type="button"
+          className={rowsClass('iconButton')}
+          aria-label="工作区菜单"
+          aria-haspopup="menu"
+          aria-expanded={menuPoint !== null}
+          onClick={(event) => {
+            const point = menuPointFromEvent(event);
+            setMenuPoint((current) => (current === null ? point : null));
           }}
-          portal
-          closeOnPointerLeave
-          anchor={(
-            <button type="button" className={rowsClass('iconButton')} aria-label="工作区菜单" onClick={() => setMenuOpen((value) => !value)}>
-              <IconEllipsisOutlineRegular />
-            </button>
-          )}
-        />
+        >
+          <IconEllipsisOutlineRegular />
+        </button>
+        {menuPoint !== null ? (
+          <Menu
+            open
+            anchor={null}
+            portal
+            getAnchorRect={() => menuAnchorRect(menuPoint)}
+            items={items}
+            onClose={() => setMenuPoint(null)}
+            onSelect={(id: string) => {
+              setMenuPoint(null);
+              if (id === 'rename') onRenameRequest();
+              else onDelete();
+            }}
+          />
+        ) : null}
         <Tooltip label="新建会话" side="bottom" align="end" delayMs={500} portal>
           <button type="button" className={rowsClass('iconButton')} aria-label="新建会话" onClick={onNewSession}>
             <IconNewChatOutlineRegular />
@@ -325,7 +337,7 @@ function ViewOptionsMenu(props: {
   archivedFilter: string;
   onChange: (patch: Partial<{ groupBy: string; orderBy: string; archivedFilter: string }>) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [point, setPoint] = useState<MenuPoint | null>(null);
   const archivedFilterToId: Record<string, string> = {
     default: 'hide-archived',
     show: 'show-archived',
@@ -346,36 +358,50 @@ function ViewOptionsMenu(props: {
   ];
 
   return (
-    <Menu
-      open={open}
-      onClose={() => setOpen(false)}
-      items={items}
-      selectedIds={[props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]]}
-      onSelect={(id: string) => {
-        setOpen(false);
-        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') props.onChange({ groupBy: id });
-        else if (id === 'manual' || id === 'updated') props.onChange({ orderBy: id });
-        else if (id === 'hide-archived') props.onChange({ archivedFilter: 'default' });
-        else if (id === 'show-archived') props.onChange({ archivedFilter: 'show' });
-        else if (id === 'only-archived') props.onChange({ archivedFilter: 'only' });
-      }}
-      align="end"
-      dense
-      portal
-      anchor={(
-        <Tooltip label="视图选项" side="bottom" delayMs={500} portal>
-          <button type="button" className={rowsClass('iconButton')} aria-label="视图选项" onClick={() => setOpen((value) => !value)}>
-            <IconSlidersTwoOutlineRegular />
-          </button>
-        </Tooltip>
-      )}
-    />
+    <>
+      <Tooltip label="视图选项" side="bottom" delayMs={500} portal>
+        <button
+          type="button"
+          className={rowsClass('iconButton')}
+          aria-label="视图选项"
+          aria-haspopup="menu"
+          aria-expanded={point !== null}
+          onClick={(event) => {
+            const next = menuPointFromEvent(event);
+            setPoint((current) => (current === null ? next : null));
+          }}
+        >
+          <IconSlidersTwoOutlineRegular />
+        </button>
+      </Tooltip>
+      {point !== null ? (
+        <Menu
+          open
+          anchor={null}
+          portal
+          align="end"
+          dense
+          getAnchorRect={() => menuAnchorRect(point)}
+          items={items}
+          selectedIds={[props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]]}
+          onClose={() => setPoint(null)}
+          onSelect={(id: string) => {
+            setPoint(null);
+            if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') props.onChange({ groupBy: id });
+            else if (id === 'manual' || id === 'updated') props.onChange({ orderBy: id });
+            else if (id === 'hide-archived') props.onChange({ archivedFilter: 'default' });
+            else if (id === 'show-archived') props.onChange({ archivedFilter: 'show' });
+            else if (id === 'only-archived') props.onChange({ archivedFilter: 'only' });
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
 /** 「添加工作区」下拉框：按 WORKSPACE_KINDS 枚举渲染，几类几个选项。 */
 function AddWorkspaceMenu(props: { onSelectKind: (kind: WorkspaceKind) => void }) {
-  const [open, setOpen] = useState(false);
+  const [point, setPoint] = useState<MenuPoint | null>(null);
   const items = WORKSPACE_KINDS.map((kind) => ({
     id: kind.id,
     label: kind.label,
@@ -383,27 +409,41 @@ function AddWorkspaceMenu(props: { onSelectKind: (kind: WorkspaceKind) => void }
   }));
 
   return (
-    <Menu
-      open={open}
-      onClose={() => setOpen(false)}
-      items={items}
-      onSelect={(id: string) => {
-        setOpen(false);
-        props.onSelectKind(id as WorkspaceKind);
-      }}
-      align="end"
-      portal
-      anchor={(
-        <Tooltip label="新建工作区" side="bottom" align="end" delayMs={500} portal>
-          <button type="button" className={C.iconButton} aria-label="添加工作区" onClick={() => setOpen((value) => !value)}>
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
-              <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" />
-              <path d="M11.5 11v4M9.5 13h4" />
-            </svg>
-          </button>
-        </Tooltip>
-      )}
-    />
+    <>
+      <Tooltip label="新建工作区" side="bottom" align="end" delayMs={500} portal>
+        <button
+          type="button"
+          className={C.iconButton}
+          aria-label="添加工作区"
+          aria-haspopup="menu"
+          aria-expanded={point !== null}
+          onClick={(event) => {
+            const next = menuPointFromEvent(event);
+            setPoint((current) => (current === null ? next : null));
+          }}
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
+            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" />
+            <path d="M11.5 11v4M9.5 13h4" />
+          </svg>
+        </button>
+      </Tooltip>
+      {point !== null ? (
+        <Menu
+          open
+          anchor={null}
+          portal
+          align="end"
+          getAnchorRect={() => menuAnchorRect(point)}
+          items={items}
+          onClose={() => setPoint(null)}
+          onSelect={(id: string) => {
+            setPoint(null);
+            props.onSelectKind(id as WorkspaceKind);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

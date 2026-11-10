@@ -14,7 +14,7 @@ import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-run
  */
 import { Component, useEffect, useState } from 'react';
 import { WorkspaceKind, WORKSPACE_KINDS } from './workspace-kind';
-import { rowsClass, joinClasses, WorkspaceKindIcon } from './workspace-ui';
+import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import { getWorkspaceKindPlugin, nonUsualWorkspaceKinds } from './workspace-kind-registry';
 import { StateDot, IconPinFillRegular, IconEllipsisOutlineRegular, IconArchiveOutlineRegular, IconTriangleRightFillRegular, IconNewChatOutlineRegular, IconSlidersTwoOutlineRegular, IconFolderOpenRegular, IconFolderCloseRegular, IconEditOutlineRegular, IconTrashOutlineRegular, Menu, HoverCard, Tooltip, relativeTime, } from '@deepseek-ai/dsh-client-ui-primitives';
 /** 错误边界：槽位条目渲染失败只让那一块消失，不能让整个浏览器炸掉。 */
@@ -197,23 +197,26 @@ function WorkspaceHoverContent(props) {
 /** 照抄宿主 ProjectRowItem：folder + chevron + projectText + Menu（rename/delete）+ 新建会话。 */
 function WorkspaceNodeItem(props) {
     const { ws, expanded, label, onToggle, onNewSession, onRenameRequest, onDelete } = props;
-    const [menuOpen, setMenuOpen] = useState(false);
+    const [menuPoint, setMenuPoint] = useState(null);
     const items = [
         { id: 'rename', label: '重命名', icon: _jsx(IconEditOutlineRegular, {}) },
         { id: 'delete', label: '删除工作区', icon: _jsx(IconTrashOutlineRegular, {}), danger: true },
     ];
-    const row = (_jsxs("div", { role: "treeitem", "data-row-key": `workspace:${ws.workspaceId ?? ws.path}`, "aria-expanded": expanded, className: joinClasses(rowsClass('projectRow'), menuOpen && rowsClass('menuOpen')), onClick: onToggle, children: [_jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('folder')), style: { color: '#4d7bfd' }, children: expanded ? _jsx(IconFolderOpenRegular, { color: "#4d7bfd" }) : _jsx(IconFolderCloseRegular, { color: "#4d7bfd" }) }), _jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('chevron')), children: _jsx(IconTriangleRightFillRegular, { className: joinClasses(rowsClass('arrow'), expanded && rowsClass('arrowOpen')) }) }), _jsx("span", { className: rowsClass('projectText'), children: _jsx("span", { className: rowsClass('title'), children: label }) }), _jsxs("span", { className: rowsClass('rowActions'), onClick: (event) => event.stopPropagation(), children: [_jsx(Menu, { open: menuOpen, onClose: () => setMenuOpen(false), items: items, onSelect: (id) => {
-                            setMenuOpen(false);
+    const row = (_jsxs("div", { role: "treeitem", "data-row-key": `workspace:${ws.workspaceId ?? ws.path}`, "aria-expanded": expanded, className: joinClasses(rowsClass('projectRow'), menuPoint !== null && rowsClass('menuOpen')), onClick: onToggle, children: [_jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('folder')), style: { color: '#4d7bfd' }, children: expanded ? _jsx(IconFolderOpenRegular, { color: "#4d7bfd" }) : _jsx(IconFolderCloseRegular, { color: "#4d7bfd" }) }), _jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('chevron')), children: _jsx(IconTriangleRightFillRegular, { className: joinClasses(rowsClass('arrow'), expanded && rowsClass('arrowOpen')) }) }), _jsx("span", { className: rowsClass('projectText'), children: _jsx("span", { className: rowsClass('title'), children: label }) }), _jsxs("span", { className: rowsClass('rowActions'), onClick: (event) => event.stopPropagation(), children: [_jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": menuPoint !== null, onClick: (event) => {
+                            const point = menuPointFromEvent(event);
+                            setMenuPoint((current) => (current === null ? point : null));
+                        }, children: _jsx(IconEllipsisOutlineRegular, {}) }), menuPoint !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(menuPoint), items: items, onClose: () => setMenuPoint(null), onSelect: (id) => {
+                            setMenuPoint(null);
                             if (id === 'rename')
                                 onRenameRequest();
                             else
                                 onDelete();
-                        }, portal: true, closeOnPointerLeave: true, anchor: (_jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", onClick: () => setMenuOpen((value) => !value), children: _jsx(IconEllipsisOutlineRegular, {}) })) }), _jsx(Tooltip, { label: "\u65B0\u5EFA\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u4F1A\u8BDD", onClick: onNewSession, children: _jsx(IconNewChatOutlineRegular, {}) }) })] })] }));
+                        } })) : null, _jsx(Tooltip, { label: "\u65B0\u5EFA\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u4F1A\u8BDD", onClick: onNewSession, children: _jsx(IconNewChatOutlineRegular, {}) }) })] })] }));
     return (_jsx(HoverCard, { anchor: row, content: _jsx(WorkspaceHoverContent, { ws: ws }), openDelayMs: 800, grouped: true, copyText: ws.path, copyLabel: t('copy'), copiedLabel: t('hover.copied') }));
 }
 /** 视图选项：分组 / 排序 / 归档过滤。 */
 function ViewOptionsMenu(props) {
-    const [open, setOpen] = useState(false);
+    const [point, setPoint] = useState(null);
     const archivedFilterToId = {
         default: 'hide-archived',
         show: 'show-archived',
@@ -232,32 +235,38 @@ function ViewOptionsMenu(props) {
         { id: 'show-archived', label: '显示已归档' },
         { id: 'only-archived', label: '只看已归档' },
     ];
-    return (_jsx(Menu, { open: open, onClose: () => setOpen(false), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onSelect: (id) => {
-            setOpen(false);
-            if (id === 'workspace' || id === 'workspace-tree' || id === 'flat')
-                props.onChange({ groupBy: id });
-            else if (id === 'manual' || id === 'updated')
-                props.onChange({ orderBy: id });
-            else if (id === 'hide-archived')
-                props.onChange({ archivedFilter: 'default' });
-            else if (id === 'show-archived')
-                props.onChange({ archivedFilter: 'show' });
-            else if (id === 'only-archived')
-                props.onChange({ archivedFilter: 'only' });
-        }, align: "end", dense: true, portal: true, anchor: (_jsx(Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", onClick: () => setOpen((value) => !value), children: _jsx(IconSlidersTwoOutlineRegular, {}) }) })) }));
+    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+                        const next = menuPointFromEvent(event);
+                        setPoint((current) => (current === null ? next : null));
+                    }, children: _jsx(IconSlidersTwoOutlineRegular, {}) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", dense: true, getAnchorRect: () => menuAnchorRect(point), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onClose: () => setPoint(null), onSelect: (id) => {
+                    setPoint(null);
+                    if (id === 'workspace' || id === 'workspace-tree' || id === 'flat')
+                        props.onChange({ groupBy: id });
+                    else if (id === 'manual' || id === 'updated')
+                        props.onChange({ orderBy: id });
+                    else if (id === 'hide-archived')
+                        props.onChange({ archivedFilter: 'default' });
+                    else if (id === 'show-archived')
+                        props.onChange({ archivedFilter: 'show' });
+                    else if (id === 'only-archived')
+                        props.onChange({ archivedFilter: 'only' });
+                } })) : null] }));
 }
 /** 「添加工作区」下拉框：按 WORKSPACE_KINDS 枚举渲染，几类几个选项。 */
 function AddWorkspaceMenu(props) {
-    const [open, setOpen] = useState(false);
+    const [point, setPoint] = useState(null);
     const items = WORKSPACE_KINDS.map((kind) => ({
         id: kind.id,
         label: kind.label,
         icon: _jsx(WorkspaceKindIcon, { kind: kind.id, size: 14 }),
     }));
-    return (_jsx(Menu, { open: open, onClose: () => setOpen(false), items: items, onSelect: (id) => {
-            setOpen(false);
-            props.onSelectKind(id);
-        }, align: "end", portal: true, anchor: (_jsx(Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: C.iconButton, "aria-label": "\u6DFB\u52A0\u5DE5\u4F5C\u533A", onClick: () => setOpen((value) => !value), children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" }), _jsx("path", { d: "M11.5 11v4M9.5 13h4" })] }) }) })) }));
+    return (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: C.iconButton, "aria-label": "\u6DFB\u52A0\u5DE5\u4F5C\u533A", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+                        const next = menuPointFromEvent(event);
+                        setPoint((current) => (current === null ? next : null));
+                    }, children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" }), _jsx("path", { d: "M11.5 11v4M9.5 13h4" })] }) }) }), point !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(point), items: items, onClose: () => setPoint(null), onSelect: (id) => {
+                    setPoint(null);
+                    props.onSelectKind(id);
+                } })) : null] }));
 }
 function SessionHoverContent(props) {
     const { node, renderSlot } = props;

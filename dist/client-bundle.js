@@ -240,23 +240,26 @@ window.__ModuleLoader__.load({
     /** 照抄宿主 ProjectRowItem：folder + chevron + projectText + Menu（rename/delete）+ 新建会话。 */
     function WorkspaceNodeItem(props) {
         const { ws, expanded, label, onToggle, onNewSession, onRenameRequest, onDelete } = props;
-        const [menuOpen, setMenuOpen] = (0, react_1.useState)(false);
+        const [menuPoint, setMenuPoint] = (0, react_1.useState)(null);
         const items = [
             { id: 'rename', label: '重命名', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutlineRegular, {}) },
             { id: 'delete', label: '删除工作区', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTrashOutlineRegular, {}), danger: true },
         ];
-        const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `workspace:${ws.workspaceId ?? ws.path}`, "aria-expanded": expanded, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('projectRow'), menuOpen && (0, workspace_ui_1.rowsClass)('menuOpen')), onClick: onToggle, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('folder')), style: { color: '#4d7bfd' }, children: expanded ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderOpenRegular, { color: "#4d7bfd" }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderCloseRegular, { color: "#4d7bfd" }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('chevron')), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFillRegular, { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('arrow'), expanded && (0, workspace_ui_1.rowsClass)('arrowOpen')) }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('projectText'), children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: label }) }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: menuOpen, onClose: () => setMenuOpen(false), items: items, onSelect: (id) => {
-                                setMenuOpen(false);
+        const row = ((0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `workspace:${ws.workspaceId ?? ws.path}`, "aria-expanded": expanded, className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('projectRow'), menuPoint !== null && (0, workspace_ui_1.rowsClass)('menuOpen')), onClick: onToggle, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('folder')), style: { color: '#4d7bfd' }, children: expanded ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderOpenRegular, { color: "#4d7bfd" }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconFolderCloseRegular, { color: "#4d7bfd" }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('chevron')), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFillRegular, { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('arrow'), expanded && (0, workspace_ui_1.rowsClass)('arrowOpen')) }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('projectText'), children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: label }) }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": menuPoint !== null, onClick: (event) => {
+                                const point = (0, workspace_ui_1.menuPointFromEvent)(event);
+                                setMenuPoint((current) => (current === null ? point : null));
+                            }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), menuPoint !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(menuPoint), items: items, onClose: () => setMenuPoint(null), onSelect: (id) => {
+                                setMenuPoint(null);
                                 if (id === 'rename')
                                     onRenameRequest();
                                 else
                                     onDelete();
-                            }, portal: true, closeOnPointerLeave: true, anchor: ((0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", onClick: () => setMenuOpen((value) => !value), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) })) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u4F1A\u8BDD", onClick: onNewSession, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconNewChatOutlineRegular, {}) }) })] })] }));
+                            } })) : null, (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u4F1A\u8BDD", onClick: onNewSession, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconNewChatOutlineRegular, {}) }) })] })] }));
         return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.HoverCard, { anchor: row, content: (0, jsx_runtime_1.jsx)(WorkspaceHoverContent, { ws: ws }), openDelayMs: 800, grouped: true, copyText: ws.path, copyLabel: t('copy'), copiedLabel: t('hover.copied') }));
     }
     /** 视图选项：分组 / 排序 / 归档过滤。 */
     function ViewOptionsMenu(props) {
-        const [open, setOpen] = (0, react_1.useState)(false);
+        const [point, setPoint] = (0, react_1.useState)(null);
         const archivedFilterToId = {
             default: 'hide-archived',
             show: 'show-archived',
@@ -275,32 +278,38 @@ window.__ModuleLoader__.load({
             { id: 'show-archived', label: '显示已归档' },
             { id: 'only-archived', label: '只看已归档' },
         ];
-        return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, onClose: () => setOpen(false), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onSelect: (id) => {
-                setOpen(false);
-                if (id === 'workspace' || id === 'workspace-tree' || id === 'flat')
-                    props.onChange({ groupBy: id });
-                else if (id === 'manual' || id === 'updated')
-                    props.onChange({ orderBy: id });
-                else if (id === 'hide-archived')
-                    props.onChange({ archivedFilter: 'default' });
-                else if (id === 'show-archived')
-                    props.onChange({ archivedFilter: 'show' });
-                else if (id === 'only-archived')
-                    props.onChange({ archivedFilter: 'only' });
-            }, align: "end", dense: true, portal: true, anchor: ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", onClick: () => setOpen((value) => !value), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSlidersTwoOutlineRegular, {}) }) })) }));
+        return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u89C6\u56FE\u9009\u9879", side: "bottom", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u89C6\u56FE\u9009\u9879", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+                            const next = (0, workspace_ui_1.menuPointFromEvent)(event);
+                            setPoint((current) => (current === null ? next : null));
+                        }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconSlidersTwoOutlineRegular, {}) }) }), point !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", dense: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(point), items: items, selectedIds: [props.groupBy, props.orderBy, archivedFilterToId[props.archivedFilter]], onClose: () => setPoint(null), onSelect: (id) => {
+                        setPoint(null);
+                        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat')
+                            props.onChange({ groupBy: id });
+                        else if (id === 'manual' || id === 'updated')
+                            props.onChange({ orderBy: id });
+                        else if (id === 'hide-archived')
+                            props.onChange({ archivedFilter: 'default' });
+                        else if (id === 'show-archived')
+                            props.onChange({ archivedFilter: 'show' });
+                        else if (id === 'only-archived')
+                            props.onChange({ archivedFilter: 'only' });
+                    } })) : null] }));
     }
     /** 「添加工作区」下拉框：按 WORKSPACE_KINDS 枚举渲染，几类几个选项。 */
     function AddWorkspaceMenu(props) {
-        const [open, setOpen] = (0, react_1.useState)(false);
+        const [point, setPoint] = (0, react_1.useState)(null);
         const items = workspace_kind_1.WORKSPACE_KINDS.map((kind) => ({
             id: kind.id,
             label: kind.label,
             icon: (0, jsx_runtime_1.jsx)(workspace_ui_1.WorkspaceKindIcon, { kind: kind.id, size: 14 }),
         }));
-        return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: open, onClose: () => setOpen(false), items: items, onSelect: (id) => {
-                setOpen(false);
-                props.onSelectKind(id);
-            }, align: "end", portal: true, anchor: ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: C.iconButton, "aria-label": "\u6DFB\u52A0\u5DE5\u4F5C\u533A", onClick: () => setOpen((value) => !value), children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" }), (0, jsx_runtime_1.jsx)("path", { d: "M11.5 11v4M9.5 13h4" })] }) }) })) }));
+        return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5DE5\u4F5C\u533A", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: C.iconButton, "aria-label": "\u6DFB\u52A0\u5DE5\u4F5C\u533A", "aria-haspopup": "menu", "aria-expanded": point !== null, onClick: (event) => {
+                            const next = (0, workspace_ui_1.menuPointFromEvent)(event);
+                            setPoint((current) => (current === null ? next : null));
+                        }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2h8A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5z" }), (0, jsx_runtime_1.jsx)("path", { d: "M11.5 11v4M9.5 13h4" })] }) }) }), point !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(point), items: items, onClose: () => setPoint(null), onSelect: (id) => {
+                        setPoint(null);
+                        props.onSelectKind(id);
+                    } })) : null] }));
     }
     function SessionHoverContent(props) {
         const { node, renderSlot } = props;
@@ -736,17 +745,16 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.rowsClass = rowsClass;
     exports.joinClasses = joinClasses;
-    exports.FloatingMenu = FloatingMenu;
-    exports.floatingMenuPointFromEvent = floatingMenuPointFromEvent;
+    exports.menuPointFromEvent = menuPointFromEvent;
+    exports.menuAnchorRect = menuAnchorRect;
     exports.WorkspaceKindIcon = WorkspaceKindIcon;
     const jsx_runtime_1 = require("react/jsx-runtime");
     // @ts-nocheck
     /**
-     * 侧栏工作区共享的 UI 原语（CSS 类解析 + 类型图标）。
+     * 侧栏工作区共享的 UI 原语（CSS 类解析 + 类型图标 + 菜单坐标）。
      * 只依赖 react / ui-primitives / workspace-kind，不依赖 workspace-browser 或 workflow，
      * 供两个解耦模块各自 import。
      */
-    const react_1 = require("react");
     const workspace_kind_1 = __req("client/workspace-kind.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     /** 宿主 Rows 模块的 CSS Modules 哈希前缀（运行时反查，不硬编码）。 */
@@ -789,72 +797,21 @@ window.__ModuleLoader__.load({
         const kept = values.filter((value) => typeof value === 'string' && value !== '');
         return kept.length === 0 ? undefined : kept.join(' ');
     }
-    const FLOATING_MENU_WIDTH = 172;
-    const FLOATING_MENU_ITEM_HEIGHT = 30;
     /**
-     * 自绘下拉菜单：按触发按钮的位置固定定位。
+     * 从点击事件里取「触发按钮左下角」的屏幕坐标。
      *
-     * 为什么不用 ui-primitives 的 Menu：它在这个 DSH 版本里按 anchor 计算的位置会漂移
-     * （工作区/节点越往下越明显），所以这里直接拿按钮的屏幕坐标自己摆，
-     * 位置和点哪个按钮永远一致。
+     * 为什么不用 Menu 的 `anchor` 传元素：这个版本的 ui-primitives Menu 不测量 React 元素，
+     * 只认 `getAnchorRect()`；传元素会让菜单落在默认位置（越靠下的行偏得越远）。
      */
-    function FloatingMenu(props) {
-        const { point, items, onSelect, onClose } = props;
-        const [hoveredId, setHoveredId] = (0, react_1.useState)(null);
-        (0, react_1.useEffect)(() => {
-            const onKeyDown = (event) => {
-                if (event.key === 'Escape')
-                    onClose();
-            };
-            window.addEventListener('keydown', onKeyDown);
-            return () => window.removeEventListener('keydown', onKeyDown);
-        }, [onClose]);
-        const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
-        const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-        const menuHeight = items.length * FLOATING_MENU_ITEM_HEIGHT + 8;
-        const left = Math.max(8, Math.min(point.x, viewportWidth - FLOATING_MENU_WIDTH - 8));
-        const top = point.y + menuHeight > viewportHeight - 8
-            ? Math.max(8, point.y - menuHeight - 32)
-            : point.y;
-        return ((0, jsx_runtime_1.jsx)("div", { style: { position: 'fixed', inset: 0, zIndex: 1000 }, onClick: onClose, onContextMenu: (event) => {
-                event.preventDefault();
-                onClose();
-            }, children: (0, jsx_runtime_1.jsx)("div", { role: "menu", onClick: (event) => event.stopPropagation(), style: {
-                    position: 'fixed',
-                    left,
-                    top,
-                    minWidth: FLOATING_MENU_WIDTH,
-                    padding: 4,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    background: 'var(--dsw-alias-bg-overlay)',
-                    border: '1px solid var(--dsw-alias-border-l1)',
-                    borderRadius: 8,
-                    boxShadow: '0 8px 24px rgba(0,0,0,.36)',
-                }, children: items.map((item) => ((0, jsx_runtime_1.jsx)("button", { type: "button", role: "menuitem", disabled: item.disabled === true, onClick: () => {
-                        onSelect(item.id);
-                        onClose();
-                    }, onMouseEnter: () => setHoveredId(item.id), onMouseLeave: () => setHoveredId((current) => (current === item.id ? null : current)), style: {
-                        height: FLOATING_MENU_ITEM_HEIGHT,
-                        padding: '0 10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        border: 'none',
-                        borderRadius: 6,
-                        textAlign: 'left',
-                        fontSize: 13,
-                        color: 'var(--dsw-alias-label-primary)',
-                        background: hoveredId === item.id ? 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.08))' : 'transparent',
-                        cursor: item.disabled === true ? 'default' : 'pointer',
-                        opacity: item.disabled === true ? 0.45 : 1,
-                    }, children: item.label }, item.id))) }) }));
-    }
-    /** 从点击事件里取触发按钮的屏幕坐标，给 FloatingMenu 用。 */
-    function floatingMenuPointFromEvent(event) {
+    function menuPointFromEvent(event) {
         const rect = event?.currentTarget?.getBoundingClientRect?.();
         if (rect === undefined || rect === null)
             return { x: 8, y: 8 };
-        return { x: rect.left, y: rect.bottom + 4 };
+        return { x: rect.left, y: rect.bottom + 2 };
+    }
+    /** 把上面那个坐标包成 Menu 需要的零尺寸矩形。 */
+    function menuAnchorRect(point) {
+        return new DOMRect(point.x, point.y, 0, 0);
     }
     /** 工作区类型图标：usual = 文件夹，workflow = 树结构（靠图标区分类型，标题不再加后缀）。 */
     function WorkspaceKindIcon(props) {
@@ -1156,7 +1113,7 @@ window.__ModuleLoader__.load({
                             cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
                             opacity: busyNodeId === node.node_id ? 0.6 : 1,
                         }, children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('slot'), children: (0, jsx_runtime_1.jsx)("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: node.title ?? node.node_type }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('time'), children: node_state_label_1.NODE_STATE_LABEL[node.current_state] ?? node.current_state }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
-                                            const point = (0, workspace_ui_1.floatingMenuPointFromEvent)(event);
+                                            const point = (0, workspace_ui_1.menuPointFromEvent)(event);
                                             setNodeMenu((current) => (current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }));
                                         }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: nextState === null ? '已完结' : `推进到 ${node_state_label_1.NODE_STATE_LABEL[nextState] ?? nextState}`, side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: nextState === null, onClick: () => {
                                                 if (nextState !== null)
@@ -1165,9 +1122,9 @@ window.__ModuleLoader__.load({
         };
         const rootNode = byId.get(rootId);
         return ((0, jsx_runtime_1.jsxs)("div", { className: (0, workspace_ui_1.rowsClass)('groupSection'), style: { display: 'flex', flexDirection: 'column', '--dsh-workspace-indent': '0px' }, children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `workflow:${summary.id}`, "aria-expanded": !collapsed, className: (0, workspace_ui_1.rowsClass)('sessionRow'), children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('folder')), style: { color: '#4d7bfd' }, onClick: onToggle, children: (0, jsx_runtime_1.jsx)(workspace_ui_1.WorkspaceKindIcon, { kind: workspace_kind_1.WorkspaceKind.Workflow }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('chevron')), onClick: onToggle, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFillRegular, { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('arrow'), !collapsed && (0, workspace_ui_1.rowsClass)('arrowOpen')) }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('projectText'), onClick: onToggle, children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: summary.title }) }), (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": workspaceMenuPoint !== null, onClick: (event) => {
-                                        const point = (0, workspace_ui_1.floatingMenuPointFromEvent)(event);
+                                        const point = (0, workspace_ui_1.menuPointFromEvent)(event);
                                         setWorkspaceMenuPoint((current) => (current === null ? point : null));
-                                    }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "8" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? ((0, jsx_runtime_1.jsx)("div", { style: { paddingBottom: 4 }, children: loading ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : rootNode ? (renderNodeRow(rootNode, 0)) : null })) : null, workspaceMenuPoint !== null ? ((0, jsx_runtime_1.jsx)(workspace_ui_1.FloatingMenu, { point: workspaceMenuPoint, items: [
+                                    }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutlineRegular, {}) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: (0, jsx_runtime_1.jsxs)("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "8" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? ((0, jsx_runtime_1.jsx)("div", { style: { paddingBottom: 4 }, children: loading ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : rootNode ? (renderNodeRow(rootNode, 0)) : null })) : null, workspaceMenuPoint !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(workspaceMenuPoint), items: [
                         { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
                         { id: 'child', label: '新建子会话' },
                         { id: 'reload', label: '刷新' },
@@ -1183,7 +1140,7 @@ window.__ModuleLoader__.load({
                     if (menuNode === undefined)
                         return null;
                     const isBound = typeof menuNode.session_id === 'string' && menuNode.session_id !== '';
-                    return ((0, jsx_runtime_1.jsx)(workspace_ui_1.FloatingMenu, { point: { x: nodeMenu.x, y: nodeMenu.y }, items: isBound
+                    return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: isBound
                             ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
                             : [{ id: 'child', label: '新建子会话' }], onClose: () => setNodeMenu(null), onSelect: (id) => {
                             if (id === 'child')

@@ -9,8 +9,9 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { rowsClass, joinClasses, WorkspaceKindIcon, FloatingMenu, floatingMenuPointFromEvent } from './workspace-ui';
+import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import {
+  Menu,
   Tooltip,
   IconEllipsisOutlineRegular,
   IconTriangleRightFillRegular,
@@ -289,7 +290,7 @@ function WorkflowWorkspaceItem(props: {
               aria-haspopup="menu"
               aria-expanded={nodeMenu?.nodeId === node.node_id}
               onClick={(event) => {
-                const point = floatingMenuPointFromEvent(event);
+                const point = menuPointFromEvent(event);
                 setNodeMenu((current) => (
                   current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
                 ));
@@ -351,7 +352,7 @@ function WorkflowWorkspaceItem(props: {
             aria-haspopup="menu"
             aria-expanded={workspaceMenuPoint !== null}
             onClick={(event) => {
-              const point = floatingMenuPointFromEvent(event);
+              const point = menuPointFromEvent(event);
               setWorkspaceMenuPoint((current) => (current === null ? point : null));
             }}
           >
@@ -379,8 +380,11 @@ function WorkflowWorkspaceItem(props: {
       ) : null}
 
       {workspaceMenuPoint !== null ? (
-        <FloatingMenu
-          point={workspaceMenuPoint}
+        <Menu
+          open
+          anchor={null}
+          portal
+          getAnchorRect={() => menuAnchorRect(workspaceMenuPoint)}
           items={[
             { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
             { id: 'child', label: '新建子会话' },
@@ -400,8 +404,11 @@ function WorkflowWorkspaceItem(props: {
         if (menuNode === undefined) return null;
         const isBound = typeof menuNode.session_id === 'string' && menuNode.session_id !== '';
         return (
-          <FloatingMenu
-            point={{ x: nodeMenu.x, y: nodeMenu.y }}
+          <Menu
+            open
+            anchor={null}
+            portal
+            getAnchorRect={() => menuAnchorRect(nodeMenu)}
             items={isBound
               ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
               : [{ id: 'child', label: '新建子会话' }]}
