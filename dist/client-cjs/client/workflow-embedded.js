@@ -386,7 +386,16 @@ function WorkflowWorkspaceItem(props) {
                         { id: 'archive', label: '归档会话', icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutlineRegular, {}), separatorBefore: true },
                     ];
                 return ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => (0, workspace_ui_1.menuAnchorRect)(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-            })() : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null) })) : null] }));
+            })() : null, nodeDetailNodeId !== null ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null), onOpenSettings: () => {
+                    // 跳到设置页；分区选择由设置页自己记住（没有深链 API）。
+                    const layout = readClientService(ctx, 'layout');
+                    try {
+                        layout?.selectPanel?.('settings');
+                    }
+                    catch (error) {
+                        console.error('[dsh-agent-workflow] 打开设置失败：', error);
+                    }
+                } })) : null] }));
 }
 /**
  * 输入框工具条里的 workflow 状态徽标：

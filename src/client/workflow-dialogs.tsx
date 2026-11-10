@@ -257,9 +257,9 @@ export function applyWorkflowSettingsSection(ctx: any) {
   );
 }
 
-/** 节点操作细节弹窗：展示该节点当前生效的 A + B/C/D，并标出节点自己覆盖的条目。 */
-export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void }) {
-  const { workflowId, nodeId, onClose } = props;
+/** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
+export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void; onOpenSettings?: () => void }) {
+  const { workflowId, nodeId, onClose, onOpenSettings } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,7 +279,6 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     return () => { cancelled = true; };
   }, [workflowId, nodeId]);
 
-  const overrides = payload?.overrides ?? null;
   const currentState = payload?.node?.current_state ?? null;
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -319,25 +318,36 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   };
 
   return (
-    <Modal title={`操作细节 · ${payload?.node?.title ?? '节点'}`} onClose={onClose}>
+    <Modal title={`节点补充说明 · ${payload?.node?.title ?? '节点'}`} onClose={onClose}>
       {error !== null ? <div style={{ color: 'var(--dsw-alias-state-error-primary)' }}>{error}</div> : null}
       {payload === null ? (
         <div style={{ color: 'var(--dsw-alias-label-secondary)' }}>加载中…</div>
       ) : (
         <>
-          <div style={{ color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }}>
-            当前状态：{NODE_STATE_LABEL[currentState as keyof typeof NODE_STATE_LABEL] ?? currentState}
-            {overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'}
-            {noteStatus === null ? '' : `　附加说明：${noteStatus}`}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span style={{ color: 'var(--dsw-alias-label-secondary)' }}>
+              当前状态：{NODE_STATE_LABEL[currentState as keyof typeof NODE_STATE_LABEL] ?? currentState}
+              {noteStatus === null ? '' : `　${noteStatus}`}
+            </span>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              style={{
+                height: 24,
+                padding: '0 10px',
+                borderRadius: 6,
+                cursor: onOpenSettings === undefined ? 'default' : 'pointer',
+                fontSize: 12,
+                border: '1px solid var(--dsw-alias-border-l1)',
+                background: 'transparent',
+                color: 'var(--dsw-alias-brand-primary)',
+              }}
+            >打开操作细节设置 →</button>
           </div>
-          <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>公共操作细节</div>
-            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{payload.global.shared_detail}</div>
+          <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
+            全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
           </div>
           {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
-            const global = payload.global[state];
-            const override = overrides?.[state];
-            const shown = override ?? global;
             return (
               <div key={state} style={{
                 border: '1px solid var(--dsw-alias-border-l1)',
@@ -349,17 +359,9 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                 <div style={{ fontWeight: 600, marginBottom: 6 }}>
                   {labels[state]}
                   {currentState === state ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }}>当前态</span> : null}
-                  {override !== undefined ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)' }}>已覆盖</span> : null}
                 </div>
-                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{shown.operation_detail}</div>
-                {shown.enter_trigger !== null && shown.enter_trigger !== '' ? (
-                  <div style={{ marginTop: 6, color: 'var(--dsw-alias-label-secondary)' }}>
-                    进入后默认输入：{shown.enter_trigger}
-                  </div>
-                ) : null}
-                <label style={{ ...LABEL_STYLE, marginTop: 10 }}>附加说明（只作用于本节点，接在全局后面）</label>
                 <textarea
-                  style={{ ...FIELD_STYLE, minHeight: 46 }}
+                  style={{ ...FIELD_STYLE, minHeight: 52 }}
                   placeholder="留空则不追加"
                   value={notes[state] ?? ''}
                   onChange={(event) => saveNote(state, event.target.value)}

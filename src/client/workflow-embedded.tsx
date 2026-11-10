@@ -565,6 +565,15 @@ function WorkflowWorkspaceItem(props: {
           workflowId={summary.id}
           nodeId={nodeDetailNodeId}
           onClose={() => setNodeDetailNodeId(null)}
+          onOpenSettings={() => {
+            // 跳到设置页；分区选择由设置页自己记住（没有深链 API）。
+            const layout = readClientService(ctx, 'layout');
+            try {
+              layout?.selectPanel?.('settings');
+            } catch (error) {
+              console.error('[dsh-agent-workflow] 打开设置失败：', error);
+            }
+          }}
         />
       ) : null}
     </div>
