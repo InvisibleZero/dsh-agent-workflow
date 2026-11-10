@@ -4,6 +4,7 @@
  * 只依赖 react / ui-primitives / workspace-kind，不依赖 workspace-browser 或 workflow，
  * 供两个解耦模块各自 import。
  */
+import { useEffect, useState } from 'react';
 import { WorkspaceKind, workspaceKindIconKey } from './workspace-kind';
 import { IconFolderCloseRegular, IconFolderOpenRegular } from '@deepseek-ai/dsh-client-ui-primitives';
 
@@ -45,6 +46,120 @@ export function rowsClass(name: string): string | undefined {
 export function joinClasses(...values: Array<string | false | null | undefined>): string | undefined {
   const kept = values.filter((value): value is string => typeof value === 'string' && value !== '');
   return kept.length === 0 ? undefined : kept.join(' ');
+}
+
+export interface FloatingMenuItem {
+  id: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface FloatingMenuPoint {
+  x: number;
+  y: number;
+}
+
+const FLOATING_MENU_WIDTH = 172;
+const FLOATING_MENU_ITEM_HEIGHT = 30;
+
+/**
+ * 自绘下拉菜单：按触发按钮的位置固定定位。
+ *
+ * 为什么不用 ui-primitives 的 Menu：它在这个 DSH 版本里按 anchor 计算的位置会漂移
+ * （工作区/节点越往下越明显），所以这里直接拿按钮的屏幕坐标自己摆，
+ * 位置和点哪个按钮永远一致。
+ */
+export function FloatingMenu(props: {
+  point: FloatingMenuPoint;
+  items: FloatingMenuItem[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { point, items, onSelect, onClose } = props;
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
+  const menuHeight = items.length * FLOATING_MENU_ITEM_HEIGHT + 8;
+  const left = Math.max(8, Math.min(point.x, viewportWidth - FLOATING_MENU_WIDTH - 8));
+  const top = point.y + menuHeight > viewportHeight - 8
+    ? Math.max(8, point.y - menuHeight - 32)
+    : point.y;
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
+      onClick={onClose}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <div
+        role="menu"
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: 'fixed',
+          left,
+          top,
+          minWidth: FLOATING_MENU_WIDTH,
+          padding: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--dsw-alias-bg-overlay)',
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: 8,
+          boxShadow: '0 8px 24px rgba(0,0,0,.36)',
+        }}
+      >
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitem"
+            disabled={item.disabled === true}
+            onClick={() => {
+              onSelect(item.id);
+              onClose();
+            }}
+            onMouseEnter={() => setHoveredId(item.id)}
+            onMouseLeave={() => setHoveredId((current) => (current === item.id ? null : current))}
+            style={{
+              height: FLOATING_MENU_ITEM_HEIGHT,
+              padding: '0 10px',
+              display: 'flex',
+              alignItems: 'center',
+              border: 'none',
+              borderRadius: 6,
+              textAlign: 'left',
+              fontSize: 13,
+              color: 'var(--dsw-alias-label-primary)',
+              background: hoveredId === item.id ? 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.08))' : 'transparent',
+              cursor: item.disabled === true ? 'default' : 'pointer',
+              opacity: item.disabled === true ? 0.45 : 1,
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 从点击事件里取触发按钮的屏幕坐标，给 FloatingMenu 用。 */
+export function floatingMenuPointFromEvent(event: any): FloatingMenuPoint {
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  if (rect === undefined || rect === null) return { x: 8, y: 8 };
+  return { x: rect.left, y: rect.bottom + 4 };
 }
 
 /** 工作区类型图标：usual = 文件夹，workflow = 树结构（靠图标区分类型，标题不再加后缀）。 */

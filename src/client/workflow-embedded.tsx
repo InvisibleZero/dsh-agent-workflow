@@ -9,9 +9,8 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { rowsClass, joinClasses, WorkspaceKindIcon } from './workspace-ui';
+import { rowsClass, joinClasses, WorkspaceKindIcon, FloatingMenu, floatingMenuPointFromEvent } from './workspace-ui';
 import {
-  Menu,
   Tooltip,
   IconEllipsisOutlineRegular,
   IconTriangleRightFillRegular,
@@ -86,8 +85,9 @@ function WorkflowWorkspaceItem(props: {
   const currentSessionId: string | null = runtime?.currentSessionId ?? null;
   const [snapshot, setSnapshot] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const [openNodeId, setOpenNodeId] = useState<string | null>(null);
+  const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState<{ x: number; y: number } | null>(null);
+  /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
+  const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
 
@@ -253,10 +253,6 @@ function WorkflowWorkspaceItem(props: {
 
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
-    // 「推进」已拆成独立的 → 按钮，菜单里只留「新建子会话」；已绑定的节点多一个「重新绑定会话」。
-    const menuItems = typeof node.session_id === 'string' && node.session_id !== ''
-      ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
-      : [{ id: 'child', label: '新建子会话' }];
     const children = (node.child_ids ?? [])
       .map((id: string) => byId.get(id))
       .filter((child: any) => child !== undefined);
@@ -286,28 +282,21 @@ function WorkflowWorkspaceItem(props: {
           <span className={rowsClass('title')}>{node.title ?? node.node_type}</span>
           <span className={rowsClass('time')}>{NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state}</span>
           <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
-            <Menu
-              open={openNodeId === node.node_id}
-              onClose={() => setOpenNodeId(null)}
-              items={menuItems}
-              onSelect={(id: string) => {
-                setOpenNodeId(null);
-                if (id === 'child') void addChildTo(node.node_id);
-                else if (id === 'rebind') void rebindNode(node);
+            <button
+              type="button"
+              className={rowsClass('iconButton')}
+              aria-label="会话菜单"
+              aria-haspopup="menu"
+              aria-expanded={nodeMenu?.nodeId === node.node_id}
+              onClick={(event) => {
+                const point = floatingMenuPointFromEvent(event);
+                setNodeMenu((current) => (
+                  current !== null && current.nodeId === node.node_id ? null : { nodeId: node.node_id, ...point }
+                ));
               }}
-              portal
-              closeOnPointerLeave
-              anchor={(
-                <button
-                  type="button"
-                  className={rowsClass('iconButton')}
-                  aria-label="会话菜单"
-                  onClick={() => setOpenNodeId((previous) => (previous === node.node_id ? null : node.node_id))}
-                >
-                  <IconEllipsisOutlineRegular />
-                </button>
-              )}
-            />
+            >
+              <IconEllipsisOutlineRegular />
+            </button>
             {/* 推进到下一阶段：向右方向键（位于「…」和「+」中间）；已完结时禁用。 */}
             <Tooltip label={nextState === null ? '已完结' : `推进到 ${NODE_STATE_LABEL[nextState as keyof typeof NODE_STATE_LABEL] ?? nextState}`} side="bottom" align="end" delayMs={500} portal>
               <button
@@ -355,28 +344,19 @@ function WorkflowWorkspaceItem(props: {
           <span className={rowsClass('title')}>{summary.title}</span>
         </span>
         <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
-          <Menu
-            open={workspaceMenuOpen}
-            onClose={() => setWorkspaceMenuOpen(false)}
-            items={[
-              { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
-              { id: 'child', label: '新建子会话' },
-              { id: 'reload', label: '刷新' },
-            ]}
-            onSelect={(id: string) => {
-              setWorkspaceMenuOpen(false);
-              if (id === 'pin') void togglePinned();
-              else if (id === 'child') void addChildTo(rootId);
-              else if (id === 'reload') void load();
+          <button
+            type="button"
+            className={rowsClass('iconButton')}
+            aria-label="工作区菜单"
+            aria-haspopup="menu"
+            aria-expanded={workspaceMenuPoint !== null}
+            onClick={(event) => {
+              const point = floatingMenuPointFromEvent(event);
+              setWorkspaceMenuPoint((current) => (current === null ? point : null));
             }}
-            portal
-            closeOnPointerLeave
-            anchor={(
-              <button type="button" className={rowsClass('iconButton')} aria-label="工作区菜单" onClick={() => setWorkspaceMenuOpen((value) => !value)}>
-                <IconEllipsisOutlineRegular />
-              </button>
-            )}
-          />
+          >
+            <IconEllipsisOutlineRegular />
+          </button>
           <Tooltip label="新建子会话" side="bottom" align="end" delayMs={500} portal>
             <button type="button" className={rowsClass('iconButton')} aria-label="新建子会话" onClick={() => void addChildTo(rootId)}>
               <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden style={{ display: 'block' }}>
@@ -397,6 +377,42 @@ function WorkflowWorkspaceItem(props: {
           ) : null}
         </div>
       ) : null}
+
+      {workspaceMenuPoint !== null ? (
+        <FloatingMenu
+          point={workspaceMenuPoint}
+          items={[
+            { id: 'pin', label: summary.pinned === true ? '取消置顶' : '置顶' },
+            { id: 'child', label: '新建子会话' },
+            { id: 'reload', label: '刷新' },
+          ]}
+          onClose={() => setWorkspaceMenuPoint(null)}
+          onSelect={(id: string) => {
+            if (id === 'pin') void togglePinned();
+            else if (id === 'child') void addChildTo(rootId);
+            else if (id === 'reload') void load();
+          }}
+        />
+      ) : null}
+
+      {nodeMenu !== null ? (() => {
+        const menuNode = byId.get(nodeMenu.nodeId);
+        if (menuNode === undefined) return null;
+        const isBound = typeof menuNode.session_id === 'string' && menuNode.session_id !== '';
+        return (
+          <FloatingMenu
+            point={{ x: nodeMenu.x, y: nodeMenu.y }}
+            items={isBound
+              ? [{ id: 'child', label: '新建子会话' }, { id: 'rebind', label: '重新绑定会话' }]
+              : [{ id: 'child', label: '新建子会话' }]}
+            onClose={() => setNodeMenu(null)}
+            onSelect={(id: string) => {
+              if (id === 'child') void addChildTo(menuNode.node_id);
+              else if (id === 'rebind') void rebindNode(menuNode);
+            }}
+          />
+        );
+      })() : null}
     </div>
   );
 }
