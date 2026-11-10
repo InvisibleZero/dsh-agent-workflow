@@ -244,6 +244,12 @@ function WorkflowWorkspaceItem(props) {
     const workspaceSnapshot = readClientService(ctx, 'workspaces')?.list?.getSnapshot?.() ?? null;
     const pinnedSessionIds = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
     const archivedSessionIds = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
+    /**
+     * 节点置顶的语义由我们定义：**同级之内排到最前**（宿主只负责把会话标记成 pinned）。
+     * 排序稳定：未置顶的节点保持 child_ids 原顺序。
+     */
+    const isNodePinned = (node) => (typeof node?.session_id === 'string' && node.session_id !== '' && pinnedSessionIds.has(node.session_id));
+    const sortNodesPinnedFirst = (nodes) => ([...nodes].sort((left, right) => Number(isNodePinned(right)) - Number(isNodePinned(left))));
     const renderNodeRow = (node, depth) => {
         const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
         const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
@@ -253,9 +259,9 @@ function WorkflowWorkspaceItem(props) {
         const displayTitle = sessionTitle !== '' ? sessionTitle : (node.title || '未命名会话');
         const isPinned = sessionId !== null && pinnedSessionIds.has(sessionId);
         const isArchived = sessionId !== null && archivedSessionIds.has(sessionId);
-        const children = (node.child_ids ?? [])
+        const children = sortNodesPinnedFirst((node.child_ids ?? [])
             .map((id) => byId.get(id))
-            .filter((child) => child !== undefined);
+            .filter((child) => child !== undefined));
         /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
         const isCurrent = currentSessionId !== null
             && sessionId !== null
@@ -294,9 +300,9 @@ function WorkflowWorkspaceItem(props) {
     /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
     const rootState = typeof rootNode?.current_state === 'string' ? rootNode.current_state : null;
     const rootNextState = rootState === null ? null : (NEXT_NODE_STATE[rootState] ?? null);
-    const rootChildNodes = (rootNode?.child_ids ?? [])
+    const rootChildNodes = sortNodesPinnedFirst((rootNode?.child_ids ?? [])
         .map((id) => byId.get(id))
-        .filter((child) => child !== undefined);
+        .filter((child) => child !== undefined));
     return (_jsxs("div", { className: rowsClass('groupSection'), style: { display: 'flex', flexDirection: 'column', '--dsh-workspace-indent': '0px' }, children: [_jsxs("div", { role: "treeitem", "data-row-key": `workflow:${summary.id}`, "aria-expanded": !collapsed, className: rowsClass('sessionRow'), children: [_jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('folder')), style: { color: '#4d7bfd' }, onClick: onToggle, children: _jsx(WorkspaceKindIcon, { kind: WorkspaceKind.Workflow }) }), _jsx("span", { className: joinClasses(rowsClass('slot'), rowsClass('chevron')), onClick: onToggle, children: _jsx(IconTriangleRightFillRegular, { className: joinClasses(rowsClass('arrow'), !collapsed && rowsClass('arrowOpen')) }) }), _jsx("span", { className: rowsClass('projectText'), onClick: onToggle, children: _jsx("span", { className: rowsClass('title'), children: summary.title }) }), rootState !== null ? (_jsx("span", { className: rowsClass('rowResting'), children: _jsx("span", { className: rowsClass('time'), children: NODE_STATE_LABEL[rootState] ?? rootState }) })) : null, _jsxs("span", { className: rowsClass('rowActions'), onClick: (event) => event.stopPropagation(), children: [_jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": workspaceMenuPoint !== null, onClick: (event) => {
                                     event.currentTarget.focus({ preventScroll: true });
                                     const point = menuPointFromEvent(event);

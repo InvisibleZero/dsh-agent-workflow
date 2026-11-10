@@ -252,6 +252,17 @@ function WorkflowWorkspaceItem(props: {
   const pinnedSessionIds: Set<string> = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
   const archivedSessionIds: Set<string> = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
 
+  /**
+   * 节点置顶的语义由我们定义：**同级之内排到最前**（宿主只负责把会话标记成 pinned）。
+   * 排序稳定：未置顶的节点保持 child_ids 原顺序。
+   */
+  const isNodePinned = (node: any): boolean => (
+    typeof node?.session_id === 'string' && node.session_id !== '' && pinnedSessionIds.has(node.session_id)
+  );
+  const sortNodesPinnedFirst = (nodes: any[]): any[] => (
+    [...nodes].sort((left, right) => Number(isNodePinned(right)) - Number(isNodePinned(left)))
+  );
+
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
     const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
@@ -261,9 +272,11 @@ function WorkflowWorkspaceItem(props: {
     const displayTitle = sessionTitle !== '' ? sessionTitle : (node.title || '未命名会话');
     const isPinned = sessionId !== null && pinnedSessionIds.has(sessionId);
     const isArchived = sessionId !== null && archivedSessionIds.has(sessionId);
-    const children = (node.child_ids ?? [])
-      .map((id: string) => byId.get(id))
-      .filter((child: any) => child !== undefined);
+    const children = sortNodesPinnedFirst(
+      (node.child_ids ?? [])
+        .map((id: string) => byId.get(id))
+        .filter((child: any) => child !== undefined),
+    );
     /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
     const isCurrent = currentSessionId !== null
       && sessionId !== null
@@ -366,9 +379,11 @@ function WorkflowWorkspaceItem(props: {
   /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
   const rootState = typeof rootNode?.current_state === 'string' ? rootNode.current_state : null;
   const rootNextState = rootState === null ? null : (NEXT_NODE_STATE[rootState] ?? null);
-  const rootChildNodes = (rootNode?.child_ids ?? [])
-    .map((id: string) => byId.get(id))
-    .filter((child: any) => child !== undefined);
+  const rootChildNodes = sortNodesPinnedFirst(
+    (rootNode?.child_ids ?? [])
+      .map((id: string) => byId.get(id))
+      .filter((child: any) => child !== undefined),
+  );
 
   return (
     <div className={rowsClass('groupSection')} style={{ display: 'flex', flexDirection: 'column', '--dsh-workspace-indent': '0px' }}>

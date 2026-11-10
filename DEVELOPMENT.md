@@ -298,6 +298,16 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
   所以这些操作仍是"静默成功"。要补就得自己注册 `workspace.toast` 的渲染入口。
 - **涉及文件**：`src/client/workflow-embedded.tsx`。
 
+### D-16 「置顶会话」在我们的树里意味着什么，必须由我们定义
+
+- **背景**：宿主只做一件事——把会话记进 `pinnedSessionIds`（见 `~/.dsh/storages/workspace.json`）。它不知道我们的节点树，也不会替我们排序。
+- **我们的定义**：节点置顶 = **同级之内排到最前** + 行尾星标。
+  - 排序在渲染期计算（`sortNodesPinnedFirst`），**不写回快照**，`child_ids` 顺序保持原样；
+  - 未置顶的节点保持 `child_ids` 原顺序（稳定排序），所以取消置顶会回到原位。
+- **为什么这样定义**：宿主侧栏的「置顶会话」就是"在该工作区内排前面"；不定义这个行为的话，置顶只写数据，界面上什么都看不见（D-15 的教训）。
+- **验证**：置顶某个子节点 → 它跳到同级第一位并出现星标；取消置顶 → 回到原来的位置。
+- **涉及文件**：`src/client/workflow-embedded.tsx`（`isNodePinned` / `sortNodesPinnedFirst`）。
+
 ---
 
 ## 6. 记录格式（新增条目照抄）

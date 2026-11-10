@@ -1253,6 +1253,12 @@ window.__ModuleLoader__.load({
         const workspaceSnapshot = readClientService(ctx, 'workspaces')?.list?.getSnapshot?.() ?? null;
         const pinnedSessionIds = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
         const archivedSessionIds = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
+        /**
+         * 节点置顶的语义由我们定义：**同级之内排到最前**（宿主只负责把会话标记成 pinned）。
+         * 排序稳定：未置顶的节点保持 child_ids 原顺序。
+         */
+        const isNodePinned = (node) => (typeof node?.session_id === 'string' && node.session_id !== '' && pinnedSessionIds.has(node.session_id));
+        const sortNodesPinnedFirst = (nodes) => ([...nodes].sort((left, right) => Number(isNodePinned(right)) - Number(isNodePinned(left))));
         const renderNodeRow = (node, depth) => {
             const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
             const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
@@ -1262,9 +1268,9 @@ window.__ModuleLoader__.load({
             const displayTitle = sessionTitle !== '' ? sessionTitle : (node.title || '未命名会话');
             const isPinned = sessionId !== null && pinnedSessionIds.has(sessionId);
             const isArchived = sessionId !== null && archivedSessionIds.has(sessionId);
-            const children = (node.child_ids ?? [])
+            const children = sortNodesPinnedFirst((node.child_ids ?? [])
                 .map((id) => byId.get(id))
-                .filter((child) => child !== undefined);
+                .filter((child) => child !== undefined));
             /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
             const isCurrent = currentSessionId !== null
                 && sessionId !== null
@@ -1303,9 +1309,9 @@ window.__ModuleLoader__.load({
         /** 根节点的状态直接显示在工作区行上（根节点不再单独占一行）。 */
         const rootState = typeof rootNode?.current_state === 'string' ? rootNode.current_state : null;
         const rootNextState = rootState === null ? null : (NEXT_NODE_STATE[rootState] ?? null);
-        const rootChildNodes = (rootNode?.child_ids ?? [])
+        const rootChildNodes = sortNodesPinnedFirst((rootNode?.child_ids ?? [])
             .map((id) => byId.get(id))
-            .filter((child) => child !== undefined);
+            .filter((child) => child !== undefined));
         return ((0, jsx_runtime_1.jsxs)("div", { className: (0, workspace_ui_1.rowsClass)('groupSection'), style: { display: 'flex', flexDirection: 'column', '--dsh-workspace-indent': '0px' }, children: [(0, jsx_runtime_1.jsxs)("div", { role: "treeitem", "data-row-key": `workflow:${summary.id}`, "aria-expanded": !collapsed, className: (0, workspace_ui_1.rowsClass)('sessionRow'), children: [(0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('folder')), style: { color: '#4d7bfd' }, onClick: onToggle, children: (0, jsx_runtime_1.jsx)(workspace_ui_1.WorkspaceKindIcon, { kind: workspace_kind_1.WorkspaceKind.Workflow }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('slot'), (0, workspace_ui_1.rowsClass)('chevron')), onClick: onToggle, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTriangleRightFillRegular, { className: (0, workspace_ui_1.joinClasses)((0, workspace_ui_1.rowsClass)('arrow'), !collapsed && (0, workspace_ui_1.rowsClass)('arrowOpen')) }) }), (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('projectText'), onClick: onToggle, children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('title'), children: summary.title }) }), rootState !== null ? ((0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('rowResting'), children: (0, jsx_runtime_1.jsx)("span", { className: (0, workspace_ui_1.rowsClass)('time'), children: node_state_label_1.NODE_STATE_LABEL[rootState] ?? rootState }) })) : null, (0, jsx_runtime_1.jsxs)("span", { className: (0, workspace_ui_1.rowsClass)('rowActions'), onClick: (event) => event.stopPropagation(), children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, workspace_ui_1.rowsClass)('iconButton'), "aria-label": "\u5DE5\u4F5C\u533A\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": workspaceMenuPoint !== null, onClick: (event) => {
                                         event.currentTarget.focus({ preventScroll: true });
                                         const point = (0, workspace_ui_1.menuPointFromEvent)(event);
