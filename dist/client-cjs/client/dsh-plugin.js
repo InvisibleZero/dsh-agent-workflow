@@ -12,6 +12,7 @@ exports.inject = exports.name = void 0;
 exports.apply = apply;
 const workspace_browser_1 = require("./workspace-browser");
 const workflow_embedded_1 = require("./workflow-embedded");
+const workflow_dialogs_1 = require("./workflow-dialogs");
 const workspace_kind_registry_1 = require("./workspace-kind-registry");
 exports.name = 'dsh-agent-workflow-client';
 // `remote` + `remote.workspace`：置顶桥要直连 workspaceController 的 Remote 端点。
@@ -35,6 +36,13 @@ function apply(ctx) {
     }
     catch (error) {
         console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+    }
+    // 设置页里的「操作细节」（应用级全局 A/B/C/D）。
+    try {
+        (0, workflow_dialogs_1.applyWorkflowSettingsSection)(ctx);
+    }
+    catch (error) {
+        console.error('[dsh-agent-workflow] 设置分区注册失败：', error);
     }
 }
 //# sourceMappingURL=dsh-plugin.js.map

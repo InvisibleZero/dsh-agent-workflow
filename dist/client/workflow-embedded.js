@@ -10,7 +10,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { WorkflowSettingsDialog, WorkflowNodeDetailDialog } from './workflow-dialogs';
+import { WorkflowNodeDetailDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, IconEditOutlineRegular, IconTrashOutlineRegular, IconPinFillRegular, IconPinOutlineRegular, IconCopyOutlineRegular, IconArchiveOutlineRegular, IconUnarchiveOutlineRegular, writeClipboard, } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
@@ -80,8 +80,6 @@ function WorkflowWorkspaceItem(props) {
     const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState(null);
     /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
     const [nodeMenu, setNodeMenu] = useState(null);
-    /** 全局操作细节弹窗（A/B/C/D）。 */
-    const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
     /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
     const [nodeDetailNodeId, setNodeDetailNodeId] = useState(null);
     /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
@@ -342,14 +340,9 @@ function WorkflowWorkspaceItem(props) {
                                         if (rootNextState !== null)
                                             void transition(rootNode.node_id, rootNextState);
                                     }, style: { opacity: rootNextState === null ? 0.35 : 1 }, children: _jsxs("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M5 12h13" }), _jsx("path", { d: "m12.5 6 6 6-6 6" })] }) }) })) : null, _jsx(Tooltip, { label: "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", side: "bottom", align: "end", delayMs: 500, portal: true, children: _jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u65B0\u5EFA\u5B50\u4F1A\u8BDD", onClick: () => void addChildTo(rootId), children: _jsxs("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("circle", { cx: "12", cy: "12", r: "8" }), _jsx("path", { d: "M12 8.5v7M8.5 12h7" })] }) }) })] })] }), !collapsed ? (_jsx("div", { style: { paddingBottom: 4 }, children: loading ? (_jsx("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', paddingLeft: 12 }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (rootChildNodes.map((child) => renderNodeRow(child, 1))) })) : null, workspaceMenuPoint !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(workspaceMenuPoint), items: [
-                    { id: 'settings', label: '操作细节设置', icon: _jsx(IconEditOutlineRegular, {}) },
                     { id: 'rename', label: '重命名', icon: _jsx(IconEditOutlineRegular, {}) },
                     { id: 'delete', label: '删除工作区', icon: _jsx(IconTrashOutlineRegular, {}), danger: true },
                 ], onClose: () => setWorkspaceMenuPoint(null), onSelect: (id) => {
-                    if (id === 'settings') {
-                        setSettingsDialogOpen(true);
-                        return;
-                    }
                     // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
                     const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
                         ? summary.workspaceId
@@ -389,7 +382,7 @@ function WorkflowWorkspaceItem(props) {
                         { id: 'archive', label: '归档会话', icon: _jsx(IconArchiveOutlineRegular, {}), separatorBefore: true },
                     ];
                 return (_jsx(Menu, { open: true, anchor: null, portal: true, getAnchorRect: () => menuAnchorRect(nodeMenu), items: items, onClose: () => setNodeMenu(null), onSelect: (id) => void runSessionMenuAction(id, menuSessionId, menuNode) }));
-            })() : null, settingsDialogOpen ? (_jsx(WorkflowSettingsDialog, { workflowId: summary.id, onClose: () => setSettingsDialogOpen(false) })) : null, nodeDetailNodeId !== null ? (_jsx(WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null) })) : null] }));
+            })() : null, nodeDetailNodeId !== null ? (_jsx(WorkflowNodeDetailDialog, { workflowId: summary.id, nodeId: nodeDetailNodeId, onClose: () => setNodeDetailNodeId(null) })) : null] }));
 }
 /**
  * 输入框工具条里的 workflow 状态徽标：

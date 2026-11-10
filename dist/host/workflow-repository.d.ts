@@ -1,4 +1,4 @@
-import { type WorkflowSnapshot } from '../schema/workflow';
+import { GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
 import type { AgentNode } from '../schema/node';
 /**
  * workflow 工作区的持久化仓库：一份快照文件 = 一个 workflow 工作区。
@@ -36,6 +36,10 @@ export declare class WorkflowRepository {
     get(id: string): Promise<WorkflowSnapshot | null>;
     /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
     getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null>;
+    /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+    private appGlobalSettingsPath;
+    getAppGlobalOperationDetail(): Promise<GlobalOperationDetail>;
+    updateAppGlobalOperationDetail(raw: unknown): Promise<GlobalOperationDetail>;
     /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
     updateGlobalOperationDetail(id: string, raw: unknown): Promise<WorkflowSnapshot['settings']['global_operation_detail']>;
     /**

@@ -309,6 +309,28 @@ var WorkflowRepository = class {
     const snapshot = await this.storage.load(id);
     return snapshot === null ? null : snapshot.settings.global_operation_detail;
   }
+  /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+  appGlobalSettingsPath() {
+    return join(this.baseDir, "global-settings.json");
+  }
+  async getAppGlobalOperationDetail() {
+    try {
+      const raw = JSON.parse(await fs2.readFile(this.appGlobalSettingsPath(), "utf8"));
+      return GlobalOperationDetail.parse(raw);
+    } catch (error) {
+      if (error.code === "ENOENT") return DEFAULT_GLOBAL_OPERATION_DETAIL;
+      return DEFAULT_GLOBAL_OPERATION_DETAIL;
+    }
+  }
+  async updateAppGlobalOperationDetail(raw) {
+    const parsed = GlobalOperationDetail.parse(raw);
+    await fs2.mkdir(this.baseDir, { recursive: true });
+    const target = this.appGlobalSettingsPath();
+    const tmp = `${target}.tmp`;
+    await fs2.writeFile(tmp, JSON.stringify(parsed, null, 2), "utf8");
+    await fs2.rename(tmp, target);
+    return parsed;
+  }
   /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
   async updateGlobalOperationDetail(id, raw) {
     const snapshot = await this.storage.load(id);
@@ -586,24 +608,19 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/settings",
-      handler: makeHandler(repository, "GET", async (_body, query) => {
-        const id = query.get("id");
-        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
-        const globalOperationDetail = await repository.getGlobalOperationDetail(id);
-        if (globalOperationDetail === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
-        return { globalOperationDetail };
-      })
+      path: "/dsh-agent-workflow/global-settings",
+      handler: makeHandler(repository, "GET", async () => ({
+        globalOperationDetail: await repository.getAppGlobalOperationDetail()
+      }))
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/settings-save",
+      path: "/dsh-agent-workflow/global-settings-save",
       handler: makeHandler(repository, "POST", async (body) => {
-        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (body?.globalOperationDetail === void 0 || body.globalOperationDetail === null) {
           throw new Error("\u7F3A\u5C11 globalOperationDetail");
         }
-        const globalOperationDetail = await repository.updateGlobalOperationDetail(body.id, body.globalOperationDetail);
+        const globalOperationDetail = await repository.updateAppGlobalOperationDetail(body.globalOperationDetail);
         return { globalOperationDetail };
       })
     }));
@@ -619,7 +636,7 @@ function apply(ctx) {
         if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
         const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
         if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
-        const global = snapshot.settings.global_operation_detail;
+        const global = await repository.getAppGlobalOperationDetail();
         return {
           node: { node_id: node.node_id, title: node.title ?? "", current_state: node.current_state },
           global,

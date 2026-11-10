@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
-import { DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
+import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
 /** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 not_started）。 */
 export function buildRootNode(id, maxDepth, maxSteps) {
     return {
@@ -98,6 +98,31 @@ export class WorkflowRepository {
     async getGlobalOperationDetail(id) {
         const snapshot = await this.storage.load(id);
         return snapshot === null ? null : snapshot.settings.global_operation_detail;
+    }
+    /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+    appGlobalSettingsPath() {
+        return join(this.baseDir, 'global-settings.json');
+    }
+    async getAppGlobalOperationDetail() {
+        try {
+            const raw = JSON.parse(await fs.readFile(this.appGlobalSettingsPath(), 'utf8'));
+            return GlobalOperationDetail.parse(raw);
+        }
+        catch (error) {
+            if (error.code === 'ENOENT')
+                return DEFAULT_GLOBAL_OPERATION_DETAIL;
+            // 文件损坏时退回内置默认值，不让设置页打不开。
+            return DEFAULT_GLOBAL_OPERATION_DETAIL;
+        }
+    }
+    async updateAppGlobalOperationDetail(raw) {
+        const parsed = GlobalOperationDetail.parse(raw);
+        await fs.mkdir(this.baseDir, { recursive: true });
+        const target = this.appGlobalSettingsPath();
+        const tmp = `${target}.tmp`;
+        await fs.writeFile(tmp, JSON.stringify(parsed, null, 2), 'utf8');
+        await fs.rename(tmp, target);
+        return parsed;
     }
     /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
     async updateGlobalOperationDetail(id, raw) {

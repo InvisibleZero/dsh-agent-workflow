@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { WorkflowSettingsDialog, WorkflowNodeDetailDialog } from './workflow-dialogs';
+import { WorkflowNodeDetailDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import {
   Menu,
@@ -100,8 +100,6 @@ function WorkflowWorkspaceItem(props: {
   const [workspaceMenuPoint, setWorkspaceMenuPoint] = useState<{ x: number; y: number } | null>(null);
   /** 正在打开的节点菜单：节点 id + 触发按钮的屏幕坐标。 */
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
-  /** 全局操作细节弹窗（A/B/C/D）。 */
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   /** 节点操作细节弹窗（展示该节点当前生效的 B/C/D）。 */
   const [nodeDetailNodeId, setNodeDetailNodeId] = useState<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
@@ -495,16 +493,11 @@ function WorkflowWorkspaceItem(props: {
           portal
           getAnchorRect={() => menuAnchorRect(workspaceMenuPoint)}
           items={[
-            { id: 'settings', label: '操作细节设置', icon: <IconEditOutlineRegular /> },
             { id: 'rename', label: '重命名', icon: <IconEditOutlineRegular /> },
             { id: 'delete', label: '删除工作区', icon: <IconTrashOutlineRegular />, danger: true },
           ]}
           onClose={() => setWorkspaceMenuPoint(null)}
           onSelect={(id: string) => {
-            if (id === 'settings') {
-              setSettingsDialogOpen(true);
-              return;
-            }
             // 跟 usual 工作区行一致：都交给宿主的工作区服务处理。
             const workspaceId = typeof summary.workspaceId === 'string' && summary.workspaceId !== ''
               ? summary.workspaceId
@@ -567,9 +560,6 @@ function WorkflowWorkspaceItem(props: {
         );
       })() : null}
 
-      {settingsDialogOpen ? (
-        <WorkflowSettingsDialog workflowId={summary.id} onClose={() => setSettingsDialogOpen(false)} />
-      ) : null}
       {nodeDetailNodeId !== null ? (
         <WorkflowNodeDetailDialog
           workflowId={summary.id}

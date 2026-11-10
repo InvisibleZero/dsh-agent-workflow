@@ -129,26 +129,22 @@ export function apply(ctx: any) {
         return { snapshot };
       }),
     }));
+    // 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/settings',
-      handler: makeHandler(repository, 'GET', async (_body, query) => {
-        const id = query.get('id');
-        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
-        const globalOperationDetail = await repository.getGlobalOperationDetail(id);
-        if (globalOperationDetail === null) throw new Error('找不到该 workflow');
-        return { globalOperationDetail };
-      }),
+      path: '/dsh-agent-workflow/global-settings',
+      handler: makeHandler(repository, 'GET', async () => ({
+        globalOperationDetail: await repository.getAppGlobalOperationDetail(),
+      })),
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/settings-save',
+      path: '/dsh-agent-workflow/global-settings-save',
       handler: makeHandler(repository, 'POST', async (body) => {
-        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (body?.globalOperationDetail === undefined || body.globalOperationDetail === null) {
           throw new Error('缺少 globalOperationDetail');
         }
-        const globalOperationDetail = await repository.updateGlobalOperationDetail(body.id, body.globalOperationDetail);
+        const globalOperationDetail = await repository.updateAppGlobalOperationDetail(body.globalOperationDetail);
         return { globalOperationDetail };
       }),
     }));
@@ -164,7 +160,7 @@ export function apply(ctx: any) {
         if (snapshot === null) throw new Error('找不到该 workflow');
         const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
         if (node === undefined) throw new Error('找不到节点');
-        const global = snapshot.settings.global_operation_detail;
+        const global = await repository.getAppGlobalOperationDetail();
         return {
           node: { node_id: node.node_id, title: node.title ?? '', current_state: node.current_state },
           global,

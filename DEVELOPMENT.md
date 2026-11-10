@@ -42,6 +42,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 | 弹出菜单 | `Menu` + `getAnchorRect()`（**不要**传 anchor 元素，见 D-01） |
 | 宿主 CSS 类名 | 运行时反查前缀（`rowsClass()`），不硬编码哈希 |
 | 输入框旁的状态徽标 | 注册 `conversation.input.left`（session 作用域，权限控件右侧）+ `/node-by-session?sessionId=` |
+| 设置页分区（操作细节） | 注册 `settings.section`（id/order/label）+ `settings.section.icon`；读写 `/global-settings`、`/global-settings-save` |
 | 客户端包纯净度 | 只允许 `react` 家族、`@deepseek-ai/dsh-client-ui-primitives`、`../schema/node-state-label` |
 
 ---
@@ -58,7 +59,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 | --- | --- |
 | 左 | 类型图标（树）+ 展开三角 |
 | 中 | 标题（取宿主工作区标题，改名后立刻同步） |
-| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（操作细节设置 / 重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
+| 右 | 根节点状态（未开始/讨论中/…）+「⋯」（重命名 / 删除工作区）+「→」（推进根状态）+「+」（新建子节点） |
 
 - **点整行 = 展开 / 收起节点树，不打开会话**（和 usual 工作区行一致）。
 - 根节点**不绑会话**，所以这一行没有会话菜单。
@@ -75,6 +76,15 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 - 位置：输入框工具条、权限控件右边的 `conversation.input.left`。
 - 内容：`[状态色点 + 状态名]` + `→`（推进到下一态）。
 - 只有"当前会话被某个节点绑定"时才出现；推进逻辑暂时与原来一致（直接写状态，没有确认弹窗）。
+
+### 3.5 操作细节（A/B/C/D）
+
+- **应用级全局**：存在 `<DSH home>/dsh-agent-workflow/global-settings.json`，所有 workflow 共用一份。
+  **不再挂在 workflow 工作区菜单上**（那是早期错误做法，已移除）。
+- **入口**：DSH「设置」左侧导航 → **Agent 工作流**（注册 `settings.section`）。
+- **布局**：A/B/C/D 四个页签横向排开；B/C/D 每个页签内 **默认输入在上（20%）、操作细节在下（80%）**；A 只有一个大文本框。
+- **节点级覆盖**：节点行的小齿轮打开只读弹窗，展示该节点生效的 A + B/C/D，并标出「当前态」「已覆盖」。
+- 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
 ### 3.3 数据层与渲染层的对应
 
@@ -354,6 +364,19 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 - **正确做法**：一条路径一个方法，读和写用不同路径（本项目用 `/settings` 与 `/settings-save`）。
 - **验证**：改完路由后**重启插件半**，逐条 curl 一遍；只看插件行 active 不能证明路由活着。
 - **教训**：路由相关改动必须"重启 + 逐条实测"，别信 fiberPhase。
+
+### D-20 用 PowerShell 的 Invoke-WebRequest 测中文 JSON 会写坏数据
+
+- **现象**：用 `Invoke-WebRequest -Body (ConvertTo-Json ...)` 调 `/global-settings-save`，中文全部变成 `??`，而且**真的写进了文件**。
+- **根因**：Windows PowerShell 的 `Invoke-WebRequest` 默认按本地 ANSI 编码发送请求体，不是 UTF-8。
+- **正确做法**：用 Node 的 `fetch` 测接口（Node 默认 UTF-8）：
+
+```powershell
+$node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+& $node -e "fetch('http://127.0.0.1:PORT/dsh-agent-workflow/global-settings-save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({globalOperationDetail:...})}).then(r=>r.json()).then(console.log)"
+```
+
+- **教训**：任何带中文的写接口，测试时别用 PS 5.1 的 `Invoke-WebRequest`；只读 GET 用它可以。
 
 ---
 

@@ -151,7 +151,12 @@ try {
 
 const workspaceBrowser = registered.find((item) => item.slot === 'sidebar.workspaces');
 
-const expectedSlots = ['conversation.input.left', 'sidebar.workspaces'];
+const expectedSlots = [
+  'conversation.input.left',
+  'settings.section',
+  'settings.section.icon',
+  'sidebar.workspaces',
+];
 const actualSlots = registered.map((item) => item.slot).sort();
 
 check(

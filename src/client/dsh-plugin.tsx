@@ -9,6 +9,7 @@
 
 import { applyWorkspaceBrowser } from './workspace-browser';
 import { workflowKindPlugin, applyWorkflowComposerBadge } from './workflow-embedded';
+import { applyWorkflowSettingsSection } from './workflow-dialogs';
 import { registerWorkspaceKindPlugin } from './workspace-kind-registry';
 
 export const name = 'dsh-agent-workflow-client';
@@ -35,5 +36,12 @@ export function apply(ctx: any) {
     applyWorkflowComposerBadge(ctx);
   } catch (error) {
     console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+  }
+
+  // 设置页里的「操作细节」（应用级全局 A/B/C/D）。
+  try {
+    applyWorkflowSettingsSection(ctx);
+  } catch (error) {
+    console.error('[dsh-agent-workflow] 设置分区注册失败：', error);
   }
 }
