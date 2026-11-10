@@ -73,6 +73,13 @@ const STATE_TABS = [
   { id: 'verifying', label: '验收中' },
 ];
 
+/** 节点弹窗的三个页签：操作细节 / 会话手册 / 项目手册。 */
+const NODE_DETAIL_TABS = [
+  { id: 'detail', label: '会话操作细节' },
+  { id: 'sessionManual', label: '会话手册' },
+  { id: 'globalManual', label: '项目手册' },
+];
+
 /**
  * 设置页里的「操作细节」分区内容。
  * A/B/C/D 四个页签横向排开；每个状态页签内：默认输入在上（20%），操作细节在下（80%）。
@@ -362,6 +369,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [noteStatus, setNoteStatus] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('detail');
   const timers = useRef<Record<string, any>>({});
 
   // 读到数据后把节点自己的附加说明灌进本地草稿。
@@ -450,71 +458,91 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
               >打开文件夹</button>
             ) : null}
           </div>
-          <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
-            全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
+          <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
+            {NODE_DETAIL_TABS.map((tab) => (
+              <button
+                type="button"
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === tab.id ? '2px solid var(--dsw-alias-brand-primary)' : '2px solid transparent',
+                  color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >{tab.label}</button>
+            ))}
           </div>
-          <div style={{
-            border: '1px solid var(--dsw-alias-border-l1)',
-            borderRadius: 8,
-            padding: 10,
-            marginBottom: 10,
-          }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>本节点附加（所有状态都会追加）</div>
-            <textarea
-              style={{ ...FIELD_STYLE, minHeight: 52 }}
-              placeholder="留空则不追加"
-              value={notes.global ?? ''}
-              onChange={(event) => saveNote('global', event.target.value)}
-            />
-          </div>
-          {manualData !== null ? (
-            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>会话手册（方案 / 实施顺序，AI 自留，只读）</div>
-              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
-                {manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）'}
+          {activeTab === 'detail' ? (
+            <>
+              <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
+                全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
               </div>
-              {manualData.globalManual.trim() !== '' ? (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }}>项目手册（总览 / 决策 / 要点）</div>
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 140, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
-                    {manualData.globalManual}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {payload?.node?.history !== undefined && payload.node.history.length > 0 ? (
-            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>状态时间线</div>
-              {payload.node.history.map((entry: any, index: number) => (
-                <div key={index} style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }}>
-                  {entry.at.slice(0, 16).replace('T', ' ')}　{NODE_STATE_LABEL[entry.from as keyof typeof NODE_STATE_LABEL] ?? entry.from} → {NODE_STATE_LABEL[entry.to as keyof typeof NODE_STATE_LABEL] ?? entry.to}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
-            return (
-              <div key={state} style={{
+              <div style={{
                 border: '1px solid var(--dsw-alias-border-l1)',
                 borderRadius: 8,
                 padding: 10,
                 marginBottom: 10,
-                background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
               }}>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                  {labels[state]}
-                  {currentState === state ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }}>当前态</span> : null}
-                </div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>本节点附加（所有状态都会追加）</div>
                 <textarea
                   style={{ ...FIELD_STYLE, minHeight: 52 }}
                   placeholder="留空则不追加"
-                  value={notes[state] ?? ''}
-                  onChange={(event) => saveNote(state, event.target.value)}
+                  value={notes.global ?? ''}
+                  onChange={(event) => saveNote('global', event.target.value)}
                 />
               </div>
-            );
-          })}
+              {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
+                return (
+                  <div key={state} style={{
+                    border: '1px solid var(--dsw-alias-border-l1)',
+                    borderRadius: 8,
+                    padding: 10,
+                    marginBottom: 10,
+                    background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                      {labels[state]}
+                      {currentState === state ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }}>当前态</span> : null}
+                    </div>
+                    <textarea
+                      style={{ ...FIELD_STYLE, minHeight: 52 }}
+                      placeholder="留空则不追加"
+                      value={notes[state] ?? ''}
+                      onChange={(event) => saveNote(state, event.target.value)}
+                    />
+                  </div>
+                );
+              })}
+              {payload?.node?.history !== undefined && payload.node.history.length > 0 ? (
+                <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>状态时间线</div>
+                  {payload.node.history.map((entry: any, index: number) => (
+                    <div key={index} style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }}>
+                      {entry.at.slice(0, 16).replace('T', ' ')}　{NODE_STATE_LABEL[entry.from as keyof typeof NODE_STATE_LABEL] ?? entry.from} → {NODE_STATE_LABEL[entry.to as keyof typeof NODE_STATE_LABEL] ?? entry.to}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : activeTab === 'sessionManual' ? (
+            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>会话手册（方案 / 实施顺序，AI 自留，只读）</div>
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                {manualData === null ? '加载中…' : (manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）')}
+              </div>
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>项目手册（总览 / 决策 / 要点，AI 自留，只读）</div>
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                {manualData === null ? '加载中…' : (manualData.globalManual.trim() !== '' ? manualData.globalManual : '（还没有内容）')}
+              </div>
+            </div>
+          )}
         </>
       )}
     </Modal>
