@@ -27,6 +27,19 @@ const FIELD_STYLE = {
 
 const OVERLAY_STYLE = { position: 'fixed', inset: 0, zIndex: 1199, background: 'rgba(0,0,0,.45)' } as const;
 
+/** 纯文字链接按钮：无边框无底色，靠下划线区分（颜色跟随主题文字色）。 */
+const TEXT_LINK_STYLE = {
+  height: 22,
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  fontSize: 12,
+  color: 'var(--dsw-alias-label-primary)',
+  textDecoration: 'underline',
+  textUnderlineOffset: '2px',
+} as const;
+
 const PANEL_STYLE = {
   position: 'fixed',
   left: '50%',
@@ -436,16 +449,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                 onOpenSettings?.();
                 onClose();
               }}
-              style={{
-                height: 24,
-                padding: '0 10px',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: 12,
-                border: '1px solid var(--dsw-alias-border-l1)',
-                background: 'transparent',
-                color: 'var(--dsw-alias-brand-primary)',
-              }}
+              style={TEXT_LINK_STYLE}
             >打开操作细节设置 →</button>
             {manualData !== null && manualData.notesDir !== '' ? (
               <button
@@ -457,16 +461,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                     body: JSON.stringify({ path: manualData.notesDir }),
                   });
                 }}
-                style={{
-                  height: 24,
-                  padding: '0 10px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  border: '1px solid var(--dsw-alias-border-l1)',
-                  background: 'transparent',
-                  color: 'var(--dsw-alias-label-primary)',
-                }}
+                style={TEXT_LINK_STYLE}
               >打开文件夹</button>
             ) : null}
           </div>

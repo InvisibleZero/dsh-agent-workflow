@@ -24,6 +24,18 @@ const FIELD_STYLE = {
     fontFamily: 'inherit',
 };
 const OVERLAY_STYLE = { position: 'fixed', inset: 0, zIndex: 1199, background: 'rgba(0,0,0,.45)' };
+/** 纯文字链接按钮：无边框无底色，靠下划线区分（颜色跟随主题文字色）。 */
+const TEXT_LINK_STYLE = {
+    height: 22,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontSize: 12,
+    color: 'var(--dsw-alias-label-primary)',
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px',
+};
 const PANEL_STYLE = {
     position: 'fixed',
     left: '50%',
@@ -296,31 +308,13 @@ export function WorkflowNodeDetailDialog(props) {
                                     // 先关掉当前弹窗，再让上层打开设置：避免两层遮罩叠在一起。
                                     onOpenSettings?.();
                                     onClose();
-                                }, style: {
-                                    height: 24,
-                                    padding: '0 10px',
-                                    borderRadius: 6,
-                                    cursor: 'pointer',
-                                    fontSize: 12,
-                                    border: '1px solid var(--dsw-alias-border-l1)',
-                                    background: 'transparent',
-                                    color: 'var(--dsw-alias-brand-primary)',
-                                }, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.notesDir !== '' ? (_jsx("button", { type: "button", onClick: () => {
+                                }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E \u2192" }), manualData !== null && manualData.notesDir !== '' ? (_jsx("button", { type: "button", onClick: () => {
                                     void fetch('/dsh-agent-workflow/open-folder', {
                                         method: 'POST',
                                         headers: { 'content-type': 'application/json' },
                                         body: JSON.stringify({ path: manualData.notesDir }),
                                     });
-                                }, style: {
-                                    height: 24,
-                                    padding: '0 10px',
-                                    borderRadius: 6,
-                                    cursor: 'pointer',
-                                    fontSize: 12,
-                                    border: '1px solid var(--dsw-alias-border-l1)',
-                                    background: 'transparent',
-                                    color: 'var(--dsw-alias-label-primary)',
-                                }, children: "\u6253\u5F00\u6587\u4EF6\u5939" })) : null] }), _jsx("div", { style: {
+                                }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u6587\u4EF6\u5939" })) : null] }), _jsx("div", { style: {
                             position: 'sticky',
                             top: 0,
                             zIndex: 2,
