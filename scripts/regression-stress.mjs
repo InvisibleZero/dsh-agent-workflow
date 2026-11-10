@@ -134,6 +134,14 @@ async function main() {
   await json(port, 'delete', { method: 'POST', body: { id: wfId } });
   await rm(dir, { recursive: true, force: true });
 
+  // 9. 埋点可观测（/events 接口）+ 断言推进无失败
+  const evts = await json(port, 'events?limit=200');
+  const evList = Array.isArray(evts?.events) ? evts.events : [];
+  const transOkCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('transition ok')).length;
+  const transFailCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('transition failed')).length;
+  const illegalFailCount = evList.filter((e) => typeof e.message === 'string' && e.message.includes('非法状态')).length;
+  report('埋点可观测（/events）且成败都记到', evList.length > 0 && transOkCount >= 1 && transFailCount >= 1 && transFailCount === illegalFailCount, `ok=${transOkCount}, failed=${transFailCount}（非法状态 ${illegalFailCount}）`);
+
   console.log('');
   // ---------------- 压力 ----------------
   console.log('## 压力');

@@ -850,6 +850,23 @@ ${specific.operation_detail}`,
   };
 }
 
+// src/host/event-log.ts
+var MAX_EVENTS = 500;
+var events = [];
+function recordEvent(level, message) {
+  events.push({ at: (/* @__PURE__ */ new Date()).toISOString(), level, message });
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+}
+function recentEvents(limit = 100) {
+  const n = Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_EVENTS) : 100;
+  return events.slice(-n);
+}
+function logEvent(logger, level, message) {
+  recordEvent(level, message);
+  if (level === "info") logger?.info?.(message);
+  else logger?.warn?.(message);
+}
+
 // src/host/workflow-state-context.ts
 import { join as join2 } from "node:path";
 var MAX_TEXT_BYTES = 8e3;
@@ -919,7 +936,7 @@ function registerWorkflowStateContext(ctx, repository) {
     if (typeof sessionId !== "string" || sessionId === "" || pending.has(sessionId)) return;
     pending.add(sessionId);
     void buildText(sessionId).catch((error) => {
-      ctx.logger?.warn?.(`workflow state context refresh failed (session=${sessionId}): %o`, error);
+      logEvent(ctx.logger, "warn", `workflow state context refresh failed (session=${sessionId}): %o ${String(error)}`);
     }).finally(() => pending.delete(sessionId));
   };
   const readText = (sessionId) => {
@@ -960,7 +977,7 @@ function registerWorkflowStateContext(ctx, repository) {
     refreshNow: async (sessionId) => {
       const startedAt = Date.now();
       const text = await buildText(sessionId);
-      ctx.logger?.info?.(`[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, "utf8")}, ${Date.now() - startedAt}ms)`);
+      logEvent(ctx.logger, "info", `[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, "utf8")}, ${Date.now() - startedAt}ms)`);
       return text;
     }
   };
@@ -1147,10 +1164,10 @@ function apply(ctx) {
         const startedAt = Date.now();
         try {
           const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
-          ctx.logger?.info?.(`[workflow] node-note ok (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms)`);
+          logEvent(ctx.logger, "info", `[workflow] node-note ok (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms)`);
           return { snapshot };
         } catch (error) {
-          ctx.logger?.warn?.(`[workflow] node-note failed (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          logEvent(ctx.logger, "warn", `[workflow] node-note failed (node=${body.nodeId}, state=${body.state}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
           throw error;
         }
       })
@@ -1182,8 +1199,16 @@ function apply(ctx) {
         if (typeof path2 !== "string" || path2 === "") return { nodes: {} };
         const startedAt = Date.now();
         const nodes = await repository.getNodeStatesByDirectory(path2);
-        ctx.logger?.info?.(`[workflow] sidebar-nodes ok (nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
+        logEvent(ctx.logger, "info", `[workflow] sidebar-nodes ok (nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
         return { nodes };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/events",
+      handler: makeHandler(repository, "GET", async (_body, query) => {
+        const rawLimit = Number(query.get("limit") ?? "100");
+        return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -1205,7 +1230,7 @@ function apply(ctx) {
       handler: makeHandler(repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         await repository.remove(body.id);
-        ctx.logger?.info?.(`[workflow] delete\u2192trash (id=${body.id})`);
+        logEvent(ctx.logger, "info", `[workflow] delete\u2192trash (id=${body.id})`);
         return { deleted: body.id };
       })
     }));
@@ -1220,7 +1245,7 @@ function apply(ctx) {
       handler: makeHandler(repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         const restored = await repository.restoreFromTrash(body.id);
-        ctx.logger?.info?.(`[workflow] trash-restore (id=${body.id}, ok=${String(restored)})`);
+        logEvent(ctx.logger, "info", `[workflow] trash-restore (id=${body.id}, ok=${String(restored)})`);
         return { restored };
       })
     }));
@@ -1243,10 +1268,10 @@ function apply(ctx) {
         const startedAt = Date.now();
         try {
           const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory: body.workingDirectory });
-          ctx.logger?.info?.(`[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
+          logEvent(ctx.logger, "info", `[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
           return { node };
         } catch (error) {
-          ctx.logger?.warn?.(`[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          logEvent(ctx.logger, "warn", `[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
           throw error;
         }
       })
@@ -1304,10 +1329,10 @@ function apply(ctx) {
           if (typeof moved?.session_id === "string" && moved.session_id !== "") {
             await stateContext.refreshNow(moved.session_id);
           }
-          ctx.logger?.info?.(`[workflow] transition ok (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms)`);
+          logEvent(ctx.logger, "info", `[workflow] transition ok (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms)`);
           return { snapshot };
         } catch (error) {
-          ctx.logger?.warn?.(`[workflow] transition failed (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          logEvent(ctx.logger, "warn", `[workflow] transition failed (node=${body.nodeId}, to=${body.to}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
           throw error;
         }
       })

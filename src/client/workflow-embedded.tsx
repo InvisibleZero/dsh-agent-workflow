@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
-import { menuPointFromEvent, menuAnchorRect } from './menu-util';
+import { menuPointFromEvent, menuAnchorRect } from './menu-anchor';
 import { NODE_STATE_COLOR } from './node-state-color';
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 

@@ -12,6 +12,7 @@
  */
 import { effectiveDetail } from '../engine/state-machine';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { logEvent } from './event-log';
 import { join } from 'node:path';
 /** 单块上下文上限（字节）：超了截断并标注，避免把系统提示撑爆。 */
 const MAX_TEXT_BYTES = 8000;
@@ -101,7 +102,7 @@ export function registerWorkflowStateContext(ctx, repository) {
         pending.add(sessionId);
         void buildText(sessionId)
             .catch((error) => {
-            ctx.logger?.warn?.(`workflow state context refresh failed (session=${sessionId}): %o`, error);
+            logEvent(ctx.logger, 'warn', `workflow state context refresh failed (session=${sessionId}): %o ${String(error)}`);
         })
             .finally(() => pending.delete(sessionId));
     };
@@ -152,7 +153,7 @@ export function registerWorkflowStateContext(ctx, repository) {
         refreshNow: async (sessionId) => {
             const startedAt = Date.now();
             const text = await buildText(sessionId);
-            ctx.logger?.info?.(`[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, 'utf8')}, ${Date.now() - startedAt}ms)`);
+            logEvent(ctx.logger, 'info', `[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, 'utf8')}, ${Date.now() - startedAt}ms)`);
             return text;
         },
     };

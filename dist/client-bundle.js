@@ -66,7 +66,7 @@ window.__ModuleLoader__.load({
     const react_dom_1 = require("react-dom");
     const node_state_label_1 = __req("schema/node-state-label.js");
     const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
-    const menu_util_1 = __req("client/menu-util.js");
+    const menu_anchor_1 = __req("client/menu-anchor.js");
     const node_state_color_1 = __req("client/node-state-color.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     /** 五态单向推进表。 */
@@ -259,23 +259,23 @@ window.__ModuleLoader__.load({
                                 whiteSpace: 'nowrap', cursor: 'pointer',
                             }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: [(0, jsx_runtime_1.jsx)("span", { style: { width: 6, height: 6, borderRadius: '50%', display: 'block', background: node_state_color_1.NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' } }), label] }), nodeInfo.state === 'implementing' && checklist.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u5B9E\u65BD\u8FDB\u5EA6\uFF08AI \u81EA\u52A8\u52FE\u9009\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
                                         event.currentTarget.focus({ preventScroll: true });
-                                        const point = (0, menu_util_1.menuPointFromEvent)(event);
+                                        const point = (0, menu_anchor_1.menuPointFromEvent)(event);
                                         setChecklistMenu((current) => (current === null ? point : null));
                                     }, style: {
                                         display: 'inline-flex', alignItems: 'center', height: 22, padding: '0 8px',
                                         borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                                         color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
                                         fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
-                                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_util_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
+                                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
                                             event.currentTarget.focus({ preventScroll: true });
-                                            const point = (0, menu_util_1.menuPointFromEvent)(event);
+                                            const point = (0, menu_anchor_1.menuPointFromEvent)(event);
                                             setBackwardMenu((current) => (current === null ? point : null));
                                         }, style: {
                                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22,
                                             border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, background: 'transparent',
                                             color: 'var(--dsw-alias-label-secondary)', cursor: advancing ? 'progress' : 'pointer',
                                             opacity: advancing ? 0.6 : 1,
-                                        }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M19 12H6" }), (0, jsx_runtime_1.jsx)("path", { d: "m11.5 6-6 6 6 6" })] }) }) }), backwardMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_util_1.menuAnchorRect)(backwardMenu), items: backwardStates.map((state) => ({
+                                        }, children: (0, jsx_runtime_1.jsxs)("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [(0, jsx_runtime_1.jsx)("path", { d: "M19 12H6" }), (0, jsx_runtime_1.jsx)("path", { d: "m11.5 6-6 6 6 6" })] }) }) }), backwardMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(backwardMenu), items: backwardStates.map((state) => ({
                                         id: state,
                                         label: `返工到 ${node_state_label_1.NODE_STATE_LABEL[state] ?? state}`,
                                     })), onClose: () => setBackwardMenu(null), onSelect: (id) => {
@@ -738,7 +738,7 @@ window.__ModuleLoader__.load({
     ];
     //# sourceMappingURL=node-state-color.js.map
     },
-    "client/menu-util.js": function(__req, module, exports) {
+    "client/menu-anchor.js": function(__req, module, exports) {
     "use strict";
     // @ts-nocheck
     /**
@@ -763,7 +763,7 @@ window.__ModuleLoader__.load({
     function menuAnchorRect(point) {
         return new DOMRect(point.x, point.y, 0, 0);
     }
-    //# sourceMappingURL=menu-util.js.map
+    //# sourceMappingURL=menu-anchor.js.map
     },
     "client/session-row-dot.js": function(__req, module, exports) {
     "use strict";
