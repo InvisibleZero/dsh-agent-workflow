@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 COL_W = 400
 COLS = 3
-W, H = COL_W * COLS, 560
+W, H = COL_W * COLS, 820
 BG_TOP = (13, 17, 23)
 BG_BOTTOM = (26, 34, 48)
 ACCENT = (77, 123, 253)
@@ -85,24 +85,25 @@ def build_sessions():
 
     # 按状态从前往后排：两个讨论中、两个实现中、一个验收中、一个已完结。
     rows = [
-        ("订单状态机", "讨论中", STATE_WARN, False),
-        ("用户中心", "讨论中", STATE_WARN, False),
-        ("登录模块", "实现中", STATE_BRAND, True),
-        ("支付回调加固", "实现中", STATE_BRAND, False),
-        ("退货流程", "验收中", STATE_VERIFY, False),
-        ("发票系统", "已完结", STATE_SUCCESS, False),
+        ("订单状态机", "今天 14:02 · 讨论 2 轮", "讨论中", STATE_WARN, False),
+        ("用户中心", "今天 11:40 · 方案待写", "讨论中", STATE_WARN, False),
+        ("登录模块", "今天 10:15 · 改 4 个文件", "实现中", STATE_BRAND, True),
+        ("支付回调加固", "昨天 18:20 · 改 6 个文件", "实现中", STATE_BRAND, False),
+        ("退货流程", "昨天 09:05 · 验收 3 项", "验收中", STATE_VERIFY, False),
+        ("发票系统", "11-09 · 已完结归档", "已完结", STATE_SUCCESS, False),
     ]
-    y = PANEL_TOP + 76
-    for title, state, color, selected in rows:
+    y = PANEL_TOP + 70
+    for title, meta, state, color, selected in rows:
         if selected:
-            d.rounded_rectangle([(22, y - 6), (COL_W - 22, y + 30)], radius=7, fill=ROW_SELECTED)
+            d.rounded_rectangle([(22, y - 8), (COL_W - 22, y + 60)], radius=7, fill=ROW_SELECTED)
         d.ellipse([(32, y + 6), (39, y + 13)], fill=color)
         d.text((48, y), title, font=row_font, fill=ROW_TITLE if selected else ROW_CHILD_TITLE)
+        d.text((48, y + 22), meta, font=note_font, fill=TEXT_MUTED)
         tw = d.textlength(state, font=state_font)
         d.text((COL_W - 34 - tw, y + 3), state, font=state_font, fill=color)
-        y += 52
+        y += 84
 
-    d.text((32, PANEL_BOTTOM - 30), "每个会话 = 一个 workflow 单元", font=note_font, fill=TEXT_MUTED)
+    d.text((32, PANEL_BOTTOM - 20), "每个会话 = 一个 workflow 单元", font=note_font, fill=TEXT_MUTED)
     return layer
 
 
@@ -154,6 +155,9 @@ def build_state():
             "只核对与报告，结论要带证据。",
             "改动须在检查表里注明。",
         ]),
+        ("已完结", STATE_SUCCESS, [
+            "没有阶段约束，可以自由改动。",
+        ]),
     ]
     y = PANEL_TOP + 104
     for index, (title, color, lines) in enumerate(sections):
@@ -168,7 +172,7 @@ def build_state():
         for line in lines:
             d.text((44, line_y), line, font=code_font, fill=ROW_CHILD_TITLE)
             line_y += 18
-        y = box_top + box_h + 20
+        y = box_top + box_h + 40
 
     d.text((32, y + 2), "推进前置：", font=dim_font, fill=TEXT_MUTED)
     d.text((32, y + 20), "方案非空才能进实现中。", font=dim_font, fill=TEXT_MUTED)
@@ -179,12 +183,12 @@ def build_state():
 # ------------------------------------------------------------------ 右：手册
 def build_manual():
     layer, d = new_column()
-    header(d, "两层手册（AI 自留）", "项目级跨会话延续，会话级各自独立")
+    header(d, "两层手册（AI 自留）", "项目级跨会话延续；会话级各自独立，AI 自己写、自己勾")
     panel_box(d)
 
     file_font = ImageFont.truetype(FONT_BOLD, 13)
     desc_font = ImageFont.truetype(FONT_REG, 10)
-    item_font = ImageFont.truetype(FONT_REG, 11)
+    item_font = ImageFont.truetype(FONT_REG, 10)
     note_font = ImageFont.truetype(FONT_REG, 10)
 
     def file_icon(x, y):
@@ -208,20 +212,34 @@ def build_manual():
         ("会话手册 2", "方案 5 层 · 实施 4/4", "验收中", STATE_VERIFY),
         ("会话手册 3", "方案编写中", "讨论中", STATE_WARN),
     ]
-    card_h, gap = 84, 12
-    top = PANEL_TOP + 142
+    layers = ["1. 目标与验收", "2. 对外契约", "3. 结构与依赖", "4. 数据与状态", "5. 表现与文案"]
+    checks = [("2. 对外契约", True), ("3. 结构与依赖", True), ("4. 数据与状态", False), ("5. 表现与文案", False)]
+    card_h, gap = 184, 6
+    top = PANEL_TOP + 140
     for title, desc, state, color in sessions:
         d.rounded_rectangle([(x0, top), (x1, top + card_h)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
-        file_icon(x0 + 12, top + 14)
-        d.text((x0 + 38, top + 10), title, font=file_font, fill=TEXT_PRIMARY)
-        d.text((x0 + 38, top + 34), desc, font=desc_font, fill=TEXT_MUTED)
-        # 右侧状态点 + 状态名
+        file_icon(x0 + 12, top + 10)
+        d.text((x0 + 38, top + 8), title, font=file_font, fill=TEXT_PRIMARY)
+        d.text((x0 + 38, top + 26), desc, font=desc_font, fill=TEXT_MUTED)
         state_w = d.textlength(state, font=desc_font)
-        d.ellipse([(x1 - 12 - state_w - 12, top + 15), (x1 - 12 - state_w - 5, top + 22)], fill=color)
-        d.text((x1 - 12 - state_w, top + 12), state, font=desc_font, fill=color)
+        d.ellipse([(x1 - 12 - state_w - 12, top + 13), (x1 - 12 - state_w - 5, top + 20)], fill=color)
+        d.text((x1 - 12 - state_w, top + 10), state, font=desc_font, fill=color)
+
+        for i, line in enumerate(layers):
+            d.text((x0 + 12, top + 42 + i * 13), line, font=item_font, fill=ROW_CHILD_TITLE)
+
+        d.text((x0 + 12, top + 112), "实施顺序", font=desc_font, fill=ROW_TITLE)
+        for i, (label, done) in enumerate(checks):
+            cy = top + 128 + i * 13
+            cx = x0 + 16
+            if done:
+                d.line([(cx, cy + 4), (cx + 3, cy + 7)], fill=STATE_SUCCESS, width=2)
+                d.line([(cx + 3, cy + 7), (cx + 8, cy + 1)], fill=STATE_SUCCESS, width=2)
+            else:
+                d.ellipse([(cx + 1, cy + 1), (cx + 7, cy + 7)], outline=TEXT_MUTED, width=2)
+            d.text((cx + 14, cy - 2), label, font=item_font, fill=ROW_CHILD_TITLE if done else TEXT_MUTED)
         top += card_h + gap
 
-    d.text((x0, top + 4), "AI 自己写、自己勾；人只读", font=note_font, fill=TEXT_MUTED)
     return layer
 
 
