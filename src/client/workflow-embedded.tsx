@@ -30,7 +30,7 @@ const NODE_STATE_COLOR: Record<string, string> = {
   not_started: 'var(--dsw-alias-state-idle-primary)',
   discussing: 'var(--dsw-alias-state-warn-primary)',
   implementing: 'var(--dsw-alias-brand-primary)',
-  verifying: 'var(--dsw-alias-state-warn-primary)',
+  verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
   completed: 'var(--dsw-alias-state-success-primary)',
 };
 

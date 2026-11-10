@@ -81,7 +81,7 @@ window.__ModuleLoader__.load({
         not_started: 'var(--dsw-alias-state-idle-primary)',
         discussing: 'var(--dsw-alias-state-warn-primary)',
         implementing: 'var(--dsw-alias-brand-primary)',
-        verifying: 'var(--dsw-alias-state-warn-primary)',
+        verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
         completed: 'var(--dsw-alias-state-success-primary)',
     };
     /** 返工（后退）转移表：当前态 → 可退回的态。 */
@@ -748,7 +748,7 @@ window.__ModuleLoader__.load({
         not_started: 'var(--dsw-alias-state-idle-primary)',
         discussing: 'var(--dsw-alias-state-warn-primary)',
         implementing: 'var(--dsw-alias-brand-primary)',
-        verifying: 'var(--dsw-alias-state-warn-primary)',
+        verifying: 'var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4176e6)',
         completed: 'var(--dsw-alias-state-success-primary)',
     };
     const CACHE_TTL_MS = 5000;
