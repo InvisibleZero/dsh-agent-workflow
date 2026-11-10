@@ -198,14 +198,14 @@ def build_manual():
     file_icon(x0 + 12, PANEL_TOP + 32)
     d.text((x0 + 38, PANEL_TOP + 28), "项目手册.md", font=file_font, fill=TEXT_PRIMARY)
     d.text((x0 + 38, PANEL_TOP + 50), "总览 / 决策 / 约束 / 坑与防线", font=desc_font, fill=TEXT_MUTED)
-    d.text((x0 + 12, PANEL_TOP + 78), "收尾按三问回写（新决策 / 新坑）", font=note_font, fill=STATE_SUCCESS)
+    d.text((x0 + 12, PANEL_TOP + 78), "验收中收尾：回写决策与坑", font=note_font, fill=STATE_SUCCESS)
 
     # 会话手册
     box_top = PANEL_TOP + 120
     box_bottom = box_top + 272
     d.rounded_rectangle([(x0, box_top), (x1, box_bottom)], radius=10, fill=CODE_BG, outline=(58, 86, 150), width=1)
     file_icon(x0 + 12, box_top + 14)
-    d.text((x0 + 38, box_top + 10), "会话手册-<node_id>.md", font=file_font, fill=TEXT_PRIMARY)
+    d.text((x0 + 38, box_top + 10), "会话手册.md", font=file_font, fill=TEXT_PRIMARY)
     d.text((x0 + 38, box_top + 32), "方案（5 层）+ 实施顺序", font=desc_font, fill=TEXT_MUTED)
 
     d.text((x0 + 12, box_top + 54), "## 方案（上层 → 下层）", font=item_font, fill=ROW_TITLE)
