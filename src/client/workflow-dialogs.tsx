@@ -6,7 +6,7 @@
  *
  * 样式全部用主题变量内联，深浅色自动跟随，不依赖 CSS Module。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
 
@@ -45,27 +45,6 @@ const PANEL_STYLE = {
   zIndex: 1200,
 } as const;
 
-function Button(props: { label: string; onClick: () => void; primary?: boolean; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={props.disabled === true}
-      onClick={props.onClick}
-      style={{
-        height: 28,
-        padding: '0 14px',
-        borderRadius: 6,
-        cursor: props.disabled === true ? 'default' : 'pointer',
-        fontSize: 12,
-        opacity: props.disabled === true ? 0.6 : 1,
-        border: props.primary === true ? 'none' : '1px solid var(--dsw-alias-border-l1)',
-        background: props.primary === true ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-        color: props.primary === true ? '#fff' : 'var(--dsw-alias-label-primary)',
-      }}
-    >{props.label}</button>
-  );
-}
-
 function Modal(props: { title: string; onClose: () => void; children: any }) {
   return (
     <>
@@ -100,9 +79,10 @@ const STATE_TABS = [
 export function WorkflowGlobalSettingsSection() {
   const [detail, setDetail] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('shared');
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<any>(null);
+  const latestRef = useRef<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,36 +100,59 @@ export function WorkflowGlobalSettingsSection() {
     return () => { cancelled = true; };
   }, []);
 
-  const save = async () => {
-    if (detail === null) return;
-    setSaving(true);
+  /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
+  const persist = async (value: any) => {
+    setStatus('saving');
     setError(null);
-    setMessage(null);
     try {
       const response = await fetch('/dsh-agent-workflow/global-settings-save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ globalOperationDetail: detail }),
+        body: JSON.stringify({ globalOperationDetail: value }),
       });
       const data = await response.json().catch(() => null);
       if (data?.ok === true) {
-        setDetail(data.globalOperationDetail);
-        setMessage('已保存');
+        setStatus('saved');
+        window.setTimeout(() => setStatus((current) => (current === 'saved' ? 'idle' : current)), 1600);
       } else {
+        setStatus('error');
         setError(String(data?.error ?? '保存失败'));
       }
     } catch (reason) {
+      setStatus('error');
       setError(String(reason));
-    } finally {
-      setSaving(false);
     }
   };
+
+  /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
+  const update = (next: any) => {
+    setDetail(next);
+    latestRef.current = next;
+    setStatus('pending');
+    setError(null);
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      void persist(next);
+    }, 700);
+  };
+
+  // 卸载（关设置页）时把还没落盘的改动补写一次，避免丢最后几个字。
+  useEffect(() => () => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      if (latestRef.current !== null) void persist(latestRef.current);
+    }
+  }, []);
 
   if (detail === null) {
     return <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }}>{error ?? '加载中…'}</div>;
   }
 
-  const patchTab = (tabId: string, patch: any) => setDetail({ ...detail, [tabId]: { ...detail[tabId], ...patch } });
+  const patchTab = (tabId: string, patch: any) => (
+    update({ ...detail, [tabId]: { ...detail[tabId], ...patch } })
+  );
 
   return (
     <div style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
@@ -183,14 +186,14 @@ export function WorkflowGlobalSettingsSection() {
             <textarea
               style={{ ...FIELD_STYLE, flex: '1 1 auto' }}
               value={detail.shared_detail ?? ''}
-              onChange={(event) => setDetail({ ...detail, shared_detail: event.target.value })}
+              onChange={(event) => update({ ...detail, shared_detail: event.target.value })}
             />
           </>
         ) : (
           <>
             <label style={LABEL_STYLE}>进入该状态后自动灌入输入框的默认文本（20%，可空）</label>
-            <input
-              style={{ ...FIELD_STYLE, flex: '0 0 20%' }}
+            <textarea
+              style={{ ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }}
               value={detail[activeTab]?.enter_trigger ?? ''}
               placeholder="留空则不自动灌入"
               onChange={(event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value })}
@@ -206,8 +209,12 @@ export function WorkflowGlobalSettingsSection() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
-        <Button label={saving ? '保存中…' : '保存'} onClick={() => void save()} primary disabled={saving} />
-        {message !== null ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-state-success-primary)' }}>{message}</span> : null}
+        <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+          {status === 'pending' ? '待保存…'
+            : status === 'saving' ? '保存中…'
+              : status === 'saved' ? '已自动保存'
+                : status === 'error' ? '' : '改动会自动保存'}
+        </span>
         {error !== null ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>{error}</span> : null}
       </div>
     </div>

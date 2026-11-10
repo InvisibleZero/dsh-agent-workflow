@@ -7,7 +7,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  *
  * 样式全部用主题变量内联，深浅色自动跟随，不依赖 CSS Module。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
 const FIELD_STYLE = {
     width: '100%',
@@ -41,19 +41,6 @@ const PANEL_STYLE = {
     fontSize: 13,
     zIndex: 1200,
 };
-function Button(props) {
-    return (_jsx("button", { type: "button", disabled: props.disabled === true, onClick: props.onClick, style: {
-            height: 28,
-            padding: '0 14px',
-            borderRadius: 6,
-            cursor: props.disabled === true ? 'default' : 'pointer',
-            fontSize: 12,
-            opacity: props.disabled === true ? 0.6 : 1,
-            border: props.primary === true ? 'none' : '1px solid var(--dsw-alias-border-l1)',
-            background: props.primary === true ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-            color: props.primary === true ? '#fff' : 'var(--dsw-alias-label-primary)',
-        }, children: props.label }));
-}
 function Modal(props) {
     return (_jsxs(_Fragment, { children: [_jsx("div", { style: OVERLAY_STYLE, onClick: props.onClose }), _jsxs("div", { style: PANEL_STYLE, role: "dialog", "aria-label": props.title, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx("strong", { style: { fontSize: 14 }, children: props.title }), _jsx("button", { type: "button", "aria-label": "\u5173\u95ED", onClick: props.onClose, style: { border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }, children: "\u00D7" })] }), props.children] })] }));
 }
@@ -70,9 +57,10 @@ const STATE_TABS = [
 export function WorkflowGlobalSettingsSection() {
     const [detail, setDetail] = useState(null);
     const [activeTab, setActiveTab] = useState('shared');
-    const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState(null);
+    const [status, setStatus] = useState('idle');
     const [error, setError] = useState(null);
+    const timerRef = useRef(null);
+    const latestRef = useRef(null);
     useEffect(() => {
         let cancelled = false;
         void (async () => {
@@ -93,38 +81,57 @@ export function WorkflowGlobalSettingsSection() {
         })();
         return () => { cancelled = true; };
     }, []);
-    const save = async () => {
-        if (detail === null)
-            return;
-        setSaving(true);
+    /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
+    const persist = async (value) => {
+        setStatus('saving');
         setError(null);
-        setMessage(null);
         try {
             const response = await fetch('/dsh-agent-workflow/global-settings-save', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ globalOperationDetail: detail }),
+                body: JSON.stringify({ globalOperationDetail: value }),
             });
             const data = await response.json().catch(() => null);
             if (data?.ok === true) {
-                setDetail(data.globalOperationDetail);
-                setMessage('已保存');
+                setStatus('saved');
+                window.setTimeout(() => setStatus((current) => (current === 'saved' ? 'idle' : current)), 1600);
             }
             else {
+                setStatus('error');
                 setError(String(data?.error ?? '保存失败'));
             }
         }
         catch (reason) {
+            setStatus('error');
             setError(String(reason));
         }
-        finally {
-            setSaving(false);
-        }
     };
+    /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
+    const update = (next) => {
+        setDetail(next);
+        latestRef.current = next;
+        setStatus('pending');
+        setError(null);
+        if (timerRef.current !== null)
+            clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => {
+            timerRef.current = null;
+            void persist(next);
+        }, 700);
+    };
+    // 卸载（关设置页）时把还没落盘的改动补写一次，避免丢最后几个字。
+    useEffect(() => () => {
+        if (timerRef.current !== null) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+            if (latestRef.current !== null)
+                void persist(latestRef.current);
+        }
+    }, []);
     if (detail === null) {
         return _jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
     }
-    const patchTab = (tabId, patch) => setDetail({ ...detail, [tabId]: { ...detail[tabId], ...patch } });
+    const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
     return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F**\u5E94\u7528\u7EA7\u5168\u5C40**\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsx("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => (_jsx("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
                         padding: '6px 12px',
                         background: 'transparent',
@@ -133,7 +140,10 @@ export function WorkflowGlobalSettingsSection() {
                         color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
                         cursor: 'pointer',
                         fontSize: 12,
-                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09\u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => setDetail({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF0820%\uFF0C\u53EF\u7A7A\uFF09" }), _jsx("input", { style: { ...FIELD_STYLE, flex: '0 0 20%' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282\uFF0880%\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 80%' }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) })] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx(Button, { label: saving ? '保存中…' : '保存', onClick: () => void save(), primary: true, disabled: saving }), message !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-success-primary)' }, children: message }) : null, error !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null] })] }));
+                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09\u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF0820%\uFF0C\u53EF\u7A7A\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282\uFF0880%\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 80%' }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) })] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
+                            : status === 'saving' ? '保存中…'
+                                : status === 'saved' ? '已自动保存'
+                                    : status === 'error' ? '' : '改动会自动保存' }), error !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null] })] }));
 }
 /** 设置左侧导航里的图标（与侧栏 workflow 工作区同一套树形图标）。 */
 function WorkflowSectionIcon() {

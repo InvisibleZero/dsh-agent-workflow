@@ -83,6 +83,8 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
   **不再挂在 workflow 工作区菜单上**（那是早期错误做法，已移除）。
 - **入口**：DSH「设置」左侧导航 → **Agent 工作流**（注册 `settings.section`）。
 - **布局**：A/B/C/D 四个页签横向排开；B/C/D 每个页签内 **默认输入在上（20%）、操作细节在下（80%）**；A 只有一个大文本框。
+- **保存**：**没有保存按钮**——改动后 700ms 防抖自动保存；状态行显示「待保存… / 保存中… / 已自动保存」。
+  关闭设置页（组件卸载）时若有未落盘的改动会补写一次，避免丢掉最后几个字。
 - **节点级覆盖**：节点行的小齿轮打开只读弹窗，展示该节点生效的 A + B/C/D，并标出「当前态」「已覆盖」。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
