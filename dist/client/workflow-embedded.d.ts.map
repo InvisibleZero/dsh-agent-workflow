@@ -1,1 +1,1 @@
-{"version":3,"file":"workflow-embedded.d.ts","sourceRoot":"","sources":["../../src/client/workflow-embedded.tsx"],"names":[],"mappings":"AA4BA,OAAO,KAAK,EAAE,mBAAmB,EAAE,MAAM,2BAA2B,CAAC;AAquBrE,oCAAoC;AACpC,wBAAgB,0BAA0B,CAAC,GAAG,EAAE,GAAG,QAYlD;AAED,eAAO,MAAM,kBAAkB,EAAE,mBAyBhC,CAAC"}
+{"version":3,"file":"workflow-embedded.d.ts","sourceRoot":"","sources":["../../src/client/workflow-embedded.tsx"],"names":[],"mappings":"AA4BA,OAAO,KAAK,EAAE,mBAAmB,EAAE,MAAM,2BAA2B,CAAC;AAqvBrE,oCAAoC;AACpC,wBAAgB,0BAA0B,CAAC,GAAG,EAAE,GAAG,QAYlD;AAED,eAAO,MAAM,kBAAkB,EAAE,mBAyBhC,CAAC"}

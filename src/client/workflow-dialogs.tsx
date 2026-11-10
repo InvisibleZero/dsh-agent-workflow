@@ -266,6 +266,53 @@ export function WorkflowSettingsDialog(props: { onClose: () => void }) {
   );
 }
 
+/** 通用二次确认弹窗：删除工作区等不可逆操作前先过一层。 */
+export function WorkflowConfirmDialog(props: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={props.title} onClose={props.onClose}>
+      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7, color: 'var(--dsw-alias-label-secondary)', marginBottom: 16 }}>
+        {props.message}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button
+          type="button"
+          onClick={props.onClose}
+          style={{
+            height: 28,
+            padding: '0 14px',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontSize: 12,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'transparent',
+            color: 'var(--dsw-alias-label-primary)',
+          }}
+        >取消</button>
+        <button
+          type="button"
+          onClick={props.onConfirm}
+          style={{
+            height: 28,
+            padding: '0 14px',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontSize: 12,
+            border: 'none',
+            background: 'var(--dsw-alias-state-error-primary, #d64545)',
+            color: '#fff',
+          }}
+        >{props.confirmLabel}</button>
+      </div>
+    </Modal>
+  );
+}
+
 /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
 export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: string; onClose: () => void; onOpenSettings?: () => void }) {
   const { workflowId, nodeId, onClose, onOpenSettings } = props;

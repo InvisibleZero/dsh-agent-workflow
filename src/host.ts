@@ -235,7 +235,23 @@ export function apply(ctx: any) {
       handler: makeHandler(repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         await repository.remove(body.id);
+        ctx.logger?.info?.(`[workflow] delete→trash (id=${body.id})`);
         return { deleted: body.id };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/trash-list',
+      handler: makeHandler(repository, 'GET', async () => ({ items: await repository.listTrash() })),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/trash-restore',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        const restored = await repository.restoreFromTrash(body.id);
+        ctx.logger?.info?.(`[workflow] trash-restore (id=${body.id}, ok=${String(restored)})`);
+        return { restored };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

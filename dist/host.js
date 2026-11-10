@@ -469,15 +469,71 @@ var WorkflowRepository = class {
     }
     return null;
   }
-  /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
+  /**
+   * 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。
+   * **不真删**：移到 workflows-trash/<id>.<时间戳>.json，便于误删后恢复。
+   */
   async remove(id) {
-    const path2 = join(this.baseDir, "workflows", `${id}.json`);
+    const source = join(this.baseDir, "workflows", `${id}.json`);
+    const trashDir = join(this.baseDir, "workflows-trash");
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     try {
-      await fs2.unlink(path2);
+      await fs2.mkdir(trashDir, { recursive: true });
+      await fs2.rename(source, join(trashDir, `${id}.${stamp}.json`));
+      return;
     } catch (error) {
       if (error.code === "ENOENT") return;
+      try {
+        await fs2.unlink(source);
+      } catch (unlinkError) {
+        if (unlinkError.code === "ENOENT") return;
+        throw unlinkError;
+      }
+    }
+  }
+  /** 列出回收站里的快照（按文件名倒序 = 最近删除优先）。 */
+  async listTrash() {
+    const trashDir = join(this.baseDir, "workflows-trash");
+    let names = [];
+    try {
+      names = await fs2.readdir(trashDir);
+    } catch (error) {
+      if (error.code === "ENOENT") return [];
       throw error;
     }
+    return names.filter((name) => name.endsWith(".json")).sort().reverse().map((name) => {
+      const match = /^(.+)\.(\d{4}-\d{2}-\d{2}T[^.]+)\.json$/.exec(name);
+      return {
+        id: match?.[1] ?? name.slice(0, -".json".length),
+        file: name,
+        deletedAt: match?.[2] ?? ""
+      };
+    });
+  }
+  /**
+   * 从回收站恢复（取该 id 最近一次删除的那份）。
+   * 已存在同名快照时不覆盖，直接返回 false。
+   */
+  async restoreFromTrash(id) {
+    const trashDir = join(this.baseDir, "workflows-trash");
+    const target = join(this.baseDir, "workflows", `${id}.json`);
+    try {
+      await fs2.access(target);
+      return false;
+    } catch {
+    }
+    let names = [];
+    try {
+      names = await fs2.readdir(trashDir);
+    } catch (error) {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+    const newest = names.filter((name) => name.startsWith(`${id}.`) && name.endsWith(".json")).sort().reverse()[0];
+    if (newest === void 0) return false;
+    await fs2.mkdir(join(this.baseDir, "workflows"), { recursive: true });
+    await fs2.rename(join(trashDir, newest), target);
+    return true;
   }
   /**
    * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
@@ -960,7 +1016,23 @@ function apply(ctx) {
       handler: makeHandler(repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         await repository.remove(body.id);
+        ctx.logger?.info?.(`[workflow] delete\u2192trash (id=${body.id})`);
         return { deleted: body.id };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/trash-list",
+      handler: makeHandler(repository, "GET", async () => ({ items: await repository.listTrash() }))
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/trash-restore",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        const restored = await repository.restoreFromTrash(body.id);
+        ctx.logger?.info?.(`[workflow] trash-restore (id=${body.id}, ok=${String(restored)})`);
+        return { restored };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

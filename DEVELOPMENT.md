@@ -441,6 +441,22 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   `host.ts`（/add-node 返回 nodeId、/node-manual、/open-folder）、`host/workflow-state-context.ts`（注入）、
   `client/workflow-embedded.tsx`（addChildTo 建会话 + 绑定）、`client/workflow-dialogs.tsx`（只读手册 + 打开 .workflow 目录）。
 
+### D-23 删除工作区 = 软删除：快照进回收站 + 界面二次确认
+
+- **现象**：在侧栏删掉 workflow 工作区后，`~/.dsh/dsh-agent-workflow/workflows/` 里的快照没了，节点树/状态/会话绑定全丢；
+  文件夹、会话日志（`~/.dsh/sessions/`）、`.workflow/` 笔记都还在（三者本来就不受这个删除影响）。
+- **现在的做法**：
+  - `repository.remove(id)` **不再 unlink**，而是把 `workflows/<id>.json` 移到 `workflows-trash/<id>.<ISO时间戳>.json`；
+    移动失败（跨盘/权限）才退回真删，保证删除动作本身不会卡住。
+  - 新增 `GET /trash-list`（列出回收站）与 `POST /trash-restore { id }`（取该 id 最近一份移回）；
+    目标已存在同名快照时不覆盖，返回 `restored:false`。
+  - 界面上的「删除工作区」先弹二次确认（`WorkflowConfirmDialog`），确认后才调 `requestDeleteWorkspace`。
+- **恢复**：`POST /trash-restore { id }`，或手动把 `workflows-trash/<id>.<时间戳>.json` 改名回 `workflows/<id>.json`。
+- **注意**：pwsh/node 的测试脚本跑在 DSH 文件沙箱里（workspace-write），**删不掉 `~/.dsh` 下的文件**，
+  清理回收站要么走 `/trash-restore` + `/delete`，要么直接在文件管理器里删。
+- **涉及文件**：`host/workflow-repository.ts`（remove/listTrash/restoreFromTrash）、`host.ts`（/trash-list、/trash-restore）、
+  `client/workflow-dialogs.tsx`（WorkflowConfirmDialog）、`client/workflow-embedded.tsx`（删除前确认）。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```

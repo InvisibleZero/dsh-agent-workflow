@@ -10,7 +10,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useRef, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
+import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, IconEditOutlineRegular, IconTrashOutlineRegular, IconPinFillRegular, IconPinOutlineRegular, IconCopyOutlineRegular, IconArchiveOutlineRegular, IconUnarchiveOutlineRegular, writeClipboard, } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
@@ -86,6 +86,8 @@ function WorkflowWorkspaceItem(props) {
     const returnToNodeRef = useRef(null);
     /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
     const [busyNodeId, setBusyNodeId] = useState(null);
+    /** 待确认删除的工作区（删除不可逆，先过一层确认）。 */
+    const [pendingDelete, setPendingDelete] = useState(null);
     // 会话里的状态徽标只发事件，弹窗由这里渲染（输入框容器带 transform，fixed 会跑偏）。
     useEffect(() => {
         const onOpenNodeDetail = (event) => {
@@ -395,7 +397,11 @@ function WorkflowWorkspaceItem(props) {
                     if (id === 'rename')
                         runtime?.requestRenameWorkspace?.(workspaceId, summary.title ?? '');
                     else if (id === 'delete')
-                        runtime?.requestDeleteWorkspace?.(workspaceId);
+                        setPendingDelete({ workspaceId, title: summary.title ?? '' });
+                } })) : null, pendingDelete !== null ? (_jsx(WorkflowConfirmDialog, { title: "\u5220\u9664\u5DE5\u4F5C\u533A", message: `要删除「${pendingDelete.title}」这个 workflow 工作区吗？\n\n· 节点树、状态与会话绑定会被移除（快照会先进回收站，可在 ~/.dsh/dsh-agent-workflow/workflows-trash 找回）\n· 工作区文件夹、会话记录、.workflow 笔记都不会被删`, confirmLabel: "\u5220\u9664", onClose: () => setPendingDelete(null), onConfirm: () => {
+                    const target = pendingDelete;
+                    setPendingDelete(null);
+                    runtime?.requestDeleteWorkspace?.(target.workspaceId);
                 } })) : null, nodeMenu !== null ? (() => {
                 const menuNode = byId.get(nodeMenu.nodeId);
                 if (menuNode === undefined)

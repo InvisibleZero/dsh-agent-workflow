@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { WorkflowNodeDetailDialog, WorkflowSettingsDialog } from './workflow-dialogs';
+import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
 import {
   Menu,
@@ -106,6 +106,8 @@ function WorkflowWorkspaceItem(props: {
   const returnToNodeRef = useRef<string | null>(null);
   /** 正在「新建会话 + 绑定」的节点，避免连点重复建会话。 */
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
+  /** 待确认删除的工作区（删除不可逆，先过一层确认）。 */
+  const [pendingDelete, setPendingDelete] = useState<{ workspaceId: string; title: string } | null>(null);
 
   // 会话里的状态徽标只发事件，弹窗由这里渲染（输入框容器带 transform，fixed 会跑偏）。
   useEffect(() => {
@@ -533,7 +535,21 @@ function WorkflowWorkspaceItem(props: {
               return;
             }
             if (id === 'rename') runtime?.requestRenameWorkspace?.(workspaceId, summary.title ?? '');
-            else if (id === 'delete') runtime?.requestDeleteWorkspace?.(workspaceId);
+            else if (id === 'delete') setPendingDelete({ workspaceId, title: summary.title ?? '' });
+          }}
+        />
+      ) : null}
+
+      {pendingDelete !== null ? (
+        <WorkflowConfirmDialog
+          title="删除工作区"
+          message={`要删除「${pendingDelete.title}」这个 workflow 工作区吗？\n\n· 节点树、状态与会话绑定会被移除（快照会先进回收站，可在 ~/.dsh/dsh-agent-workflow/workflows-trash 找回）\n· 工作区文件夹、会话记录、.workflow 笔记都不会被删`}
+          confirmLabel="删除"
+          onClose={() => setPendingDelete(null)}
+          onConfirm={() => {
+            const target = pendingDelete;
+            setPendingDelete(null);
+            runtime?.requestDeleteWorkspace?.(target.workspaceId);
           }}
         />
       ) : null}

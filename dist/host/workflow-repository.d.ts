@@ -62,8 +62,22 @@ export declare class WorkflowRepository {
         title: string;
         current_state: string;
     } | null>;
-    /** 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。 */
+    /**
+     * 删除整份 workflow 快照（宿主工作区被删除时同步清理，避免留下孤儿行）。
+     * **不真删**：移到 workflows-trash/<id>.<时间戳>.json，便于误删后恢复。
+     */
     remove(id: string): Promise<void>;
+    /** 列出回收站里的快照（按文件名倒序 = 最近删除优先）。 */
+    listTrash(): Promise<Array<{
+        id: string;
+        file: string;
+        deletedAt: string;
+    }>>;
+    /**
+     * 从回收站恢复（取该 id 最近一次删除的那份）。
+     * 已存在同名快照时不覆盖，直接返回 false。
+     */
+    restoreFromTrash(id: string): Promise<boolean>;
     /**
      * 把宿主目录工作区 id 写回快照（一次性迁移用：旧快照只有 working_directory）。
      * 已写过就不重复写；传空串等于清空。

@@ -9,6 +9,14 @@ export declare function applyWorkflowSettingsSection(ctx: any): void;
 export declare function WorkflowSettingsDialog(props: {
     onClose: () => void;
 }): import("react").JSX.Element;
+/** 通用二次确认弹窗：删除工作区等不可逆操作前先过一层。 */
+export declare function WorkflowConfirmDialog(props: {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+    onClose: () => void;
+}): import("react").JSX.Element;
 /** 节点补充说明弹窗：只编辑这个节点自己的附加说明，全局内容去设置里看。 */
 export declare function WorkflowNodeDetailDialog(props: {
     workflowId: string;
