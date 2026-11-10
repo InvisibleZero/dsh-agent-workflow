@@ -17,6 +17,7 @@ import {
   IconTriangleRightFillRegular,
   IconEditOutlineRegular,
   IconTrashOutlineRegular,
+  IconPinFillRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
 import type { WorkspaceKindPlugin } from './workspace-kind-registry';
@@ -242,37 +243,66 @@ function WorkflowWorkspaceItem(props: {
   const rootId = snapshot?.workspace_id ?? summary.id;
   const byId = new Map<string, any>((snapshot?.nodes ?? []).map((node: any) => [node.node_id, node]));
 
+  /**
+   * 节点绑定的会话在宿主里的实时状态。
+   * 复用宿主菜单做置顶/归档/改名时，行必须反映结果，否则用户以为菜单没生效。
+   */
+  const sessionsById: Record<string, any> = readClientService(ctx, 'sessions')?.list?.getSnapshot?.()?.byId ?? {};
+  const workspaceSnapshot: any = readClientService(ctx, 'workspaces')?.list?.getSnapshot?.() ?? null;
+  const pinnedSessionIds: Set<string> = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
+  const archivedSessionIds: Set<string> = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
+
   const renderNodeRow = (node: any, depth: number): any => {
     const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
+    const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
+    const sessionSummary = sessionId === null ? undefined : sessionsById[sessionId];
+    const sessionTitle = typeof sessionSummary?.title === 'string' ? sessionSummary.title.trim() : '';
+    /** 行标题优先跟随会话名（重命名会话后立刻可见），没有会话名才回退节点标题。 */
+    const displayTitle = sessionTitle !== '' ? sessionTitle : (node.title || '未命名会话');
+    const isPinned = sessionId !== null && pinnedSessionIds.has(sessionId);
+    const isArchived = sessionId !== null && archivedSessionIds.has(sessionId);
     const children = (node.child_ids ?? [])
       .map((id: string) => byId.get(id))
       .filter((child: any) => child !== undefined);
     /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
     const isCurrent = currentSessionId !== null
-      && typeof node.session_id === 'string'
-      && node.session_id !== ''
-      && node.session_id === currentSessionId;
+      && sessionId !== null
+      && sessionId === currentSessionId;
 
     return (
       <div key={node.node_id}>
         <div
           role="treeitem"
           aria-selected={isCurrent}
-          className={joinClasses(rowsClass('sessionRow'), isCurrent && rowsClass('selected'))}
-          title={busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'}
-          onClick={() => void openNodeSession(node)}
+          className={joinClasses(
+            rowsClass('sessionRow'),
+            isArchived && rowsClass('archived'),
+            isCurrent && rowsClass('selected'),
+          )}
+          title={isArchived
+            ? '该会话已归档，先在「⋯」里取消归档'
+            : (busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话')}
+          onClick={() => {
+            if (isArchived) return;
+            void openNodeSession(node);
+          }}
           style={{
             paddingLeft: 4 + depth * 14,
             cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
-            opacity: busyNodeId === node.node_id ? 0.6 : 1,
+            opacity: busyNodeId === node.node_id ? 0.6 : (isArchived ? 0.55 : 1),
           }}
         >
           <span className={rowsClass('slot')}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' }} />
           </span>
-          <span className={rowsClass('title')}>{node.title ?? node.node_type}</span>
+          <span className={rowsClass('title')}>{displayTitle}</span>
           <span className={rowsClass('rowResting')}>
-            <span className={rowsClass('time')}>{NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state}</span>
+            <span className={rowsClass('time')}>
+              {isArchived
+                ? '已归档'
+                : (NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state)}
+            </span>
+            {isPinned ? <IconPinFillRegular size={12} /> : null}
           </span>
           <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
             <button

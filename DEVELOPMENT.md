@@ -273,6 +273,31 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 - **验证**：展开一个 workflow，只看到「一行工作区（带状态）」+「若干缩进的子节点」，没有第二行同义节点。
 - **涉及文件**：`src/client/workflow-embedded.tsx`（`WorkflowWorkspaceItem` / `renderNodeRow`）。
 
+### D-15 把操作委托给宿主之后，行必须回显结果
+
+- **现象**：节点「⋯」里的「置顶会话 / 归档会话 / 重命名」点了"没反应"，控制台也没有报错。
+- **根因**：菜单和动作都是宿主的，改动写进了宿主状态（`workspace.json` 的 `pinnedSessionIds` / `archivedSessionIds`、会话标题），
+  但我们的节点行只读自己的快照（`title` / `session_id`），从不读会话状态，所以界面上看不到任何变化。
+  实测证据：点了三次置顶后 `pinnedSessionIds` 里确实多了三个节点会话，但行上没有任何标记。
+- **正确做法**：渲染节点行时同时读宿主状态——
+
+```tsx
+const sessionsById = ctx.get('sessions')?.list?.getSnapshot()?.byId ?? {};
+const workspaceSnapshot = ctx.get('workspaces')?.list?.getSnapshot() ?? null;
+const pinned = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
+const archived = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
+
+const summary = node.session_id ? sessionsById[node.session_id] : undefined;
+const title = summary?.title?.trim() || node.title || '未命名会话';  // 改名立刻可见
+const p = node.session_id ? pinned.has(node.session_id) : false;      // 星标
+const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 + 「已归档」
+```
+
+- **验证**：置顶后行尾出现星标；重命名会话后行标题跟着变；归档后整行变淡、显示「已归档」、点击不再尝试打开。
+- **已知缺口**：宿主菜单里的「复制 Session ID」「放入回收站」等操作的**提示（Toast）我们没渲染**（Toast 由被替换掉的宿主浏览器组件渲染），
+  所以这些操作仍是"静默成功"。要补就得自己注册 `workspace.toast` 的渲染入口。
+- **涉及文件**：`src/client/workflow-embedded.tsx`。
+
 ---
 
 ## 6. 记录格式（新增条目照抄）

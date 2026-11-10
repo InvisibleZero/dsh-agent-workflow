@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { WorkspaceKind } from './workspace-kind';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { rowsClass, joinClasses, WorkspaceKindIcon, menuPointFromEvent, menuAnchorRect } from './workspace-ui';
-import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, IconEditOutlineRegular, IconTrashOutlineRegular, } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Menu, Tooltip, IconEllipsisOutlineRegular, IconTriangleRightFillRegular, IconEditOutlineRegular, IconTrashOutlineRegular, IconPinFillRegular, } from '@deepseek-ai/dsh-client-ui-primitives';
 import { normalizeWorkspacePath } from './workspace-kind-registry';
 /** 五态单向推进表。 */
 const NEXT_NODE_STATE = {
@@ -236,21 +236,43 @@ function WorkflowWorkspaceItem(props) {
     };
     const rootId = snapshot?.workspace_id ?? summary.id;
     const byId = new Map((snapshot?.nodes ?? []).map((node) => [node.node_id, node]));
+    /**
+     * 节点绑定的会话在宿主里的实时状态。
+     * 复用宿主菜单做置顶/归档/改名时，行必须反映结果，否则用户以为菜单没生效。
+     */
+    const sessionsById = readClientService(ctx, 'sessions')?.list?.getSnapshot?.()?.byId ?? {};
+    const workspaceSnapshot = readClientService(ctx, 'workspaces')?.list?.getSnapshot?.() ?? null;
+    const pinnedSessionIds = new Set(workspaceSnapshot?.pinnedSessionIds ?? []);
+    const archivedSessionIds = new Set(workspaceSnapshot?.archivedSessionIds ?? []);
     const renderNodeRow = (node, depth) => {
         const nextState = NEXT_NODE_STATE[node.current_state] ?? null;
+        const sessionId = typeof node.session_id === 'string' && node.session_id !== '' ? node.session_id : null;
+        const sessionSummary = sessionId === null ? undefined : sessionsById[sessionId];
+        const sessionTitle = typeof sessionSummary?.title === 'string' ? sessionSummary.title.trim() : '';
+        /** 行标题优先跟随会话名（重命名会话后立刻可见），没有会话名才回退节点标题。 */
+        const displayTitle = sessionTitle !== '' ? sessionTitle : (node.title || '未命名会话');
+        const isPinned = sessionId !== null && pinnedSessionIds.has(sessionId);
+        const isArchived = sessionId !== null && archivedSessionIds.has(sessionId);
         const children = (node.child_ids ?? [])
             .map((id) => byId.get(id))
             .filter((child) => child !== undefined);
         /** 该节点绑定的会话正是当前打开的会话时，行保持选中态。 */
         const isCurrent = currentSessionId !== null
-            && typeof node.session_id === 'string'
-            && node.session_id !== ''
-            && node.session_id === currentSessionId;
-        return (_jsxs("div", { children: [_jsxs("div", { role: "treeitem", "aria-selected": isCurrent, className: joinClasses(rowsClass('sessionRow'), isCurrent && rowsClass('selected')), title: busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话', onClick: () => void openNodeSession(node), style: {
+            && sessionId !== null
+            && sessionId === currentSessionId;
+        return (_jsxs("div", { children: [_jsxs("div", { role: "treeitem", "aria-selected": isCurrent, className: joinClasses(rowsClass('sessionRow'), isArchived && rowsClass('archived'), isCurrent && rowsClass('selected')), title: isArchived
+                        ? '该会话已归档，先在「⋯」里取消归档'
+                        : (busyNodeId === node.node_id ? '正在打开会话…' : '点击打开该节点的会话'), onClick: () => {
+                        if (isArchived)
+                            return;
+                        void openNodeSession(node);
+                    }, style: {
                         paddingLeft: 4 + depth * 14,
                         cursor: busyNodeId === node.node_id ? 'progress' : 'pointer',
-                        opacity: busyNodeId === node.node_id ? 0.6 : 1,
-                    }, children: [_jsx("span", { className: rowsClass('slot'), children: _jsx("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), _jsx("span", { className: rowsClass('title'), children: node.title ?? node.node_type }), _jsx("span", { className: rowsClass('rowResting'), children: _jsx("span", { className: rowsClass('time'), children: NODE_STATE_LABEL[node.current_state] ?? node.current_state }) }), _jsxs("span", { className: rowsClass('rowActions'), onClick: (event) => event.stopPropagation(), children: [_jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
+                        opacity: busyNodeId === node.node_id ? 0.6 : (isArchived ? 0.55 : 1),
+                    }, children: [_jsx("span", { className: rowsClass('slot'), children: _jsx("span", { style: { width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' } }) }), _jsx("span", { className: rowsClass('title'), children: displayTitle }), _jsxs("span", { className: rowsClass('rowResting'), children: [_jsx("span", { className: rowsClass('time'), children: isArchived
+                                        ? '已归档'
+                                        : (NODE_STATE_LABEL[node.current_state] ?? node.current_state) }), isPinned ? _jsx(IconPinFillRegular, { size: 12 }) : null] }), _jsxs("span", { className: rowsClass('rowActions'), onClick: (event) => event.stopPropagation(), children: [_jsx("button", { type: "button", className: rowsClass('iconButton'), "aria-label": "\u4F1A\u8BDD\u83DC\u5355", "aria-haspopup": "menu", "aria-expanded": nodeMenu?.nodeId === node.node_id, onClick: (event) => {
                                         // 先把焦点落到触发按钮：宿主菜单关闭时要把焦点还回来，
                                         // 否则菜单隐藏时焦点仍在菜单项上，浏览器会报 aria-hidden 警告。
                                         event.currentTarget.focus({ preventScroll: true });
