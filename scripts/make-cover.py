@@ -143,6 +143,7 @@ def build_state():
     sections = [
         ("讨论中", STATE_WARN, [
             "只讨论不动手：写操作被门禁拒绝。",
+            "写文档只能通过 workflow_manual。",
         ]),
         ("实现中", STATE_BRAND, [
             "先读后改，只改与目标相关的文件。",
