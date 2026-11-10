@@ -1,6 +1,6 @@
 # dsh-agent-workflow —— Agent 编排与 Workflow 状态机插件
 
-<img src="assets/01-sessions.png" width="100%" alt="工作区 = 项目，会话 = 单元">
+<img src="assets/cover.png" width="100%" alt="会话列表 / 五态状态机 / 两层手册">
 
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：**工作区 = 一个项目，会话 = 一个 workflow 单元**。每个会话走**五态状态机**（讨论 → 实现 → 验收），当前状态自动决定注入给模型的操作细节，并把项目的方案、决策、要点沉淀进**两层手册**（项目手册 + 会话手册）。
 
@@ -37,8 +37,6 @@ DSH 原生是「工作区 → 会话」，会话之间没有流程、没有共�
 ```
 
 - 返工是**条件流转**：实现中可以退回讨论中（方案要改）；验收中可以退回实现中（小问题修补）或讨论中（方案错）。
-
-<img src="assets/02-state.png" width="100%" alt="五态状态机：当前状态决定注入什么">
 
 ### 3. 会话里的状态徽标
 
@@ -89,8 +87,6 @@ A（公共）+ 当前状态的 B/C/D
 - 实现中按「实施顺序」逐层落地，每完成一层勾掉，等「继续」再下一层；
 - 项目手册由各会话在收尾时回写结论，是跨会话的共享记忆；
 - `.gitignore` 若存在，自动补一行 `.workflow/`。
-
-<img src="assets/03-manual.png" width="100%" alt="两层手册：项目手册 + 会话手册">
 
 ### 8. 状态时间线
 
