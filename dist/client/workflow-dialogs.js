@@ -8,6 +8,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  * 样式全部用主题变量内联，深浅色自动跟随，不依赖 CSS Module。
  */
 import { useEffect, useRef, useState } from 'react';
+import { NODE_STATE_LABEL } from '../schema/node-state-label';
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
 const FIELD_STYLE = {
     width: '100%',
@@ -45,10 +46,10 @@ function Modal(props) {
     return (_jsxs(_Fragment, { children: [_jsx("div", { style: OVERLAY_STYLE, onClick: props.onClose }), _jsxs("div", { style: PANEL_STYLE, role: "dialog", "aria-label": props.title, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, children: [_jsx("strong", { style: { fontSize: 14 }, children: props.title }), _jsx("button", { type: "button", "aria-label": "\u5173\u95ED", onClick: props.onClose, style: { border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }, children: "\u00D7" })] }), props.children] })] }));
 }
 const STATE_TABS = [
-    { id: 'shared', label: '公共（A）' },
-    { id: 'discussing', label: '讨论中（B）' },
-    { id: 'implementing', label: '实现中（C）' },
-    { id: 'verifying', label: '验收中（D）' },
+    { id: 'shared', label: '公共' },
+    { id: 'discussing', label: '讨论中' },
+    { id: 'implementing', label: '实现中' },
+    { id: 'verifying', label: '验收中' },
 ];
 /**
  * 设置页里的「操作细节」分区内容。
@@ -132,7 +133,7 @@ export function WorkflowGlobalSettingsSection() {
         return _jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
     }
     const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F**\u5E94\u7528\u7EA7\u5168\u5C40**\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsx("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => (_jsx("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
+    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsx("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: STATE_TABS.map((tab) => (_jsx("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
                         padding: '6px 12px',
                         background: 'transparent',
                         border: 'none',
@@ -140,7 +141,7 @@ export function WorkflowGlobalSettingsSection() {
                         color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
                         cursor: 'pointer',
                         fontSize: 12,
-                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09\u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF0820%\uFF0C\u53EF\u7A7A\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282\uFF0880%\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 80%' }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) })] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
+                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF0820%\uFF0C\u53EF\u7A7A\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282\uFF0880%\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 80%' }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) })] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
                             : status === 'saving' ? '保存中…'
                                 : status === 'saved' ? '已自动保存'
                                     : status === 'error' ? '' : '改动会自动保存' }), error !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null] })] }));
@@ -187,8 +188,8 @@ export function WorkflowNodeDetailDialog(props) {
     }, [workflowId, nodeId]);
     const overrides = payload?.overrides ?? null;
     const currentState = payload?.node?.current_state ?? null;
-    const labels = { discussing: '讨论中（B）', implementing: '实现中（C）', verifying: '验收中（D）' };
-    return (_jsxs(Modal, { title: `操作细节 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", currentState, overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'] }), _jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282\uFF08A\uFF09" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: payload.global.shared_detail })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
+    const labels = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
+    return (_jsxs(Modal, { title: `操作细节 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", NODE_STATE_LABEL[currentState] ?? currentState, overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'] }), _jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: payload.global.shared_detail })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
                         const global = payload.global[state];
                         const override = overrides?.[state];
                         const shown = override ?? global;

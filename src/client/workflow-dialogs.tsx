@@ -7,6 +7,7 @@
  * 样式全部用主题变量内联，深浅色自动跟随，不依赖 CSS Module。
  */
 import { useEffect, useRef, useState } from 'react';
+import { NODE_STATE_LABEL } from '../schema/node-state-label';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
 
@@ -66,10 +67,10 @@ function Modal(props: { title: string; onClose: () => void; children: any }) {
 }
 
 const STATE_TABS = [
-  { id: 'shared', label: '公共（A）' },
-  { id: 'discussing', label: '讨论中（B）' },
-  { id: 'implementing', label: '实现中（C）' },
-  { id: 'verifying', label: '验收中（D）' },
+  { id: 'shared', label: '公共' },
+  { id: 'discussing', label: '讨论中' },
+  { id: 'implementing', label: '实现中' },
+  { id: 'verifying', label: '验收中' },
 ];
 
 /**
@@ -157,7 +158,7 @@ export function WorkflowGlobalSettingsSection() {
   return (
     <div style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary)' }}>
       <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }}>
-        这些操作细节是**应用级全局**的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
+        这些操作细节是应用级全局的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
@@ -182,7 +183,7 @@ export function WorkflowGlobalSettingsSection() {
       <div style={{ display: 'flex', flexDirection: 'column', height: 380 }}>
         {activeTab === 'shared' ? (
           <>
-            <label style={LABEL_STYLE}>公共操作细节（A）· 三态通用</label>
+            <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '1 1 auto' }}
               value={detail.shared_detail ?? ''}
@@ -280,7 +281,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
 
   const overrides = payload?.overrides ?? null;
   const currentState = payload?.node?.current_state ?? null;
-  const labels: Record<string, string> = { discussing: '讨论中（B）', implementing: '实现中（C）', verifying: '验收中（D）' };
+  const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
 
   return (
     <Modal title={`操作细节 · ${payload?.node?.title ?? '节点'}`} onClose={onClose}>
@@ -290,11 +291,11 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
       ) : (
         <>
           <div style={{ color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }}>
-            当前状态：{currentState}
+            当前状态：{NODE_STATE_LABEL[currentState as keyof typeof NODE_STATE_LABEL] ?? currentState}
             {overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'}
           </div>
           <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>公共操作细节（A）</div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>公共操作细节</div>
             <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{payload.global.shared_detail}</div>
           </div>
           {(['discussing', 'implementing', 'verifying'] as const).map((state) => {
