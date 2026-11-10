@@ -1,4 +1,4 @@
-"""生成插件封面（1200x800）。
+﻿"""生成插件封面（1200x800）。
 
 左侧：与插件一致的侧栏树，三层结构（工作区 → 子节点 → 孙节点）。
 右侧：说明「同一节点、不同状态 → 注入的上下文不一样」。
@@ -124,44 +124,45 @@ def draw_context_panel(canvas, x0, y0, w, h):
 
     title_font = ImageFont.truetype(FONT_BOLD, 20)
     node_font = ImageFont.truetype(FONT_REG, 15)
-    chip_font = ImageFont.truetype(FONT_REG, 15)
+    label_font = ImageFont.truetype(FONT_BOLD, 16)
     code_font = ImageFont.truetype(FONT_REG, 15)
     dim_font = ImageFont.truetype(FONT_REG, 13)
 
-    d.text((20, 20), "状态决定注入的上下文", font=title_font, fill=TEXT_PRIMARY)
-    d.text((20, 56), "节点：表单校验重构", font=node_font, fill=TEXT_MUTED)
+    d.text((20, 18), "状态决定注入的上下文", font=title_font, fill=TEXT_PRIMARY)
+    d.text((20, 52), "节点：表单校验重构", font=node_font, fill=TEXT_MUTED)
 
-    # 两个状态 chip：实现中 = 高亮
-    d.rounded_rectangle([(20, 88), (116, 122)], radius=9, fill=CHIP_INACTIVE, outline=PANEL_BORDER, width=1)
-    d.text((38, 91), "讨论中", font=chip_font, fill=TEXT_MUTED)
-    d.rounded_rectangle([(132, 88), (228, 122)], radius=9, fill=ACCENT)
-    d.text((150, 91), "实现中", font=chip_font, fill=(255, 255, 255))
+    bx0, bx1 = 20, w - 20
 
-    # 注入块
-    cb_x, cb_y = 20, 142
-    cb_w, cb_h = w - 40, 168
-    d.rounded_rectangle([(cb_x, cb_y), (cb_x + cb_w - 1, cb_y + cb_h - 1)], radius=10, fill=CODE_BG, outline=CODE_BORDER, width=1)
-    lines = [
+    def section(label, color, top, lines, active=False):
+        d.text((bx0, top), label, font=label_font, fill=color)
+        if active:
+            lw = d.textlength(label, font=label_font)
+            d.text((bx0 + lw + 10, top + 2), "当前态", font=dim_font, fill=ACCENT)
+        box_top = top + 24
+        box_h = 16 + len(lines) * 28 + 8
+        d.rounded_rectangle(
+            [(bx0, box_top), (bx1, box_top + box_h)],
+            radius=9,
+            fill=CODE_BG,
+            outline=(58, 86, 150) if active else CODE_BORDER,
+            width=1,
+        )
+        ly = box_top + 12
+        for line in lines:
+            d.text((bx0 + 16, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
+            ly += 28
+        return box_top + box_h
+
+    bottom = section("讨论中", STATE_WARN, 92, ["只讨论不动手：给方案、取舍与待确认点。"])
+    section("实现中", STATE_BRAND, bottom + 22, [
         "本阶段按已确认的方案落地。",
         "先读后改：只改相关文件，改动越少越好。",
         "完成后给出验证方式与通过标准。",
-    ]
-    ly = cb_y + 16
-    for line in lines:
-        d.text((cb_x + 16, ly), line, font=code_font, fill=ROW_CHILD_TITLE)
-        ly += 28
-    # 小箭头用线条画，避免字体缺字变成方框
-    ax, ay = cb_x + 18, ly + 8
-    d.line([(ax, ay), (ax + 5, ay + 5), (ax, ay + 10)], fill=TEXT_MUTED, width=2)
-    d.text((ax + 12, ly + 4), "这些会进这个会话的系统上下文", font=dim_font, fill=TEXT_MUTED)
+    ], active=True)
 
-    # 对比：讨论中会注入什么
-    d.text((20, 330), "同一个节点，切到「讨论中」则注入：", font=dim_font, fill=TEXT_MUTED)
-    d.rounded_rectangle([(20, 356), (w - 20, 392)], radius=9, fill=CODE_BG, outline=CODE_BORDER, width=1)
-    d.text((36, 364), "只讨论不动手：给方案、取舍与待确认点。", font=code_font, fill=STATE_WARN)
+    d.text((bx0, 366), "同一个节点：状态一切换，注入内容随之改变。", font=dim_font, fill=TEXT_MUTED)
 
     canvas.paste(panel, (x0, y0), panel)
-
 
 canvas = gradient_canvas()
 
@@ -187,3 +188,4 @@ draw_context_panel(canvas, 580, 320, 556, 430)
 
 canvas.convert("RGB").save(OUT, "PNG")
 print("written", OUT, canvas.size)
+
