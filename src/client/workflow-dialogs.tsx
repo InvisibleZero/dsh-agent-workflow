@@ -282,6 +282,41 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const overrides = payload?.overrides ?? null;
   const currentState = payload?.node?.current_state ?? null;
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteStatus, setNoteStatus] = useState<string | null>(null);
+  const timers = useRef<Record<string, any>>({});
+
+  // 读到数据后把节点自己的附加说明灌进本地草稿。
+  useEffect(() => {
+    if (payload === null) return;
+    setNotes({
+      discussing: String(payload.additional?.discussing ?? ''),
+      implementing: String(payload.additional?.implementing ?? ''),
+      verifying: String(payload.additional?.verifying ?? ''),
+    });
+  }, [payload]);
+
+  /** 附加说明：防抖 700ms 自动保存到该节点，不影响全局设置。 */
+  const saveNote = (state: string, text: string) => {
+    setNotes((current) => ({ ...current, [state]: text }));
+    if (timers.current[state] !== undefined) clearTimeout(timers.current[state]);
+    setNoteStatus('待保存…');
+    timers.current[state] = window.setTimeout(async () => {
+      timers.current[state] = undefined;
+      setNoteStatus('保存中…');
+      try {
+        const response = await fetch('/dsh-agent-workflow/node-note', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: workflowId, nodeId, state, text }),
+        });
+        const data = await response.json().catch(() => null);
+        setNoteStatus(data?.ok === true ? '已保存' : String(data?.error ?? '保存失败'));
+      } catch (reason) {
+        setNoteStatus(String(reason));
+      }
+    }, 700);
+  };
 
   return (
     <Modal title={`操作细节 · ${payload?.node?.title ?? '节点'}`} onClose={onClose}>
@@ -293,6 +328,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           <div style={{ color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }}>
             当前状态：{NODE_STATE_LABEL[currentState as keyof typeof NODE_STATE_LABEL] ?? currentState}
             {overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'}
+            {noteStatus === null ? '' : `　附加说明：${noteStatus}`}
           </div>
           <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>公共操作细节</div>
@@ -321,6 +357,13 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                     进入后默认输入：{shown.enter_trigger}
                   </div>
                 ) : null}
+                <label style={{ ...LABEL_STYLE, marginTop: 10 }}>附加说明（只作用于本节点，接在全局后面）</label>
+                <textarea
+                  style={{ ...FIELD_STYLE, minHeight: 46 }}
+                  placeholder="留空则不追加"
+                  value={notes[state] ?? ''}
+                  onChange={(event) => saveNote(state, event.target.value)}
+                />
               </div>
             );
           })}

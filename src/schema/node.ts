@@ -34,6 +34,15 @@ export const AgentNode = z.object({
     implementing: StateDetail.optional(),
     verifying: StateDetail.optional(),
   }).optional(),
+  /**
+   * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
+   * 与覆盖相反——是纯增量，删掉就回到全局原样。
+   */
+  additional_detail: z.object({
+    discussing: z.string().optional(),
+    implementing: z.string().optional(),
+    verifying: z.string().optional(),
+  }).optional(),
   // —— 防御性约束 ——
   depth: z.number().int().nonnegative(),
   max_depth: z.number().int().positive(),

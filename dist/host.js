@@ -88,6 +88,15 @@ var AgentNode = z2.object({
     implementing: StateDetail.optional(),
     verifying: StateDetail.optional()
   }).optional(),
+  /**
+   * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
+   * 与覆盖相反——是纯增量，删掉就回到全局原样。
+   */
+  additional_detail: z2.object({
+    discussing: z2.string().optional(),
+    implementing: z2.string().optional(),
+    verifying: z2.string().optional()
+  }).optional(),
   // —— 防御性约束 ——
   depth: z2.number().int().nonnegative(),
   max_depth: z2.number().int().positive(),
@@ -355,6 +364,33 @@ var WorkflowRepository = class {
     return parsed;
   }
   /**
+   * 设置节点级「附加说明」（纯增量，不覆盖全局）。
+   * 传空串 = 删除该状态的附加说明；三个都空则把字段整个去掉。
+   */
+  async setNodeNote(input) {
+    const snapshot = await this.storage.load(input.id);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    const state = input.state;
+    if (!["discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
+    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+    if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const text = input.text.trim();
+    const updated = {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.node_id !== input.nodeId) return node;
+        const next = { ...node.additional_detail ?? {} };
+        if (text === "") delete next[state];
+        else next[state] = text;
+        const hasAny = Object.keys(next).length > 0;
+        const { additional_detail: _previous, ...rest } = node;
+        return hasAny ? { ...rest, additional_detail: next } : rest;
+      })
+    };
+    await this.storage.save(updated);
+    return updated;
+  }
+  /**
    * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
    * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
    */
@@ -541,6 +577,10 @@ function registerWorkflowStateContext(ctx, repository) {
     ];
     if (typeof effective.full_detail === "string" && effective.full_detail.trim() !== "") {
       parts.push("", effective.full_detail.trim());
+    }
+    const addition = typeof node.additional_detail === "object" && node.additional_detail !== null ? node.additional_detail[node.current_state] : void 0;
+    if (typeof addition === "string" && addition.trim() !== "") {
+      parts.push("", `\u672C\u8282\u70B9\u8865\u5145\u8981\u6C42\uFF1A${addition.trim()}`);
     }
     parts.push("</workflow-state>");
     let text = parts.join("\n");
@@ -763,8 +803,21 @@ function apply(ctx) {
           node: { node_id: node.node_id, title: node.title ?? "", current_state: node.current_state },
           global,
           effective: effectiveDetail(node.current_state, node, global),
-          overrides: node.state_detail_overrides ?? null
+          overrides: node.state_detail_overrides ?? null,
+          additional: node.additional_detail ?? null
         };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/node-note",
+      handler: makeHandler(repository, "POST", async (body) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        if (typeof body?.state !== "string" || body.state === "") throw new Error("\u7F3A\u5C11 state");
+        if (typeof body?.text !== "string") throw new Error("\u7F3A\u5C11 text");
+        const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
+        return { snapshot };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

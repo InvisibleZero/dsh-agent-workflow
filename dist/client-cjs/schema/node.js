@@ -36,6 +36,15 @@ exports.AgentNode = zod_1.z.object({
         implementing: node_state_1.StateDetail.optional(),
         verifying: node_state_1.StateDetail.optional(),
     }).optional(),
+    /**
+     * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
+     * 与覆盖相反——是纯增量，删掉就回到全局原样。
+     */
+    additional_detail: zod_1.z.object({
+        discussing: zod_1.z.string().optional(),
+        implementing: zod_1.z.string().optional(),
+        verifying: zod_1.z.string().optional(),
+    }).optional(),
     // —— 防御性约束 ——
     depth: zod_1.z.number().int().nonnegative(),
     max_depth: zod_1.z.number().int().positive(),

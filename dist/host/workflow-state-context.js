@@ -49,6 +49,13 @@ export function registerWorkflowStateContext(ctx, repository) {
         if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
             parts.push('', effective.full_detail.trim());
         }
+        // 节点级附加说明：纯增量，接在全局细节后面。
+        const addition = typeof node.additional_detail === 'object' && node.additional_detail !== null
+            ? node.additional_detail[node.current_state]
+            : undefined;
+        if (typeof addition === 'string' && addition.trim() !== '') {
+            parts.push('', `本节点补充要求：${addition.trim()}`);
+        }
         parts.push('</workflow-state>');
         let text = parts.join('\n');
         if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {

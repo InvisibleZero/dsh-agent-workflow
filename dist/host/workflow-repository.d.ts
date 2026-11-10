@@ -43,6 +43,16 @@ export declare class WorkflowRepository {
     /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
     updateGlobalOperationDetail(id: string, raw: unknown): Promise<WorkflowSnapshot['settings']['global_operation_detail']>;
     /**
+     * 设置节点级「附加说明」（纯增量，不覆盖全局）。
+     * 传空串 = 删除该状态的附加说明；三个都空则把字段整个去掉。
+     */
+    setNodeNote(input: {
+        id: string;
+        nodeId: string;
+        state: string;
+        text: string;
+    }): Promise<WorkflowSnapshot>;
+    /**
      * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
      * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
      */

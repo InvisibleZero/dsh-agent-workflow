@@ -189,7 +189,43 @@ export function WorkflowNodeDetailDialog(props) {
     const overrides = payload?.overrides ?? null;
     const currentState = payload?.node?.current_state ?? null;
     const labels = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
-    return (_jsxs(Modal, { title: `操作细节 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", NODE_STATE_LABEL[currentState] ?? currentState, overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）'] }), _jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: payload.global.shared_detail })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
+    const [notes, setNotes] = useState({});
+    const [noteStatus, setNoteStatus] = useState(null);
+    const timers = useRef({});
+    // 读到数据后把节点自己的附加说明灌进本地草稿。
+    useEffect(() => {
+        if (payload === null)
+            return;
+        setNotes({
+            discussing: String(payload.additional?.discussing ?? ''),
+            implementing: String(payload.additional?.implementing ?? ''),
+            verifying: String(payload.additional?.verifying ?? ''),
+        });
+    }, [payload]);
+    /** 附加说明：防抖 700ms 自动保存到该节点，不影响全局设置。 */
+    const saveNote = (state, text) => {
+        setNotes((current) => ({ ...current, [state]: text }));
+        if (timers.current[state] !== undefined)
+            clearTimeout(timers.current[state]);
+        setNoteStatus('待保存…');
+        timers.current[state] = window.setTimeout(async () => {
+            timers.current[state] = undefined;
+            setNoteStatus('保存中…');
+            try {
+                const response = await fetch('/dsh-agent-workflow/node-note', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ id: workflowId, nodeId, state, text }),
+                });
+                const data = await response.json().catch(() => null);
+                setNoteStatus(data?.ok === true ? '已保存' : String(data?.error ?? '保存失败'));
+            }
+            catch (reason) {
+                setNoteStatus(String(reason));
+            }
+        }, 700);
+    };
+    return (_jsxs(Modal, { title: `操作细节 · ${payload?.node?.title ?? '节点'}`, onClose: onClose, children: [error !== null ? _jsx("div", { style: { color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, payload === null ? (_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: { color: 'var(--dsw-alias-label-secondary)', marginBottom: 10 }, children: ["\u5F53\u524D\u72B6\u6001\uFF1A", NODE_STATE_LABEL[currentState] ?? currentState, overrides !== null ? '（该节点有覆盖项，标注为「已覆盖」）' : '（沿用全局设置）', noteStatus === null ? '' : `　附加说明：${noteStatus}`] }), _jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: payload.global.shared_detail })] }), ['discussing', 'implementing', 'verifying'].map((state) => {
                         const global = payload.global[state];
                         const override = overrides?.[state];
                         const shown = override ?? global;
@@ -199,7 +235,7 @@ export function WorkflowNodeDetailDialog(props) {
                                 padding: 10,
                                 marginBottom: 10,
                                 background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
-                            }, children: [_jsxs("div", { style: { fontWeight: 600, marginBottom: 6 }, children: [labels[state], currentState === state ? _jsx("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null, override !== undefined ? _jsx("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)' }, children: "\u5DF2\u8986\u76D6" }) : null] }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: shown.operation_detail }), shown.enter_trigger !== null && shown.enter_trigger !== '' ? (_jsxs("div", { style: { marginTop: 6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u8FDB\u5165\u540E\u9ED8\u8BA4\u8F93\u5165\uFF1A", shown.enter_trigger] })) : null] }, state));
+                            }, children: [_jsxs("div", { style: { fontWeight: 600, marginBottom: 6 }, children: [labels[state], currentState === state ? _jsx("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null, override !== undefined ? _jsx("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)' }, children: "\u5DF2\u8986\u76D6" }) : null] }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6 }, children: shown.operation_detail }), shown.enter_trigger !== null && shown.enter_trigger !== '' ? (_jsxs("div", { style: { marginTop: 6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u8FDB\u5165\u540E\u9ED8\u8BA4\u8F93\u5165\uFF1A", shown.enter_trigger] })) : null, _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u9644\u52A0\u8BF4\u660E\uFF08\u53EA\u4F5C\u7528\u4E8E\u672C\u8282\u70B9\uFF0C\u63A5\u5728\u5168\u5C40\u540E\u9762\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, minHeight: 46 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes[state] ?? '', onChange: (event) => saveNote(state, event.target.value) })] }, state));
                     })] }))] }));
 }
 //# sourceMappingURL=workflow-dialogs.js.map

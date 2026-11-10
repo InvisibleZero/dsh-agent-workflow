@@ -357,6 +357,19 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             } | undefined;
         }>>;
+        additional_detail: z.ZodOptional<z.ZodObject<{
+            discussing: z.ZodOptional<z.ZodString>;
+            implementing: z.ZodOptional<z.ZodString>;
+            verifying: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
+        }, {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
+        }>>;
         depth: z.ZodNumber;
         max_depth: z.ZodNumber;
         step_count: z.ZodNumber;
@@ -389,6 +402,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 enter_trigger: string | null;
             } | undefined;
         } | undefined;
+        additional_detail?: {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
+        } | undefined;
     }, {
         node_id: string;
         parent_id: string | null;
@@ -416,6 +434,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 operation_detail: string;
                 enter_trigger: string | null;
             } | undefined;
+        } | undefined;
+        additional_detail?: {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
         } | undefined;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
@@ -469,6 +492,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 operation_detail: string;
                 enter_trigger: string | null;
             } | undefined;
+        } | undefined;
+        additional_detail?: {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
         } | undefined;
     }[];
     working_directory?: string | undefined;
@@ -525,6 +553,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                 operation_detail: string;
                 enter_trigger: string | null;
             } | undefined;
+        } | undefined;
+        additional_detail?: {
+            discussing?: string | undefined;
+            implementing?: string | undefined;
+            verifying?: string | undefined;
         } | undefined;
     }[];
     working_directory?: string | undefined;

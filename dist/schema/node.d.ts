@@ -85,6 +85,23 @@ export declare const AgentNode: z.ZodObject<{
             enter_trigger: string | null;
         } | undefined;
     }>>;
+    /**
+     * 节点级「附加说明」：不改全局设置，只在本节点当前状态后面追加一段。
+     * 与覆盖相反——是纯增量，删掉就回到全局原样。
+     */
+    additional_detail: z.ZodOptional<z.ZodObject<{
+        discussing: z.ZodOptional<z.ZodString>;
+        implementing: z.ZodOptional<z.ZodString>;
+        verifying: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        discussing?: string | undefined;
+        implementing?: string | undefined;
+        verifying?: string | undefined;
+    }, {
+        discussing?: string | undefined;
+        implementing?: string | undefined;
+        verifying?: string | undefined;
+    }>>;
     depth: z.ZodNumber;
     max_depth: z.ZodNumber;
     step_count: z.ZodNumber;
@@ -117,6 +134,11 @@ export declare const AgentNode: z.ZodObject<{
             enter_trigger: string | null;
         } | undefined;
     } | undefined;
+    additional_detail?: {
+        discussing?: string | undefined;
+        implementing?: string | undefined;
+        verifying?: string | undefined;
+    } | undefined;
 }, {
     node_id: string;
     parent_id: string | null;
@@ -144,6 +166,11 @@ export declare const AgentNode: z.ZodObject<{
             operation_detail: string;
             enter_trigger: string | null;
         } | undefined;
+    } | undefined;
+    additional_detail?: {
+        discussing?: string | undefined;
+        implementing?: string | undefined;
+        verifying?: string | undefined;
     } | undefined;
 }>;
 export type AgentNode = z.infer<typeof AgentNode>;

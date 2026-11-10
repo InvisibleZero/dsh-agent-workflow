@@ -138,6 +138,39 @@ export class WorkflowRepository {
         return parsed;
     }
     /**
+     * 设置节点级「附加说明」（纯增量，不覆盖全局）。
+     * 传空串 = 删除该状态的附加说明；三个都空则把字段整个去掉。
+     */
+    async setNodeNote(input) {
+        const snapshot = await this.storage.load(input.id);
+        if (snapshot === null)
+            throw new Error('找不到该 workflow');
+        const state = input.state;
+        if (!['discussing', 'implementing', 'verifying'].includes(state))
+            throw new Error('非法状态');
+        const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+        if (!exists)
+            throw new Error('找不到节点');
+        const text = input.text.trim();
+        const updated = {
+            ...snapshot,
+            nodes: snapshot.nodes.map((node) => {
+                if (node.node_id !== input.nodeId)
+                    return node;
+                const next = { ...(node.additional_detail ?? {}) };
+                if (text === '')
+                    delete next[state];
+                else
+                    next[state] = text;
+                const hasAny = Object.keys(next).length > 0;
+                const { additional_detail: _previous, ...rest } = node;
+                return hasAny ? { ...rest, additional_detail: next } : rest;
+            }),
+        };
+        await this.storage.save(updated);
+        return updated;
+    }
+    /**
      * 按绑定的会话 id 反查节点（输入框旁的状态徽标用）。
      * workflow 数量很少，逐个文件扫一遍足够；单文件损坏就跳过。
      */

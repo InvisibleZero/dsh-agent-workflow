@@ -178,7 +178,20 @@ export function apply(ctx: any) {
           global,
           effective: effectiveDetail(node.current_state, node, global),
           overrides: node.state_detail_overrides ?? null,
+          additional: node.additional_detail ?? null,
         };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/node-note',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
+        if (typeof body?.state !== 'string' || body.state === '') throw new Error('缺少 state');
+        if (typeof body?.text !== 'string') throw new Error('缺少 text');
+        const snapshot = await repository.setNodeNote({ id: body.id, nodeId: body.nodeId, state: body.state, text: body.text });
+        return { snapshot };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
