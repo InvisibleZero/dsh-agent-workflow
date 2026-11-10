@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent workflow",
+    "description": "A sidebar workspace browser plus tree-shaped workflow workspaces whose nodes step through a five-stage state machine."
+  }
+}

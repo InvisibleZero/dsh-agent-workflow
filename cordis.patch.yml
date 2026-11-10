@@ -1,0 +1,6 @@
+# dsh-agent-workflow bundle patch
+# Insert this plugin into the cordis entry tree (host half).
+# The client half loads from the dsh.client declaration + exports["./client"].
+- insert:
+    - id: dsh-agent-workflow
+      name: dsh-agent-workflow

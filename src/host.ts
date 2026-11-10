@@ -1,0 +1,162 @@
+// @ts-nocheck
+/**
+ * dsh-agent-workflow 宿主半（cordis 插件）。
+ *
+ * 职责：给浏览器半暴露 3 个本机 HTTP 路由（list / create / get），
+ * 背后读写我们自己的 WorkflowRepository。客户端用 `fetch('/dsh-agent-workflow/*')` 调用，
+ * 与 model-router 的路由写法一致（webServer.register + kind: 'exact'）。
+ */
+
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { WorkflowRepository } from './host/workflow-repository';
+
+export const inject = [];
+
+function resolveDataDir(): string {
+  const profileDir = process.env.DSH_PROFILE_DIR;
+  const base = profileDir && profileDir.trim() !== '' ? profileDir : join(homedir(), '.dsh');
+  return join(base, 'dsh-agent-workflow');
+}
+
+/** 只允许本机页面读写，避免把 workflow 数据接口暴露到局域网。 */
+function isLoopbackRequest(req: any): boolean {
+  try {
+    const host = String(req?.headers?.host ?? '');
+    return /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
+  } catch {
+    return false;
+  }
+}
+
+function denyRequest(res: any): void {
+  try {
+    res.statusCode = 403;
+    res.end('forbidden');
+  } catch {
+    // 连接已断开时忽略。
+  }
+}
+
+function sendJson(res: any, status: number, value: unknown): void {
+  try {
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(value));
+  } catch {
+    // 连接已断开时忽略。
+  }
+}
+
+function readJsonBody(req: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > 1024 * 1024) {
+        reject(new Error('请求体过大'));
+        req.destroy?.();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+      } catch {
+        reject(new Error('JSON 解析失败'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function makeHandler(repository: WorkflowRepository, method: string, run: (body: any, query: URLSearchParams) => Promise<unknown>) {
+  return async (req: any, res: any) => {
+    if (!isLoopbackRequest(req)) return denyRequest(res);
+    if (req.method !== method) return sendJson(res, 405, { ok: false, error: `只接受 ${method}` });
+    let body: any = {};
+    let query = new URLSearchParams();
+    try {
+      if (req.method === 'POST') body = await readJsonBody(req);
+      const rawQuery = String((req.url ?? '').split('?')[1] ?? '');
+      query = new URLSearchParams(rawQuery);
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: String((error as Error).message ?? error) });
+    }
+    try {
+      const value = await run(body, query);
+      sendJson(res, 200, { ok: true, ...value });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: String((error as Error).message ?? error) });
+    }
+  };
+}
+
+export function apply(ctx: any) {
+  const repository = new WorkflowRepository(resolveDataDir());
+
+  ctx.inject(['webServer'], (webCtx: any) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/list',
+      handler: makeHandler(repository, 'GET', async () => ({ items: await repository.list() })),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/create',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.path !== 'string' || body.path.trim() === '') {
+          throw new Error('缺少工作目录 path');
+        }
+        const workspace = await repository.create({ title: body.title, path: body.path.trim() });
+        return { workspace };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/get',
+      handler: makeHandler(repository, 'GET', async (_body, query) => {
+        const id = query.get('id');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        const snapshot = await repository.get(id);
+        if (snapshot === null) throw new Error('找不到该 workflow');
+        return { snapshot };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/add-node',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.parentId !== 'string' || body.parentId === '') throw new Error('缺少 parentId');
+        const snapshot = await repository.addNode({
+          id: body.id,
+          parentId: body.parentId,
+          title: typeof body.title === 'string' ? body.title : undefined,
+        });
+        return { snapshot };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/transition',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
+        if (typeof body?.to !== 'string' || body.to === '') throw new Error('缺少 to');
+        const snapshot = await repository.transitionNode({ id: body.id, nodeId: body.nodeId, to: body.to });
+        return { snapshot };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/pin',
+      handler: makeHandler(repository, 'POST', async (body) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        const snapshot = await repository.setPinned({ id: body.id, pinned: body.pinned === true });
+        return { snapshot };
+      }),
+    }));
+  });
+}

@@ -1,0 +1,1 @@
+{"version":3,"file":"interrupt.d.ts","sourceRoot":"","sources":["../../src/engine/interrupt.ts"],"names":[],"mappings":"AAAA,iCAAiC;AACjC,MAAM,WAAW,QAAQ;IACvB,IAAI,CAAC,MAAM,EAAE,MAAM,GAAG,OAAO,CAAC,IAAI,CAAC,CAAC;CACrC;AAED;;;GAGG;AACH,wBAAsB,gBAAgB,CACpC,aAAa,EAAE,CAAC,EAAE,EAAE,MAAM,KAAK,MAAM,EAAE,EACvC,MAAM,EAAE,MAAM,EACd,IAAI,EAAE,QAAQ,GACb,OAAO,CAAC,IAAI,CAAC,CAMf"}

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false,
+    "outDir": "dist/client-cjs",
+    "rootDir": "src",
+    "noEmit": false,
+    "declaration": false,
+    "declarationMap": false,
+    "jsx": "react-jsx"
+  },
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "src/schema/**/*.ts", "src/adapter/port.ts"],
+  "exclude": ["node_modules", "dist", "test"]
+}

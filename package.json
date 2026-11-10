@@ -1,0 +1,61 @@
+{
+  "name": "dsh-agent-workflow",
+  "version": "0.1.0",
+  "description": "Agent 编排与 Workflow 状态机插件：断点续传、状态持久化、树形可视化",
+  "type": "module",
+  "main": "dist/host.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/host.js",
+    "./client": "./dist/client-bundle.js",
+    "./lib": "./dist/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-host.mjs && tsc -p tsconfig.client-cjs.json && node scripts/bundle-client.mjs",
+    "build:host": "tsc -p tsconfig.json && node scripts/build-host.mjs",
+    "build:client": "tsc -p tsconfig.client-cjs.json && node scripts/bundle-client.mjs",
+    "smoke": "node scripts/smoke-client.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-modules"
+      ]
+    },
+    "manifestVersion": 1
+  }
+}

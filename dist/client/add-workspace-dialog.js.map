@@ -1,0 +1,1 @@
+{"version":3,"file":"add-workspace-dialog.js","sourceRoot":"","sources":["../../src/client/add-workspace-dialog.tsx"],"names":[],"mappings":";AAAA;;;GAGG;AACH,MAAM,UAAU,kBAAkB,CAAC,KAGlC;IACC,OAAO,CACL,eAAK,SAAS,EAAC,mCAAmC,aAChD,iBAAQ,IAAI,EAAC,QAAQ,EAAC,OAAO,EAAE,KAAK,CAAC,YAAY,+CAExC,EACT,iBAAQ,IAAI,EAAC,QAAQ,EAAC,OAAO,EAAE,KAAK,CAAC,aAAa,4CAEzC,IACL,CACP,CAAC;AACJ,CAAC"}

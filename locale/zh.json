@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent 工作流",
+    "description": "侧栏工作区浏览器，外加树形 workflow 工作区：每个节点按五态状态机逐级推进。"
+  }
+}
