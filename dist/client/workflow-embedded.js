@@ -32,6 +32,11 @@ const NODE_STATE_COLOR = {
     verifying: 'var(--dsw-alias-state-warn-primary)',
     completed: 'var(--dsw-alias-state-success-primary)',
 };
+/** 返工（后退）转移表：当前态 → 可退回的态。 */
+const BACKWARD_STATES = {
+    implementing: ['discussing'],
+    verifying: ['implementing', 'discussing'],
+};
 function WorkflowStateBadge(props) {
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
     const [nodeInfo, setNodeInfo] = useState(null);
@@ -39,10 +44,37 @@ function WorkflowStateBadge(props) {
     const [checklist, setChecklist] = useState([]);
     const [hasPlan, setHasPlan] = useState(true);
     const [checklistMenu, setChecklistMenu] = useState(null);
+    const [backwardMenu, setBackwardMenu] = useState(null);
     const [detailOpen, setDetailOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [returnToDetail, setReturnToDetail] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const claimedRef = useRef(false);
+    // 自动认领需要会话的工作目录：用槽位给的 useSessions 读当前会话的 cwd。
+    const sessionsSnap = typeof props?.useSessions === 'function' ? props.useSessions() : null;
+    const sessionCwd = (() => {
+        try {
+            const cwd = sessionsSnap?.getSnapshot?.()?.byId?.[sessionId]?.cwd;
+            return typeof cwd === 'string' ? cwd : '';
+        }
+        catch {
+            return '';
+        }
+    })();
+    const ensureNode = async (workingDirectory) => {
+        try {
+            const response = await fetch('/dsh-agent-workflow/ensure-node', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ sessionId, workingDirectory }),
+            });
+            const data = await response.json().catch(() => null);
+            return data?.ok === true && data.node !== null && data.node !== undefined;
+        }
+        catch {
+            return false;
+        }
+    };
     const readChecklist = async (workflowId, nodeId) => {
         try {
             const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
@@ -113,7 +145,14 @@ function WorkflowStateBadge(props) {
         const tick = async () => {
             if (cancelled)
                 return;
-            const info = await readNode();
+            let info = await readNode();
+            // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
+            if (info === null && !claimedRef.current && sessionCwd !== '') {
+                claimedRef.current = true;
+                const ok = await ensureNode(sessionCwd);
+                if (ok)
+                    info = await readNode();
+            }
             if (info !== null && info.state === 'implementing')
                 void readChecklist(info.workflowId, info.nodeId);
             else
@@ -125,27 +164,29 @@ function WorkflowStateBadge(props) {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [sessionId]);
+    }, [sessionId, sessionCwd]);
     if (nodeInfo === null)
         return null;
     const label = NODE_STATE_LABEL[nodeInfo.state] ?? nodeInfo.state;
     const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
-    /** 真正写状态 + 刷新 + 填默认输入。 */
-    const doAdvance = async () => {
-        if (nextState === null || advancing)
+    /** 真正写状态（前进或返工） + 刷新 + 填默认输入。 */
+    const transitionTo = async (to) => {
+        if (advancing)
             return;
         setAdvancing(true);
         try {
             await fetch('/dsh-agent-workflow/transition', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to: nextState }),
+                body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
             });
             const info = await readNode();
             if (info !== null && info.enterTrigger !== '')
                 pushDraft(info.enterTrigger);
             if (info !== null && info.state === 'implementing')
                 void readChecklist(info.workflowId, info.nodeId);
+            else
+                setChecklist([]);
         }
         catch (error) {
             console.error('[dsh-agent-workflow] 推进状态失败：', error);
@@ -165,9 +206,10 @@ function WorkflowStateBadge(props) {
                 return;
             }
         }
-        void doAdvance();
+        void transitionTo(nextState);
     };
     const doneCount = checklist.filter((item) => item.done).length;
+    const backwardStates = BACKWARD_STATES[nodeInfo.state] ?? [];
     return (_jsxs(_Fragment, { children: [_jsxs("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsxs("button", { type: "button", title: "\u67E5\u770B\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282 / \u5DE5\u4F5C\u624B\u518C", onClick: () => setDetailOpen(true), style: {
                             display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px',
                             borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
@@ -182,7 +224,22 @@ function WorkflowStateBadge(props) {
                                     borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                                     color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary)',
                                     fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
-                                }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, nextState === null ? null : (_jsx(Tooltip, { label: `推进到 ${NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: _jsx("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
+                                }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? (_jsxs(_Fragment, { children: [_jsx(Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: _jsx("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
+                                        event.currentTarget.focus({ preventScroll: true });
+                                        const point = menuPointFromEvent(event);
+                                        setBackwardMenu((current) => (current === null ? point : null));
+                                    }, style: {
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22,
+                                        border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, background: 'transparent',
+                                        color: 'var(--dsw-alias-label-secondary)', cursor: advancing ? 'progress' : 'pointer',
+                                        opacity: advancing ? 0.6 : 1,
+                                    }, children: _jsxs("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, style: { display: 'block' }, children: [_jsx("path", { d: "M19 12H6" }), _jsx("path", { d: "m11.5 6-6 6 6 6" })] }) }) }), backwardMenu !== null ? (_jsx(Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => menuAnchorRect(backwardMenu), items: backwardStates.map((state) => ({
+                                    id: state,
+                                    label: `返工到 ${NODE_STATE_LABEL[state] ?? state}`,
+                                })), onClose: () => setBackwardMenu(null), onSelect: (id) => {
+                                    setBackwardMenu(null);
+                                    void transitionTo(id);
+                                } })) : null] })) : null, nextState === null ? null : (_jsx(Tooltip, { label: `推进到 ${NODE_STATE_LABEL[nextState] ?? nextState}`, side: "top", delayMs: 400, portal: true, children: _jsx("button", { type: "button", "aria-label": "\u63A8\u8FDB\u5230\u4E0B\u4E00\u9636\u6BB5", disabled: advancing, onClick: () => void advance(), style: {
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22,
                                 border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, background: 'transparent',
                                 color: 'var(--dsw-alias-label-secondary)', cursor: advancing ? 'progress' : 'pointer',
@@ -199,7 +256,7 @@ function WorkflowStateBadge(props) {
                             }
                         } })) : null, confirmOpen ? (_jsx(WorkflowConfirmDialog, { title: "\u8FDB\u5165\u5B9E\u73B0\u4E2D", message: '这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案', confirmLabel: "\u4ECD\u8FDB\u5165", onClose: () => setConfirmOpen(false), onConfirm: () => {
                             setConfirmOpen(false);
-                            void doAdvance();
+                            void transitionTo(nextState);
                         } })) : null] }), document.body)] }));
 }
 /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */

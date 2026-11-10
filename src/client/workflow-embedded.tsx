@@ -46,17 +46,50 @@ interface ChecklistItem {
   done: boolean;
 }
 
-function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
+/** 返工（后退）转移表：当前态 → 可退回的态。 */
+const BACKWARD_STATES: Record<string, string[]> = {
+  implementing: ['discussing'],
+  verifying: ['implementing', 'discussing'],
+};
+
+function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; useSessions?: any }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [hasPlan, setHasPlan] = useState(true);
   const [checklistMenu, setChecklistMenu] = useState<{ x: number; y: number } | null>(null);
+  const [backwardMenu, setBackwardMenu] = useState<{ x: number; y: number } | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [returnToDetail, setReturnToDetail] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const claimedRef = useRef(false);
+
+  // 自动认领需要会话的工作目录：用槽位给的 useSessions 读当前会话的 cwd。
+  const sessionsSnap = typeof props?.useSessions === 'function' ? props.useSessions() : null;
+  const sessionCwd = (() => {
+    try {
+      const cwd = sessionsSnap?.getSnapshot?.()?.byId?.[sessionId]?.cwd;
+      return typeof cwd === 'string' ? cwd : '';
+    } catch {
+      return '';
+    }
+  })();
+
+  const ensureNode = async (workingDirectory: string): Promise<boolean> => {
+    try {
+      const response = await fetch('/dsh-agent-workflow/ensure-node', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, workingDirectory }),
+      });
+      const data = await response.json().catch(() => null);
+      return data?.ok === true && data.node !== null && data.node !== undefined;
+    } catch {
+      return false;
+    }
+  };
 
   const readChecklist = async (workflowId: string, nodeId: string): Promise<{ checklist: ChecklistItem[]; hasPlan: boolean }> => {
     try {
@@ -125,7 +158,13 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      const info = await readNode();
+      let info = await readNode();
+      // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
+      if (info === null && !claimedRef.current && sessionCwd !== '') {
+        claimedRef.current = true;
+        const ok = await ensureNode(sessionCwd);
+        if (ok) info = await readNode();
+      }
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
       else setChecklist([]);
     };
@@ -135,25 +174,26 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, sessionCwd]);
 
   if (nodeInfo === null) return null;
   const label = NODE_STATE_LABEL[nodeInfo.state as keyof typeof NODE_STATE_LABEL] ?? nodeInfo.state;
   const nextState = NEXT_NODE_STATE[nodeInfo.state] ?? null;
 
-  /** 真正写状态 + 刷新 + 填默认输入。 */
-  const doAdvance = async () => {
-    if (nextState === null || advancing) return;
+  /** 真正写状态（前进或返工） + 刷新 + 填默认输入。 */
+  const transitionTo = async (to: string) => {
+    if (advancing) return;
     setAdvancing(true);
     try {
       await fetch('/dsh-agent-workflow/transition', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to: nextState }),
+        body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
       });
       const info = await readNode();
       if (info !== null && info.enterTrigger !== '') pushDraft(info.enterTrigger);
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
+      else setChecklist([]);
     } catch (error) {
       console.error('[dsh-agent-workflow] 推进状态失败：', error);
     } finally {
@@ -171,10 +211,11 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
         return;
       }
     }
-    void doAdvance();
+    void transitionTo(nextState);
   };
 
   const doneCount = checklist.filter((item) => item.done).length;
+  const backwardStates = BACKWARD_STATES[nodeInfo.state] ?? [];
 
   return (
     <>
@@ -226,6 +267,51 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
                 items={checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` }))}
                 onClose={() => setChecklistMenu(null)}
                 onSelect={() => setChecklistMenu(null)}
+              />
+            ) : null}
+          </>
+        ) : null}
+        {backwardStates.length > 0 ? (
+          <>
+            <Tooltip label="返工（退回上一阶段）" side="top" delayMs={400} portal>
+              <button
+                type="button"
+                aria-label="返工"
+                disabled={advancing}
+                onClick={(event) => {
+                  event.currentTarget.focus({ preventScroll: true });
+                  const point = menuPointFromEvent(event);
+                  setBackwardMenu((current) => (current === null ? point : null));
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22,
+                  border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 6, background: 'transparent',
+                  color: 'var(--dsw-alias-label-secondary)', cursor: advancing ? 'progress' : 'pointer',
+                  opacity: advancing ? 0.6 : 1,
+                }}
+              >
+                <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ display: 'block' }}>
+                  <path d="M19 12H6" />
+                  <path d="m11.5 6-6 6 6 6" />
+                </svg>
+              </button>
+            </Tooltip>
+            {backwardMenu !== null ? (
+              <Menu
+                open
+                anchor={null}
+                portal
+                align="end"
+                getAnchorRect={() => menuAnchorRect(backwardMenu)}
+                items={backwardStates.map((state) => ({
+                  id: state,
+                  label: `返工到 ${NODE_STATE_LABEL[state as keyof typeof NODE_STATE_LABEL] ?? state}`,
+                }))}
+                onClose={() => setBackwardMenu(null)}
+                onSelect={(id: string) => {
+                  setBackwardMenu(null);
+                  void transitionTo(id);
+                }}
               />
             ) : null}
           </>
@@ -283,7 +369,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any }) {
               onClose={() => setConfirmOpen(false)}
               onConfirm={() => {
                 setConfirmOpen(false);
-                void doAdvance();
+                void transitionTo(nextState);
               }}
             />
           ) : null}

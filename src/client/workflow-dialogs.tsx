@@ -318,7 +318,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const { workflowId, nodeId, onClose, onOpenSettings } = props;
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [manualData, setManualData] = useState<{ manual: string; summary: string; notesDir: string; parentSummary: string } | null>(null);
+  const [manualData, setManualData] = useState<{ manual: string; notesDir: string; globalManual: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -336,7 +336,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     return () => { cancelled = true; };
   }, [workflowId, nodeId]);
 
-  // 工作手册 / 摘要只读展示（AI 自留记录，人只读）。
+  // 会话手册（方案/实施顺序） + 项目手册（总览/决策/要点）只读展示。
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -348,9 +348,8 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           ? null
           : {
               manual: String(data.manual?.manual ?? ''),
-              summary: String(data.manual?.summary ?? ''),
               notesDir: String(data.manual?.notesDir ?? ''),
-              parentSummary: String(data.parentSummary ?? ''),
+              globalManual: String(data.globalManual ?? ''),
             });
       } catch {
         // 读不到就不展示。
@@ -470,18 +469,28 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           </div>
           {manualData !== null ? (
             <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>工作手册（AI 自留，只读）</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>会话手册（方案 / 实施顺序，AI 自留，只读）</div>
               <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
                 {manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）'}
               </div>
-              {manualData.parentSummary.trim() !== '' ? (
+              {manualData.globalManual.trim() !== '' ? (
                 <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }}>上级手册摘要（仅一层）</div>
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
-                    {manualData.parentSummary}
+                  <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }}>项目手册（总览 / 决策 / 要点）</div>
+                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 140, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                    {manualData.globalManual}
                   </div>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+          {payload?.node?.history !== undefined && payload.node.history.length > 0 ? (
+            <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>状态时间线</div>
+              {payload.node.history.map((entry: any, index: number) => (
+                <div key={index} style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }}>
+                  {entry.at.slice(0, 16).replace('T', ' ')}　{NODE_STATE_LABEL[entry.from as keyof typeof NODE_STATE_LABEL] ?? entry.from} → {NODE_STATE_LABEL[entry.to as keyof typeof NODE_STATE_LABEL] ?? entry.to}
+                </div>
+              ))}
             </div>
           ) : null}
           {(['discussing', 'implementing', 'verifying'] as const).map((state) => {

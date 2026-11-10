@@ -175,7 +175,7 @@ export function apply(ctx: any) {
         if (node === undefined) throw new Error('找不到节点');
         const global = await repository.getAppGlobalOperationDetail();
         return {
-          node: { node_id: node.node_id, title: node.title ?? '', current_state: node.current_state },
+          node: { node_id: node.node_id, title: node.title ?? '', current_state: node.current_state, history: node.history ?? [] },
           global,
           effective: effectiveDetail(node.current_state, node, global),
           overrides: node.state_detail_overrides ?? null,
@@ -266,23 +266,17 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/add-node',
+      path: '/dsh-agent-workflow/ensure-node',
       handler: makeHandler(repository, 'POST', async (body) => {
-        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
-        if (typeof body?.parentId !== 'string' || body.parentId === '') throw new Error('缺少 parentId');
+        if (typeof body?.sessionId !== 'string' || body.sessionId === '') throw new Error('缺少 sessionId');
+        if (typeof body?.workingDirectory !== 'string' || body.workingDirectory === '') throw new Error('缺少 workingDirectory');
         const startedAt = Date.now();
-        let nodeId = '';
         try {
-          const result = await repository.addNode({
-            id: body.id,
-            parentId: body.parentId,
-            title: typeof body.title === 'string' ? body.title : undefined,
-          });
-          nodeId = result.nodeId;
-          ctx.logger?.info?.(`[workflow] add-node ok (node=${nodeId}, parent=${body.parentId}, ${Date.now() - startedAt}ms)`);
-          return { snapshot: result.snapshot, nodeId };
+          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory: body.workingDirectory });
+          ctx.logger?.info?.(`[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
+          return { node };
         } catch (error) {
-          ctx.logger?.warn?.(`[workflow] add-node failed (parent=${body.parentId}, ${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
+          ctx.logger?.warn?.(`[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
           throw error;
         }
       }),
@@ -296,8 +290,8 @@ export function apply(ctx: any) {
         if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
         if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
         const manual = await repository.readNodeManual(id, nodeId);
-        const parentSummary = await repository.readParentSummary(id, nodeId);
-        return { manual, parentSummary };
+        const globalManual = await repository.readGlobalManual(id);
+        return { manual, globalManual };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

@@ -47,6 +47,15 @@ exports.AgentNode = zod_1.z.object({
         implementing: zod_1.z.string().optional(),
         verifying: zod_1.z.string().optional(),
     }).optional(),
+    /**
+     * 状态迁移时间线：每次推进追加一条 { at, from, to }。
+     * 可选，旧快照没有。
+     */
+    history: zod_1.z.array(zod_1.z.object({
+        at: zod_1.z.string(),
+        from: zod_1.z.string(),
+        to: zod_1.z.string(),
+    })).optional(),
     // —— 防御性约束 ——
     depth: zod_1.z.number().int().nonnegative(),
     max_depth: zod_1.z.number().int().positive(),

@@ -213,7 +213,7 @@ export function WorkflowNodeDetailDialog(props) {
         })();
         return () => { cancelled = true; };
     }, [workflowId, nodeId]);
-    // 工作手册 / 摘要只读展示（AI 自留记录，人只读）。
+    // 会话手册（方案/实施顺序） + 项目手册（总览/决策/要点）只读展示。
     useEffect(() => {
         let cancelled = false;
         void (async () => {
@@ -226,9 +226,8 @@ export function WorkflowNodeDetailDialog(props) {
                     ? null
                     : {
                         manual: String(data.manual?.manual ?? ''),
-                        summary: String(data.manual?.summary ?? ''),
                         notesDir: String(data.manual?.notesDir ?? ''),
-                        parentSummary: String(data.parentSummary ?? ''),
+                        globalManual: String(data.globalManual ?? ''),
                     });
             }
             catch {
@@ -309,7 +308,7 @@ export function WorkflowNodeDetailDialog(props) {
                             borderRadius: 8,
                             padding: 10,
                             marginBottom: 10,
-                        }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u672C\u8282\u70B9\u9644\u52A0\uFF08\u6240\u6709\u72B6\u6001\u90FD\u4F1A\u8FFD\u52A0\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes.global ?? '', onChange: (event) => saveNote('global', event.target.value) })] }), manualData !== null ? (_jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u5DE5\u4F5C\u624B\u518C\uFF08AI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）' }), manualData.parentSummary.trim() !== '' ? (_jsxs("div", { style: { marginTop: 8 }, children: [_jsx("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }, children: "\u4E0A\u7EA7\u624B\u518C\u6458\u8981\uFF08\u4EC5\u4E00\u5C42\uFF09" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.parentSummary })] })) : null] })) : null, ['discussing', 'implementing', 'verifying'].map((state) => {
+                        }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u672C\u8282\u70B9\u9644\u52A0\uFF08\u6240\u6709\u72B6\u6001\u90FD\u4F1A\u8FFD\u52A0\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes.global ?? '', onChange: (event) => saveNote('global', event.target.value) })] }), manualData !== null ? (_jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u4F1A\u8BDD\u624B\u518C\uFF08\u65B9\u6848 / \u5B9E\u65BD\u987A\u5E8F\uFF0CAI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）' }), manualData.globalManual.trim() !== '' ? (_jsxs("div", { style: { marginTop: 8 }, children: [_jsx("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4 }, children: "\u9879\u76EE\u624B\u518C\uFF08\u603B\u89C8 / \u51B3\u7B56 / \u8981\u70B9\uFF09" }), _jsx("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 140, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData.globalManual })] })) : null] })) : null, payload?.node?.history !== undefined && payload.node.history.length > 0 ? (_jsxs("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 10 }, children: [_jsx("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u72B6\u6001\u65F6\u95F4\u7EBF" }), payload.node.history.map((entry, index) => (_jsxs("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }, children: [entry.at.slice(0, 16).replace('T', ' '), "\u3000", NODE_STATE_LABEL[entry.from] ?? entry.from, " \u2192 ", NODE_STATE_LABEL[entry.to] ?? entry.to] }, index)))] })) : null, ['discussing', 'implementing', 'verifying'].map((state) => {
                         return (_jsxs("div", { style: {
                                 border: '1px solid var(--dsw-alias-border-l1)',
                                 borderRadius: 8,

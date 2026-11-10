@@ -45,6 +45,15 @@ export const AgentNode = z.object({
     implementing: z.string().optional(),
     verifying: z.string().optional(),
   }).optional(),
+  /**
+   * 状态迁移时间线：每次推进追加一条 { at, from, to }。
+   * 可选，旧快照没有。
+   */
+  history: z.array(z.object({
+    at: z.string(),
+    from: z.string(),
+    to: z.string(),
+  })).optional(),
   // —— 防御性约束 ——
   depth: z.number().int().nonnegative(),
   max_depth: z.number().int().positive(),

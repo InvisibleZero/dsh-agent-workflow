@@ -43,21 +43,23 @@ export function buildRootNode(id: string, maxDepth: number, maxSteps: number): A
   };
 }
 
-/** 子节点手册/摘要统一平铺在工作区根目录的 .workflow/ 下，文件名自索引 node_id。 */
+/** 手册平铺在工作区根目录的 .workflow/ 下。
+ *  会话手册 = 方案 + 实施顺序（每会话一份，文件名自索引 node_id）。
+ *  项目手册 = 项目总览 / 决策 / 要点（每工作区一份）。 */
 const WORKFLOW_SUBDIR = '.workflow';
 const MANUAL_MAX_BYTES = 200 * 1024;
-const SUMMARY_MAX_BYTES = 32 * 1024;
+const GLOBAL_MANUAL_MAX_BYTES = 64 * 1024;
 
-function manualFileName(nodeId: string): string {
-  return `工作手册-${nodeId}.md`;
+function sessionManualFileName(nodeId: string): string {
+  return `会话手册-${nodeId}.md`;
 }
-function summaryFileName(nodeId: string): string {
-  return `手册摘要-${nodeId}.md`;
+function globalManualFileName(): string {
+  return '项目手册.md';
 }
 
-/** 新节点的初始工作手册模板：分层方案 + 决策记录 + 实施顺序（勾选清单）。 */
-const MANUAL_TEMPLATE = [
-  '# 工作手册',
+/** 会话手册模板：方案（5 层）+ 实施顺序（勾选清单）。 */
+const SESSION_MANUAL_TEMPLATE = [
+  '# 会话手册',
   '',
   '## 方案（上层 → 下层）',
   '### 1. 目标与验收',
@@ -71,16 +73,26 @@ const MANUAL_TEMPLATE = [
   '### 5. 表现与文案',
   '<!-- 界面、字段、文案、交互细节 -->',
   '',
-  '## 决策记录',
-  '<!-- 讨论中拍板的分叉点：为什么选 A 不选 B -->',
-  '',
   '## 实施顺序',
   '- [ ] 2. 对外契约',
   '- [ ] 3. 结构与依赖',
   '- [ ] 4. 数据与状态',
   '- [ ] 5. 表现与文案',
   '',
-  '## 要点 / 需求 / 疑难杂症',
+].join('\n');
+
+/** 项目手册模板：项目总览 + 决策记录 + 要点 / 疑难杂症。 */
+const GLOBAL_MANUAL_TEMPLATE = [
+  '# 项目手册',
+  '',
+  '## 项目总览',
+  '<!-- 这个项目在做什么、有哪些特性、整体结构 -->',
+  '',
+  '## 决策记录',
+  '<!-- 拍板过的分叉点：为什么选 A 不选 B -->',
+  '',
+  '## 要点 / 疑难杂症',
+  '<!-- 跨会话延续的结论与坑 -->',
   '',
 ].join('\n');
 
@@ -219,6 +231,7 @@ export class WorkflowRepository {
       nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)],
     };
     await this.storage.save(snapshot);
+    await this.ensureGlobalManual(input.path);
     return {
       id,
       title,
@@ -454,20 +467,25 @@ export class WorkflowRepository {
     return updated;
   }
 
-  /** 把某个节点推进到下一状态（五态单向：not_started→discussing→implementing→verifying→completed）。 */
+  /** 把某个节点推进到下一状态；附状态迁移时间线（history）。 */
   async transitionNode(input: { id: string; nodeId: string; to: string }): Promise<WorkflowSnapshot> {
     const snapshot = await this.storage.load(input.id);
     if (snapshot === null) throw new Error('找不到该 workflow');
     const validStates = ['not_started', 'discussing', 'implementing', 'verifying', 'completed'];
     if (!validStates.includes(input.to)) throw new Error('非法状态');
-    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-    if (!exists) throw new Error('找不到节点');
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+    if (node === undefined) throw new Error('找不到节点');
+    const from = node.current_state;
     const updated: WorkflowSnapshot = {
       ...snapshot,
-      nodes: snapshot.nodes.map((node) =>
-        node.node_id === input.nodeId
-          ? { ...node, current_state: input.to as AgentNode['current_state'] }
-          : node,
+      nodes: snapshot.nodes.map((candidate) =>
+        candidate.node_id === input.nodeId
+          ? {
+              ...candidate,
+              current_state: input.to as AgentNode['current_state'],
+              history: [...(candidate.history ?? []), { at: new Date().toISOString(), from, to: input.to }],
+            }
+          : candidate,
       ),
     };
     await this.storage.save(updated);
@@ -500,54 +518,98 @@ export class WorkflowRepository {
     return updated;
   }
 
-  /**
-   * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-   * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
-   * 只改我们自己的快照，与 dsh 的 workspace 无关。
-   */
-  async addNode(input: { id: string; parentId: string; title?: string }): Promise<{ snapshot: WorkflowSnapshot; nodeId: string }> {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error('找不到该 workflow');
-    const parent = snapshot.nodes.find((node) => node.node_id === input.parentId);
-    if (parent === undefined) throw new Error('找不到父节点');
-    if (parent.depth + 1 > parent.max_depth) throw new Error(`超过最大深度（${String(parent.max_depth)}）`);
-
-    const nodeId = randomUUID();
-    const title = input.title?.trim() !== '' && input.title !== undefined ? input.title.trim() : '新子节点';
-
-    // 平铺到工作区根 .workflow/，只 mkdir 一次目录；文件名带 node_id。
-    const workingDir = snapshot.working_directory;
-    if (typeof workingDir === 'string' && workingDir.trim() !== '') {
-      const wfDir = join(workingDir, WORKFLOW_SUBDIR);
-      await fs.mkdir(wfDir, { recursive: true });
-      await writeIfMissing(join(wfDir, manualFileName(nodeId)), MANUAL_TEMPLATE);
-      await writeIfMissing(join(wfDir, summaryFileName(nodeId)), '# 手册摘要\n\n（本手册的概要，供子节点查看一层。）\n');
-      await appendGitignore(workingDir);
+  /** 按工作目录反查 workflow 快照。 */
+  private async findByWorkingDirectory(workingDirectory: string): Promise<WorkflowSnapshot | null> {
+    const dir = join(this.baseDir, 'workflows');
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
-
-    const child: AgentNode = {
-      ...buildRootNode(nodeId, parent.max_depth, parent.max_steps),
-      parent_id: parent.node_id,
-      title,
-      node_type: 'task',
-      depth: parent.depth + 1,
-    };
-
-    const updated: WorkflowSnapshot = {
-      ...snapshot,
-      nodes: [
-        ...snapshot.nodes.map((node) =>
-          node.node_id === parent.node_id ? { ...node, child_ids: [...node.child_ids, nodeId] } : node,
-        ),
-        child,
-      ],
-    };
-    await this.storage.save(updated);
-    return { snapshot: updated, nodeId };
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const id = name.slice(0, -'.json'.length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot !== null && snapshot.working_directory === workingDirectory) return snapshot;
+      } catch {
+        // 跳过损坏文件。
+      }
+    }
+    return null;
   }
 
-  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
-  async readNodeManual(workflowId: string, nodeId: string): Promise<{ manual: string; summary: string; notesDir: string; checklist: Array<{ label: string; done: boolean }> } | null> {
+  /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
+  private async ensureGlobalManual(workingDirectory: string): Promise<void> {
+    if (typeof workingDirectory !== 'string' || workingDirectory === '') return;
+    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+    await fs.mkdir(wfDir, { recursive: true });
+    await writeIfMissing(join(wfDir, globalManualFileName()), GLOBAL_MANUAL_TEMPLATE);
+    await appendGitignore(workingDirectory);
+  }
+
+  /** 确保某目录是一个 workflow 工作区（没有快照就建，含根节点），返回快照。 */
+  private async ensureWorkflow(workingDirectory: string, title: string): Promise<WorkflowSnapshot> {
+    const existing = await this.findByWorkingDirectory(workingDirectory);
+    if (existing !== null) return existing;
+    const id = randomUUID();
+    const snapshot: WorkflowSnapshot = {
+      version: 1,
+      workspace_id: id,
+      title: title !== '' ? title : basename(workingDirectory),
+      working_directory: workingDirectory,
+      settings: DEFAULT_SETTINGS,
+      nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)],
+    };
+    await this.storage.save(snapshot);
+    await this.ensureGlobalManual(workingDirectory);
+    return snapshot;
+  }
+
+  /**
+   * 自动认领：确保某会话已经是 workflow 节点（没有就建），返回节点摘要。
+   * 会话所属工作区 = workingDirectory；工作区还不是 workflow 就顺带建快照 + 项目手册。
+   */
+  async ensureNode(input: { sessionId: string; workingDirectory: string }): Promise<{
+    workflowId: string;
+    nodeId: string;
+    title: string;
+    current_state: string;
+  }> {
+    const workingDirectory = input.workingDirectory.trim();
+    if (workingDirectory === '') throw new Error('缺少工作目录');
+    const snapshot = await this.ensureWorkflow(workingDirectory, '');
+    const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
+    if (existing !== undefined) {
+      return {
+        workflowId: snapshot.workspace_id,
+        nodeId: existing.node_id,
+        title: existing.title ?? '',
+        current_state: existing.current_state,
+      };
+    }
+    const nodeId = randomUUID();
+    const title = '新会话';
+    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+    await fs.mkdir(wfDir, { recursive: true });
+    await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
+    const child: AgentNode = {
+      ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
+      parent_id: null,
+      title,
+      node_type: 'task',
+      session_id: input.sessionId,
+      depth: 0,
+    };
+    const updated: WorkflowSnapshot = { ...snapshot, nodes: [...snapshot.nodes, child] };
+    await this.storage.save(updated);
+    return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
+  }
+
+  /** 读会话手册全文 + 实施清单（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
+  async readNodeManual(workflowId: string, nodeId: string): Promise<{ manual: string; notesDir: string; checklist: Array<{ label: string; done: boolean }> } | null> {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return null;
     const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
@@ -555,22 +617,17 @@ export class WorkflowRepository {
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== 'string' || workingDir === '') return null;
     const wfDir = join(workingDir, WORKFLOW_SUBDIR);
-    const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
-    const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-    return { manual, summary, notesDir: wfDir, checklist: parseChecklist(manual) };
+    const manual = await readTextCapped(join(wfDir, sessionManualFileName(nodeId)), MANUAL_MAX_BYTES);
+    return { manual, notesDir: wfDir, checklist: parseChecklist(manual) };
   }
 
-  /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
-  async readParentSummary(workflowId: string, nodeId: string): Promise<string> {
+  /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
+  async readGlobalManual(workflowId: string): Promise<string> {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return '';
-    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
-    if (node === undefined || node.parent_id === null) return '';
-    const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
-    if (parent === undefined) return '';
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== 'string' || workingDir === '') return '';
-    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
+    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, globalManualFileName()), GLOBAL_MANUAL_MAX_BYTES);
   }
 
   /**
@@ -584,7 +641,7 @@ export class WorkflowRepository {
     if (node === undefined) return null;
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== 'string' || workingDir === '') return null;
-    const file = join(workingDir, WORKFLOW_SUBDIR, manualFileName(nodeId));
+    const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
     let mtimeMs = 0;
     try {
       mtimeMs = (await fs.stat(file)).mtimeMs;

@@ -93,7 +93,7 @@ export declare class WorkflowRepository {
         id: string;
         pinned: boolean;
     }): Promise<WorkflowSnapshot>;
-    /** 把某个节点推进到下一状态（五态单向：not_started→discussing→implementing→verifying→completed）。 */
+    /** 把某个节点推进到下一状态；附状态迁移时间线（history）。 */
     transitionNode(input: {
         id: string;
         nodeId: string;
@@ -108,31 +108,36 @@ export declare class WorkflowRepository {
         nodeId: string;
         sessionId: string;
     }): Promise<WorkflowSnapshot>;
+    /** 按工作目录反查 workflow 快照。 */
+    private findByWorkingDirectory;
+    /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
+    private ensureGlobalManual;
+    /** 确保某目录是一个 workflow 工作区（没有快照就建，含根节点），返回快照。 */
+    private ensureWorkflow;
     /**
-     * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-     * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
-     * 只改我们自己的快照，与 dsh 的 workspace 无关。
+     * 自动认领：确保某会话已经是 workflow 节点（没有就建），返回节点摘要。
+     * 会话所属工作区 = workingDirectory；工作区还不是 workflow 就顺带建快照 + 项目手册。
      */
-    addNode(input: {
-        id: string;
-        parentId: string;
-        title?: string;
+    ensureNode(input: {
+        sessionId: string;
+        workingDirectory: string;
     }): Promise<{
-        snapshot: WorkflowSnapshot;
+        workflowId: string;
         nodeId: string;
+        title: string;
+        current_state: string;
     }>;
-    /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
+    /** 读会话手册全文 + 实施清单（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
     readNodeManual(workflowId: string, nodeId: string): Promise<{
         manual: string;
-        summary: string;
         notesDir: string;
         checklist: Array<{
             label: string;
             done: boolean;
         }>;
     } | null>;
-    /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
-    readParentSummary(workflowId: string, nodeId: string): Promise<string>;
+    /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
+    readGlobalManual(workflowId: string): Promise<string>;
     /**
      * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
      * 文件没变就不重新读盘/解析。

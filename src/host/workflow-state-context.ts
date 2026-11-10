@@ -19,7 +19,7 @@ const MAX_TEXT_BYTES = 8000;
 /** 注入用的工作手册「最近内容」长度（全文不常驻，靠文件工具取更早部分）。 */
 const MANUAL_RECENT_CHARS = 2000;
 /** 注入用的父级摘要上限。 */
-const PARENT_SUMMARY_CHARS = 800;
+const GLOBAL_MANUAL_CHARS = 800;
 
 /**
  * 注册 workflow 状态上下文。
@@ -71,23 +71,23 @@ export function registerWorkflowStateContext(ctx: any, repository: any): { peek:
     if (typeof addition === 'string' && addition.trim() !== '') {
       parts.push('', `本节点补充要求：${addition.trim()}`);
     }
-    // —— 工作手册 / 手册摘要（AI 自留，只对新节点生效）——
+    // —— 会话手册（方案 + 实施顺序） + 项目手册（总览/决策/要点）——
     const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
     if (manualData !== null) {
       const manual = manualData.manual;
       const recent = manual.length > MANUAL_RECENT_CHARS
         ? `${manual.slice(-MANUAL_RECENT_CHARS)}\n…（更早内容见文件）`
         : manual;
-      parts.push('', `本节点工作手册：${join(manualData.notesDir, `工作手册-${found.nodeId}.md`)}`);
+      parts.push('', `本会话手册：${join(manualData.notesDir, `会话手册-${found.nodeId}.md`)}`);
       if (recent.trim() !== '') parts.push(recent);
     }
-    const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);
-    const parentSummaryTrimmed = parentSummary.trim();
-    if (parentSummaryTrimmed !== '') {
-      parts.push('', '上级手册摘要（仅一层）：', parentSummaryTrimmed.slice(0, PARENT_SUMMARY_CHARS));
+    const globalManual = await repository.readGlobalManual(found.workflowId);
+    const globalTrimmed = globalManual.trim();
+    if (globalTrimmed !== '') {
+      parts.push('', '项目手册（总览 / 决策 / 要点）：', globalTrimmed.slice(0, GLOBAL_MANUAL_CHARS));
     }
     // 常驻 + 状态推进后的落笔提示：推进会刷新本块，这里天然是"刚推进"那一刻。
-    parts.push('', '工作收尾或推进状态前，把本轮要点写进本节点工作手册，并同步更新手册摘要。');
+    parts.push('', '收尾时把本次结论写进项目手册的「要点 / 决策」，并同步更新本会话手册的「方案」与「实施顺序」。');
     parts.push('</workflow-state>');
     let text = parts.join('\n');
     if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {

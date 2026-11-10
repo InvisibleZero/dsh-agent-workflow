@@ -100,6 +100,15 @@ var AgentNode = z2.object({
     implementing: z2.string().optional(),
     verifying: z2.string().optional()
   }).optional(),
+  /**
+   * 状态迁移时间线：每次推进追加一条 { at, from, to }。
+   * 可选，旧快照没有。
+   */
+  history: z2.array(z2.object({
+    at: z2.string(),
+    from: z2.string(),
+    to: z2.string()
+  })).optional(),
   // —— 防御性约束 ——
   depth: z2.number().int().nonnegative(),
   max_depth: z2.number().int().positive(),
@@ -263,15 +272,15 @@ function buildRootNode(id, maxDepth, maxSteps) {
 }
 var WORKFLOW_SUBDIR = ".workflow";
 var MANUAL_MAX_BYTES = 200 * 1024;
-var SUMMARY_MAX_BYTES = 32 * 1024;
-function manualFileName(nodeId) {
-  return `\u5DE5\u4F5C\u624B\u518C-${nodeId}.md`;
+var GLOBAL_MANUAL_MAX_BYTES = 64 * 1024;
+function sessionManualFileName(nodeId) {
+  return `\u4F1A\u8BDD\u624B\u518C-${nodeId}.md`;
 }
-function summaryFileName(nodeId) {
-  return `\u624B\u518C\u6458\u8981-${nodeId}.md`;
+function globalManualFileName() {
+  return "\u9879\u76EE\u624B\u518C.md";
 }
-var MANUAL_TEMPLATE = [
-  "# \u5DE5\u4F5C\u624B\u518C",
+var SESSION_MANUAL_TEMPLATE = [
+  "# \u4F1A\u8BDD\u624B\u518C",
   "",
   "## \u65B9\u6848\uFF08\u4E0A\u5C42 \u2192 \u4E0B\u5C42\uFF09",
   "### 1. \u76EE\u6807\u4E0E\u9A8C\u6536",
@@ -285,16 +294,24 @@ var MANUAL_TEMPLATE = [
   "### 5. \u8868\u73B0\u4E0E\u6587\u6848",
   "<!-- \u754C\u9762\u3001\u5B57\u6BB5\u3001\u6587\u6848\u3001\u4EA4\u4E92\u7EC6\u8282 -->",
   "",
-  "## \u51B3\u7B56\u8BB0\u5F55",
-  "<!-- \u8BA8\u8BBA\u4E2D\u62CD\u677F\u7684\u5206\u53C9\u70B9\uFF1A\u4E3A\u4EC0\u4E48\u9009 A \u4E0D\u9009 B -->",
-  "",
   "## \u5B9E\u65BD\u987A\u5E8F",
   "- [ ] 2. \u5BF9\u5916\u5951\u7EA6",
   "- [ ] 3. \u7ED3\u6784\u4E0E\u4F9D\u8D56",
   "- [ ] 4. \u6570\u636E\u4E0E\u72B6\u6001",
   "- [ ] 5. \u8868\u73B0\u4E0E\u6587\u6848",
+  ""
+].join("\n");
+var GLOBAL_MANUAL_TEMPLATE = [
+  "# \u9879\u76EE\u624B\u518C",
   "",
-  "## \u8981\u70B9 / \u9700\u6C42 / \u7591\u96BE\u6742\u75C7",
+  "## \u9879\u76EE\u603B\u89C8",
+  "<!-- \u8FD9\u4E2A\u9879\u76EE\u5728\u505A\u4EC0\u4E48\u3001\u6709\u54EA\u4E9B\u7279\u6027\u3001\u6574\u4F53\u7ED3\u6784 -->",
+  "",
+  "## \u51B3\u7B56\u8BB0\u5F55",
+  "<!-- \u62CD\u677F\u8FC7\u7684\u5206\u53C9\u70B9\uFF1A\u4E3A\u4EC0\u4E48\u9009 A \u4E0D\u9009 B -->",
+  "",
+  "## \u8981\u70B9 / \u7591\u96BE\u6742\u75C7",
+  "<!-- \u8DE8\u4F1A\u8BDD\u5EF6\u7EED\u7684\u7ED3\u8BBA\u4E0E\u5751 -->",
   ""
 ].join("\n");
 function parseChecklist(manual) {
@@ -419,6 +436,7 @@ var WorkflowRepository = class {
       nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)]
     };
     await this.storage.save(snapshot);
+    await this.ensureGlobalManual(input.path);
     return {
       id,
       title,
@@ -619,18 +637,23 @@ var WorkflowRepository = class {
     await this.storage.save(updated);
     return updated;
   }
-  /** 把某个节点推进到下一状态（五态单向：not_started→discussing→implementing→verifying→completed）。 */
+  /** 把某个节点推进到下一状态；附状态迁移时间线（history）。 */
   async transitionNode(input) {
     const snapshot = await this.storage.load(input.id);
     if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
     const validStates = ["not_started", "discussing", "implementing", "verifying", "completed"];
     if (!validStates.includes(input.to)) throw new Error("\u975E\u6CD5\u72B6\u6001");
-    const exists = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-    if (!exists) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+    if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const from = node.current_state;
     const updated = {
       ...snapshot,
       nodes: snapshot.nodes.map(
-        (node) => node.node_id === input.nodeId ? { ...node, current_state: input.to } : node
+        (candidate) => candidate.node_id === input.nodeId ? {
+          ...candidate,
+          current_state: input.to,
+          history: [...candidate.history ?? [], { at: (/* @__PURE__ */ new Date()).toISOString(), from, to: input.to }]
+        } : candidate
       )
     };
     await this.storage.save(updated);
@@ -661,47 +684,87 @@ var WorkflowRepository = class {
     await this.storage.save(updated);
     return updated;
   }
-  /**
-   * 在某个父节点下加一个子节点（可无限层，受 max_depth 限制）。
-   * 同时在工作区根目录 `.workflow/` 下平铺两份 md（文件名带 node_id 自索引）。
-   * 只改我们自己的快照，与 dsh 的 workspace 无关。
-   */
-  async addNode(input) {
-    const snapshot = await this.storage.load(input.id);
-    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
-    const parent = snapshot.nodes.find((node) => node.node_id === input.parentId);
-    if (parent === void 0) throw new Error("\u627E\u4E0D\u5230\u7236\u8282\u70B9");
-    if (parent.depth + 1 > parent.max_depth) throw new Error(`\u8D85\u8FC7\u6700\u5927\u6DF1\u5EA6\uFF08${String(parent.max_depth)}\uFF09`);
-    const nodeId = randomUUID();
-    const title = input.title?.trim() !== "" && input.title !== void 0 ? input.title.trim() : "\u65B0\u5B50\u8282\u70B9";
-    const workingDir = snapshot.working_directory;
-    if (typeof workingDir === "string" && workingDir.trim() !== "") {
-      const wfDir = join(workingDir, WORKFLOW_SUBDIR);
-      await fs2.mkdir(wfDir, { recursive: true });
-      await writeIfMissing(join(wfDir, manualFileName(nodeId)), MANUAL_TEMPLATE);
-      await writeIfMissing(join(wfDir, summaryFileName(nodeId)), "# \u624B\u518C\u6458\u8981\n\n\uFF08\u672C\u624B\u518C\u7684\u6982\u8981\uFF0C\u4F9B\u5B50\u8282\u70B9\u67E5\u770B\u4E00\u5C42\u3002\uFF09\n");
-      await appendGitignore(workingDir);
+  /** 按工作目录反查 workflow 快照。 */
+  async findByWorkingDirectory(workingDirectory) {
+    const dir = join(this.baseDir, "workflows");
+    let names = [];
+    try {
+      names = await fs2.readdir(dir);
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
     }
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const id = name.slice(0, -".json".length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot !== null && snapshot.working_directory === workingDirectory) return snapshot;
+      } catch {
+      }
+    }
+    return null;
+  }
+  /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
+  async ensureGlobalManual(workingDirectory) {
+    if (typeof workingDirectory !== "string" || workingDirectory === "") return;
+    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+    await fs2.mkdir(wfDir, { recursive: true });
+    await writeIfMissing(join(wfDir, globalManualFileName()), GLOBAL_MANUAL_TEMPLATE);
+    await appendGitignore(workingDirectory);
+  }
+  /** 确保某目录是一个 workflow 工作区（没有快照就建，含根节点），返回快照。 */
+  async ensureWorkflow(workingDirectory, title) {
+    const existing = await this.findByWorkingDirectory(workingDirectory);
+    if (existing !== null) return existing;
+    const id = randomUUID();
+    const snapshot = {
+      version: 1,
+      workspace_id: id,
+      title: title !== "" ? title : basename(workingDirectory),
+      working_directory: workingDirectory,
+      settings: DEFAULT_SETTINGS,
+      nodes: [buildRootNode(id, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps)]
+    };
+    await this.storage.save(snapshot);
+    await this.ensureGlobalManual(workingDirectory);
+    return snapshot;
+  }
+  /**
+   * 自动认领：确保某会话已经是 workflow 节点（没有就建），返回节点摘要。
+   * 会话所属工作区 = workingDirectory；工作区还不是 workflow 就顺带建快照 + 项目手册。
+   */
+  async ensureNode(input) {
+    const workingDirectory = input.workingDirectory.trim();
+    if (workingDirectory === "") throw new Error("\u7F3A\u5C11\u5DE5\u4F5C\u76EE\u5F55");
+    const snapshot = await this.ensureWorkflow(workingDirectory, "");
+    const existing = snapshot.nodes.find((node) => node.session_id === input.sessionId);
+    if (existing !== void 0) {
+      return {
+        workflowId: snapshot.workspace_id,
+        nodeId: existing.node_id,
+        title: existing.title ?? "",
+        current_state: existing.current_state
+      };
+    }
+    const nodeId = randomUUID();
+    const title = "\u65B0\u4F1A\u8BDD";
+    const wfDir = join(workingDirectory, WORKFLOW_SUBDIR);
+    await fs2.mkdir(wfDir, { recursive: true });
+    await writeIfMissing(join(wfDir, sessionManualFileName(nodeId)), SESSION_MANUAL_TEMPLATE);
     const child = {
-      ...buildRootNode(nodeId, parent.max_depth, parent.max_steps),
-      parent_id: parent.node_id,
+      ...buildRootNode(nodeId, DEFAULT_SETTINGS.default_max_depth, DEFAULT_SETTINGS.default_max_steps),
+      parent_id: null,
       title,
       node_type: "task",
-      depth: parent.depth + 1
+      session_id: input.sessionId,
+      depth: 0
     };
-    const updated = {
-      ...snapshot,
-      nodes: [
-        ...snapshot.nodes.map(
-          (node) => node.node_id === parent.node_id ? { ...node, child_ids: [...node.child_ids, nodeId] } : node
-        ),
-        child
-      ]
-    };
+    const updated = { ...snapshot, nodes: [...snapshot.nodes, child] };
     await this.storage.save(updated);
-    return { snapshot: updated, nodeId };
+    return { workflowId: snapshot.workspace_id, nodeId, title, current_state: child.current_state };
   }
-  /** 读节点自己的工作手册全文 + 摘要（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
+  /** 读会话手册全文 + 实施清单（供只读 UI 展示）；notesDir 指向 .workflow 根目录。 */
   async readNodeManual(workflowId, nodeId) {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return null;
@@ -710,21 +773,16 @@ var WorkflowRepository = class {
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") return null;
     const wfDir = join(workingDir, WORKFLOW_SUBDIR);
-    const manual = await readTextCapped(join(wfDir, manualFileName(nodeId)), MANUAL_MAX_BYTES);
-    const summary = await readTextCapped(join(wfDir, summaryFileName(nodeId)), SUMMARY_MAX_BYTES);
-    return { manual, summary, notesDir: wfDir, checklist: parseChecklist(manual) };
+    const manual = await readTextCapped(join(wfDir, sessionManualFileName(nodeId)), MANUAL_MAX_BYTES);
+    return { manual, notesDir: wfDir, checklist: parseChecklist(manual) };
   }
-  /** 读父节点的手册摘要（只看一层；父是根或没有对应文件时返回空串）。 */
-  async readParentSummary(workflowId, nodeId) {
+  /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
+  async readGlobalManual(workflowId) {
     const snapshot = await this.storage.load(workflowId);
     if (snapshot === null) return "";
-    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
-    if (node === void 0 || node.parent_id === null) return "";
-    const parent = snapshot.nodes.find((candidate) => candidate.node_id === node.parent_id);
-    if (parent === void 0) return "";
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") return "";
-    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, summaryFileName(parent.node_id)), SUMMARY_MAX_BYTES);
+    return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, globalManualFileName()), GLOBAL_MANUAL_MAX_BYTES);
   }
   /**
    * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
@@ -737,7 +795,7 @@ var WorkflowRepository = class {
     if (node === void 0) return null;
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") return null;
-    const file = join(workingDir, WORKFLOW_SUBDIR, manualFileName(nodeId));
+    const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
     let mtimeMs = 0;
     try {
       mtimeMs = (await fs2.stat(file)).mtimeMs;
@@ -775,7 +833,7 @@ ${specific.operation_detail}`,
 import { join as join2 } from "node:path";
 var MAX_TEXT_BYTES = 8e3;
 var MANUAL_RECENT_CHARS = 2e3;
-var PARENT_SUMMARY_CHARS = 800;
+var GLOBAL_MANUAL_CHARS = 800;
 function registerWorkflowStateContext(ctx, repository) {
   const cache = /* @__PURE__ */ new Map();
   const pending = /* @__PURE__ */ new Set();
@@ -819,15 +877,15 @@ function registerWorkflowStateContext(ctx, repository) {
       const manual = manualData.manual;
       const recent = manual.length > MANUAL_RECENT_CHARS ? `${manual.slice(-MANUAL_RECENT_CHARS)}
 \u2026\uFF08\u66F4\u65E9\u5185\u5BB9\u89C1\u6587\u4EF6\uFF09` : manual;
-      parts.push("", `\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF1A${join2(manualData.notesDir, `\u5DE5\u4F5C\u624B\u518C-${found.nodeId}.md`)}`);
+      parts.push("", `\u672C\u4F1A\u8BDD\u624B\u518C\uFF1A${join2(manualData.notesDir, `\u4F1A\u8BDD\u624B\u518C-${found.nodeId}.md`)}`);
       if (recent.trim() !== "") parts.push(recent);
     }
-    const parentSummary = await repository.readParentSummary(found.workflowId, found.nodeId);
-    const parentSummaryTrimmed = parentSummary.trim();
-    if (parentSummaryTrimmed !== "") {
-      parts.push("", "\u4E0A\u7EA7\u624B\u518C\u6458\u8981\uFF08\u4EC5\u4E00\u5C42\uFF09\uFF1A", parentSummaryTrimmed.slice(0, PARENT_SUMMARY_CHARS));
+    const globalManual = await repository.readGlobalManual(found.workflowId);
+    const globalTrimmed = globalManual.trim();
+    if (globalTrimmed !== "") {
+      parts.push("", "\u9879\u76EE\u624B\u518C\uFF08\u603B\u89C8 / \u51B3\u7B56 / \u8981\u70B9\uFF09\uFF1A", globalTrimmed.slice(0, GLOBAL_MANUAL_CHARS));
     }
-    parts.push("", "\u5DE5\u4F5C\u6536\u5C3E\u6216\u63A8\u8FDB\u72B6\u6001\u524D\uFF0C\u628A\u672C\u8F6E\u8981\u70B9\u5199\u8FDB\u672C\u8282\u70B9\u5DE5\u4F5C\u624B\u518C\uFF0C\u5E76\u540C\u6B65\u66F4\u65B0\u624B\u518C\u6458\u8981\u3002");
+    parts.push("", "\u6536\u5C3E\u65F6\u628A\u672C\u6B21\u7ED3\u8BBA\u5199\u8FDB\u9879\u76EE\u624B\u518C\u7684\u300C\u8981\u70B9 / \u51B3\u7B56\u300D\uFF0C\u5E76\u540C\u6B65\u66F4\u65B0\u672C\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u4E0E\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u3002");
     parts.push("</workflow-state>");
     let text = parts.join("\n");
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
@@ -1046,7 +1104,7 @@ function apply(ctx) {
         if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
         const global = await repository.getAppGlobalOperationDetail();
         return {
-          node: { node_id: node.node_id, title: node.title ?? "", current_state: node.current_state },
+          node: { node_id: node.node_id, title: node.title ?? "", current_state: node.current_state, history: node.history ?? [] },
           global,
           effective: effectiveDetail(node.current_state, node, global),
           overrides: node.state_detail_overrides ?? null,
@@ -1135,23 +1193,17 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/add-node",
+      path: "/dsh-agent-workflow/ensure-node",
       handler: makeHandler(repository, "POST", async (body) => {
-        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
-        if (typeof body?.parentId !== "string" || body.parentId === "") throw new Error("\u7F3A\u5C11 parentId");
+        if (typeof body?.sessionId !== "string" || body.sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
+        if (typeof body?.workingDirectory !== "string" || body.workingDirectory === "") throw new Error("\u7F3A\u5C11 workingDirectory");
         const startedAt = Date.now();
-        let nodeId = "";
         try {
-          const result = await repository.addNode({
-            id: body.id,
-            parentId: body.parentId,
-            title: typeof body.title === "string" ? body.title : void 0
-          });
-          nodeId = result.nodeId;
-          ctx.logger?.info?.(`[workflow] add-node ok (node=${nodeId}, parent=${body.parentId}, ${Date.now() - startedAt}ms)`);
-          return { snapshot: result.snapshot, nodeId };
+          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory: body.workingDirectory });
+          ctx.logger?.info?.(`[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
+          return { node };
         } catch (error) {
-          ctx.logger?.warn?.(`[workflow] add-node failed (parent=${body.parentId}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
+          ctx.logger?.warn?.(`[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
           throw error;
         }
       })
@@ -1165,8 +1217,8 @@ function apply(ctx) {
         if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         const manual = await repository.readNodeManual(id, nodeId);
-        const parentSummary = await repository.readParentSummary(id, nodeId);
-        return { manual, parentSummary };
+        const globalManual = await repository.readGlobalManual(id);
+        return { manual, globalManual };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

@@ -373,6 +373,19 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         }>>;
+        history: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            at: z.ZodString;
+            from: z.ZodString;
+            to: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            at: string;
+            from: string;
+            to: string;
+        }, {
+            at: string;
+            from: string;
+            to: string;
+        }>, "many">>;
         depth: z.ZodNumber;
         max_depth: z.ZodNumber;
         step_count: z.ZodNumber;
@@ -411,6 +424,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
+        history?: {
+            at: string;
+            from: string;
+            to: string;
+        }[] | undefined;
     }, {
         node_id: string;
         parent_id: string | null;
@@ -445,6 +463,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
+        history?: {
+            at: string;
+            from: string;
+            to: string;
+        }[] | undefined;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
     title: string;
@@ -504,6 +527,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
+        history?: {
+            at: string;
+            from: string;
+            to: string;
+        }[] | undefined;
     }[];
     working_directory?: string | undefined;
     host_workspace_id?: string | undefined;
@@ -566,6 +594,11 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
+        history?: {
+            at: string;
+            from: string;
+            to: string;
+        }[] | undefined;
     }[];
     working_directory?: string | undefined;
     host_workspace_id?: string | undefined;

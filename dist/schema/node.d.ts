@@ -106,6 +106,23 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     }>>;
+    /**
+     * 状态迁移时间线：每次推进追加一条 { at, from, to }。
+     * 可选，旧快照没有。
+     */
+    history: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        at: z.ZodString;
+        from: z.ZodString;
+        to: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        at: string;
+        from: string;
+        to: string;
+    }, {
+        at: string;
+        from: string;
+        to: string;
+    }>, "many">>;
     depth: z.ZodNumber;
     max_depth: z.ZodNumber;
     step_count: z.ZodNumber;
@@ -144,6 +161,11 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     } | undefined;
+    history?: {
+        at: string;
+        from: string;
+        to: string;
+    }[] | undefined;
 }, {
     node_id: string;
     parent_id: string | null;
@@ -178,6 +200,11 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     } | undefined;
+    history?: {
+        at: string;
+        from: string;
+        to: string;
+    }[] | undefined;
 }>;
 export type AgentNode = z.infer<typeof AgentNode>;
 export declare const NODE_TYPE_LABEL: Record<AgentNode['node_type'], string>;

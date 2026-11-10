@@ -496,6 +496,26 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **待补**：树删了之后"一个会话怎么变成 workflow 节点"的入口没了（自动认领 / 会话行按钮尚未接线）；
   会话维度下"工作区项目手册 + 会话手册"两层的拆分也待落地。
 
+### D-26 扁平模型：工作区=项目、会话=单元，两层手册 + 自动认领 + 条件流转 + 时间线
+
+- **模型**：工作区 = 一个项目；会话 = 一个 workflow 单元（五态 + 方案 + 实施顺序）。
+  不再有节点树、parent/child、深度限制——那些都废了（拆解已内化进会话）。
+- **两层手册**（都在 `<工作区>/.workflow/` 下）：
+  - `项目手册.md`：项目总览 / 决策 / 要点（每工作区一份，跨会话延续，AI 收尾回写）；
+  - `会话手册-<node_id>.md`：方案（5 层）+ 实施顺序（每会话一份，AI 自己勾）。
+  - 旧的手册摘要（`手册摘要-<id>.md`）**删除**——"一层可见"现在直接注入项目手册。
+- **自动认领**：`POST /ensure-node { sessionId, workingDirectory }` —— 按工作目录找/建 workflow 快照 +
+  项目手册，再按 sessionId 找/建节点 + 会话手册。客户端徽标用 `useSessions` 拿到会话 cwd 后调它，
+  于是"打开任意会话"就自动变成 workflow 节点，不再需要树上的"新建子会话"按钮。
+- **条件流转**：返工表 `BACKWARD_STATES`（implementing→discussing；verifying→implementing/discussing），
+  徽标在可返工态显示一个 ↩ 菜单，`/transition` 直接接受任意合法 to，无需改引擎。
+- **时间线**：`AgentNode.history: [{at, from, to}]`，`transitionNode` 每次追加；节点弹窗展示。
+- **注入顺序**：A + 当前态细节 → 节点附加 → 会话手册（最近 2000 字 + 路径）→ 项目手册（≤800 字）。
+- **涉及文件**：`schema/node.ts`（history）、`host/workflow-repository.ts`（ensureNode/ensureWorkflow/
+  ensureGlobalManual/readGlobalManual/会话手册模板/项目手册模板）、`host.ts`（/ensure-node、node-manual 返 globalManual）、
+  `host/workflow-state-context.ts`（注入项目手册）、`client/workflow-embedded.tsx`（自动认领 + 返工菜单）、
+  `client/workflow-dialogs.tsx`（项目手册 + 时间线展示）。
+
 ## 6. 记录格式（新增条目照抄）
 
 ```
