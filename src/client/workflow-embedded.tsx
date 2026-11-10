@@ -281,7 +281,9 @@ function WorkflowWorkspaceItem(props: {
             <span style={{ width: 8, height: 8, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[node.current_state] ?? 'transparent' }} />
           </span>
           <span className={rowsClass('title')}>{node.title ?? node.node_type}</span>
-          <span className={rowsClass('time')}>{NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state}</span>
+          <span className={rowsClass('rowResting')}>
+            <span className={rowsClass('time')}>{NODE_STATE_LABEL[node.current_state as keyof typeof NODE_STATE_LABEL] ?? node.current_state}</span>
+          </span>
           <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
             <button
               type="button"

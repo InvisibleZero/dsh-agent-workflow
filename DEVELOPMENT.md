@@ -182,6 +182,28 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 - **注意**：隧道只转发 `github.com`，`api.github.com` 直连即可；用完记得关掉进程。
 - **备用排查**：`Resolve-DnsName github.com -Type A` 看当前解析出的 IP；换一个可达 IP 改脚本里的 `FORWARD_IP`。
 
+### D-12 行内元素要照抄宿主的包装层，少一层就挤在一起
+
+- **现象**：行尾的「⋯」紧贴左边的时间/状态文字（`5 分钟⋯`、`未开始⋯`），和宿主原生行的留白不一样。
+- **根因**：宿主把「时间 + trailing 子槽 + 置顶标记」包在 `rowResting` 这一层里，由它负责右侧留白和子元素间距；
+  我们直接把 `time` 和 `rowActions` 并排放在行上，少了这层容器，两者之间没有间隙。
+- **正确做法**：照宿主的 DOM 结构抄——
+
+```tsx
+<span className={rowsClass('title')}>{title}</span>
+{!blank ? (
+  <span className={rowsClass('rowResting')}>
+    <span className={joinClasses(rowsClass('time'), trailingLabel === undefined && rowsClass('timestamp'))}>{label}</span>
+    {renderSlot('sidebar.session.row.trailing', { sessionId })}
+    {pinned ? <PinnedIndicator /> : null}
+  </span>
+) : null}
+<span className={rowsClass('rowActions')}>{/* ⋯ 按钮 */}</span>
+```
+
+- **验证**：行尾「⋯」与时间文字之间有明显间距；空白会话行不渲染这两段。
+- **通用教训**：用宿主 CSS 类复刻行样式时，**连包装层一起抄**，只抄叶子类名会缺定位/间距规则。
+
 ---
 
 ## 5. 记录格式（新增条目照抄）

@@ -510,10 +510,20 @@ function SessionRow(props: {
           : (typeof renderSlot === 'function' ? renderSlot('sidebar.session.row.leading', { sessionId: node.id }) : null))}
       </span>
       <span className={rowsClass('title')}>{displayTitle(node)}</span>
+      {/* 宿主把「时间 + trailing 槽 + 置顶标记」包在 rowResting 里：它负责右侧留白与元素间距，
+          少了这层，「⋯」就会紧贴时间文字。 */}
       {!node.blank ? (
-        <span className={rowsClass('time')} aria-hidden>{primaryStatus.trailingLabel ?? timeLabel(node.updatedAt, now)}</span>
+        <span className={rowsClass('rowResting')}>
+          <span
+            className={joinClasses(rowsClass('time'), primaryStatus.trailingLabel === undefined && rowsClass('timestamp'))}
+            aria-hidden
+          >
+            {primaryStatus.trailingLabel ?? timeLabel(node.updatedAt, now)}
+          </span>
+          {typeof renderSlot === 'function' ? renderSlot('sidebar.session.row.trailing', { sessionId: node.id }) : null}
+          {node.pinned && !node.archived ? <PinnedIndicator /> : null}
+        </span>
       ) : null}
-      {node.pinned && !node.archived ? <PinnedIndicator /> : null}
       {!node.blank ? (
         <span className={rowsClass('rowActions')} onClick={(event) => event.stopPropagation()}>
           <button
