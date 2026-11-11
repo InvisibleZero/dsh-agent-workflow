@@ -9,8 +9,9 @@
  *   压力 —— 200 会话批量认领、50 并发侧栏批量读、20 节点并发推进。
  */
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 
 const CANDIDATE_PORTS = [12031, 10766, 1606, 8326, 9230, 4709, 2340];
 const PORT = Number(process.argv[2] || 0);
@@ -19,15 +20,61 @@ let base = '';
 let pass = 0;
 let fail = 0;
 const failures = [];
+/** 本次跑测的元信息与逐项结果：落盘用，跑一半崩了也要能写出去。 */
+const RUN = { startedAt: new Date().toISOString(), port: null, rows: [] };
 
 function report(name, cond, detail = '') {
-  if (cond) {
+  const ok = cond === true;
+  RUN.rows.push({ name, ok, detail: String(detail ?? '') });
+  if (ok) {
     pass += 1;
     console.log(`  ✓ ${name}${detail ? `  ${detail}` : ''}`);
   } else {
     fail += 1;
     failures.push(name);
     console.log(`  ✗ ${name}${detail ? `  ${detail}` : ''}`);
+  }
+}
+
+const pad2 = (value) => String(value).padStart(2, '0');
+const datePart = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+const timePart = (date) => `${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+
+/**
+ * 落一份结果文件：`logs/probe/<日期>_<时分秒>.json`，只增不改。
+ *
+ * 为什么必须有：台账跑测协议要求「一份能跟上一版直接比的结果文件」。
+ * 只打控制台等于这次跑完就没了，下一次没法比。落盘失败不影响退出码。
+ */
+async function writeResultFile(port) {
+  try {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    const finishedAt = new Date();
+    const dir = join(root, 'logs', 'probe');
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, `${datePart(finishedAt)}_${timePart(finishedAt)}.json`);
+    const payload = {
+      tool: 'regression-stress',
+      plugin: typeof pkg.name === 'string' ? pkg.name : 'dsh-agent-workflow',
+      version: typeof pkg.version === 'string' ? pkg.version : 'unknown',
+      port: port ?? RUN.port ?? null,
+      started_at: RUN.startedAt,
+      finished_at: finishedAt.toISOString(),
+      wall_s: Number(((finishedAt.getTime() - new Date(RUN.startedAt).getTime()) / 1000).toFixed(3)),
+      pass,
+      fail,
+      valid: pass > 0 && fail === 0,
+      summary: `${pass} 通过 / ${fail} 失败`,
+      failures,
+      rows: RUN.rows,
+    };
+    await writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    console.log(`\n# 结果文件：${file}`);
+    return file;
+  } catch (error) {
+    console.error('# 结果落盘失败（不影响退出码）：', error);
+    return null;
   }
 }
 
@@ -67,8 +114,14 @@ async function main() {
   const port = await discoverPort();
   if (port === null) {
     console.error('未找到 DSH 宿主端口（试过：' + CANDIDATE_PORTS.join(', ') + '）');
+    // 连宿主都没连上也是一次「失败路径」：照样落一份结果，别让它无声消失。
+    RUN.rows.push({ name: '发现宿主端口', ok: false, detail: CANDIDATE_PORTS.join(', ') });
+    failures.push('发现宿主端口');
+    fail += 1;
+    await writeResultFile(null);
     process.exit(2);
   }
+  RUN.port = port;
   console.log(`# 端口 ${port}\n`);
 
   // ---------------- 回归 ----------------
@@ -240,6 +293,7 @@ async function main() {
   await json(port, 'delete', { method: 'POST', body: { id: wfBig } });
   await rm(big, { recursive: true, force: true });
 
+  await writeResultFile(port);
   console.log('');
   console.log(`# 结果：${pass} 通过 / ${fail} 失败`);
   if (failures.length > 0) {
@@ -248,7 +302,12 @@ async function main() {
   }
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error('测试脚本异常：', e);
+  // 脚本自己崩了也要留证据：否则「跑不通」和「没跑」在结果目录里长得一样。
+  RUN.rows.push({ name: '脚本异常', ok: false, detail: String(e?.message ?? e) });
+  failures.push('脚本异常');
+  fail += 1;
+  await writeResultFile(RUN.port);
   process.exit(2);
 });
