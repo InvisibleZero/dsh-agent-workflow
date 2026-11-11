@@ -84,7 +84,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
     },
     // D —— 验收中
     verifying: {
-        operation_detail: `本阶段只核对与报告，不改代码。
+        operation_detail: `本阶段以核对为主；发现问题可以直接修，但必须在检查表里注明改了什么、影响哪些验收项。
 
 交一张检查表，一行一项：
 
@@ -98,7 +98,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 没有证据的「通过」不算通过；不要用「应该没问题」收尾。
 
-发现必须修的问题，说明后回到实现中阶段。`,
+发现必须修的问题，能就地修的修掉并在检查表注明；改动较大或方案本身有问题时，说明后回到实现中阶段（返工要带 reason）。`,
         enter_trigger: '开始验收：逐条对照验收条件，给我通过/不通过和证据。',
     },
 };
