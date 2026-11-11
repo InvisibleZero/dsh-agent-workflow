@@ -1987,7 +1987,7 @@ function apply(ctx) {
         const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, "info", `[workflow] profiles-save ok (name=${profiles.active}, total=${profiles.names.length})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -1998,7 +1998,7 @@ function apply(ctx) {
         const profiles = await repository.activateProfile(body.name);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, "info", `[workflow] profiles-activate ok (active=${profiles.active})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -2009,7 +2009,7 @@ function apply(ctx) {
         const profiles = await repository.deleteProfile(body.name);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, "info", `[workflow] profiles-delete ok (deleted=${body.name}, active=${profiles.active})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -2029,7 +2029,7 @@ function apply(ctx) {
         if (typeof body?.json !== "string" || body.json.trim() === "") throw new Error("\u7F3A\u5C11 json\uFF1A\u8BF7\u7C98\u8D34\u5BFC\u51FA\u7684\u6587\u4EF6\u5185\u5BB9");
         const result = await repository.importProfile(typeof body.name === "string" ? body.name : "", body.json);
         logEvent(ctx.logger, "info", `[workflow] profiles-import ok (name=${result.imported})`, traceId);
-        return result;
+        return { imported: result.imported, profiles: result.names };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

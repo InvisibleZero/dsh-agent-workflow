@@ -348,7 +348,7 @@ export function apply(ctx: any) {
         const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, 'info', `[workflow] profiles-save ok (name=${profiles.active}, total=${profiles.names.length})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -359,7 +359,7 @@ export function apply(ctx: any) {
         const profiles = await repository.activateProfile(body.name);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, 'info', `[workflow] profiles-activate ok (active=${profiles.active})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -370,7 +370,7 @@ export function apply(ctx: any) {
         const profiles = await repository.deleteProfile(body.name);
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, 'info', `[workflow] profiles-delete ok (deleted=${body.name}, active=${profiles.active})`, traceId);
-        return { ...profiles, globalOperationDetail };
+        return { active: profiles.active, profiles: profiles.names, globalOperationDetail };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -390,7 +390,7 @@ export function apply(ctx: any) {
         if (typeof body?.json !== 'string' || body.json.trim() === '') throw new Error('缺少 json：请粘贴导出的文件内容');
         const result = await repository.importProfile(typeof body.name === 'string' ? body.name : '', body.json);
         logEvent(ctx.logger, 'info', `[workflow] profiles-import ok (name=${result.imported})`, traceId);
-        return result;
+        return { imported: result.imported, profiles: result.names };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

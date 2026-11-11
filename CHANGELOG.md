@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.3] - 2026-11-12
+
+### 修复
+
+- **另存为之后下拉不刷新**：`/profiles-save`、`/profiles-activate`、`/profiles-delete` 返回的字段是 `names`，而客户端读的是 `profiles`，导致接口明明成功了、下拉列表却不更新（要退出重进才看得到）。现在接口统一返回 `profiles`，客户端也兼容旧的 `names`。
+
 ## [0.4.2] - 2026-11-12
 
 ### 修复

@@ -608,8 +608,9 @@ window.__ModuleLoader__.load({
                     window.alert(String(body?.error ?? '操作失败'));
                     return false;
                 }
-                if (Array.isArray(body.profiles))
-                    setProfiles(body.profiles);
+                const list = Array.isArray(body.profiles) ? body.profiles : (Array.isArray(body.names) ? body.names : null);
+                if (list !== null && list.length > 0)
+                    setProfiles(list);
                 if (typeof body.activeProfile === 'string')
                     setActiveProfile(body.activeProfile);
                 else if (typeof body.active === 'string')

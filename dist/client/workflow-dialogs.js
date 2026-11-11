@@ -133,6 +133,8 @@ function WorkflowGlobalSettingsSection() {
     const [importOpen, setImportOpen] = useState(false);
     const [importText, setImportText] = useState('');
     const [importName, setImportName] = useState('');
+    const [saveAsOpen, setSaveAsOpen] = useState(false);
+    const [saveAsName, setSaveAsName] = useState('');
     const timerRef = useRef(null);
     const latestRef = useRef(null);
     useEffect(() => {
@@ -174,8 +176,9 @@ function WorkflowGlobalSettingsSection() {
                 window.alert(String(body?.error ?? '操作失败'));
                 return false;
             }
-            if (Array.isArray(body.profiles))
-                setProfiles(body.profiles);
+            const list = Array.isArray(body.profiles) ? body.profiles : (Array.isArray(body.names) ? body.names : null);
+            if (list !== null && list.length > 0)
+                setProfiles(list);
             if (typeof body.activeProfile === 'string')
                 setActiveProfile(body.activeProfile);
             else if (typeof body.active === 'string')
@@ -249,12 +252,17 @@ function WorkflowGlobalSettingsSection() {
             return;
         await callProfileRoute('profiles-activate', { name });
     };
+    /** 另存为：用面板里的输入框取名（Electron 里 window.prompt 不可用）。 */
     const saveAsProfile = async () => {
-        const suggestion = readOnlyProfile ? '我的存档' : `${activeProfile} 副本`;
-        const name = window.prompt('另存为存档（会复制当前这份 A/B/C/D）', suggestion);
-        if (name === null || name.trim() === '')
+        const name = saveAsName.trim();
+        if (name === '') {
+            window.alert('先填一个存档名');
             return;
-        await callProfileRoute('profiles-save', { name: name.trim() });
+        }
+        if (await callProfileRoute('profiles-save', { name })) {
+            setSaveAsOpen(false);
+            setSaveAsName('');
+        }
     };
     const removeProfile = async () => {
         if (readOnlyProfile)
@@ -341,7 +349,23 @@ function WorkflowGlobalSettingsSection() {
                             color: 'var(--dsw-alias-label-primary)',
                             fontSize: 12,
                             padding: '0 6px',
-                        }, children: profiles.map((name) => _jsx("option", { value: name, children: name }, name)) }), _jsx(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u53E6\u5B58\u4E3A" }), _jsx(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), _jsx(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), _jsx(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), _jsx(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? (_jsxs("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), importOpen ? (_jsxs("div", { style: {
+                        }, children: profiles.map((name) => _jsx("option", { value: name, children: name }, name)) }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), _jsx(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), _jsx(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), _jsx(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), _jsx(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? (_jsxs("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), saveAsOpen ? (_jsxs("div", { style: {
+                    border: '1px solid var(--dsw-alias-border-l1)',
+                    borderRadius: 8,
+                    padding: 10,
+                    marginBottom: 10,
+                    background: 'var(--dsw-alias-bg-base)',
+                }, children: [_jsx("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }, children: "\u590D\u5236\u5F53\u524D\u8FD9\u4EFD A/B/C/D \u6210\u4E00\u4EFD\u65B0\u5B58\u6863\uFF08\u6587\u4EF6\u540D\u5373\u5B58\u6863\u540D\uFF09\u3002" }), _jsxs("div", { style: { display: 'flex', gap: 8 }, children: [_jsx("input", { value: saveAsName, onChange: (event) => setSaveAsName(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter')
+                                    void saveAsProfile(); }, placeholder: "\u5B58\u6863\u540D", autoFocus: true, style: {
+                                    flex: '1 1 auto',
+                                    height: 26,
+                                    borderRadius: 6,
+                                    border: '1px solid var(--dsw-alias-border-l1)',
+                                    background: 'var(--dsw-alias-bg-layer-1)',
+                                    color: 'var(--dsw-alias-label-primary)',
+                                    fontSize: 12,
+                                    padding: '0 8px',
+                                } }), _jsx(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u4FDD\u5B58" }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen(false); setSaveAsName(''); }, children: "\u53D6\u6D88" })] })] })) : null, importOpen ? (_jsxs("div", { style: {
                     border: '1px solid var(--dsw-alias-border-l1)',
                     borderRadius: 8,
                     padding: 10,
