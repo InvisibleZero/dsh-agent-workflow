@@ -223,6 +223,8 @@ function WorkflowGlobalSettingsSection() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importName, setImportName] = useState('');
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsName, setSaveAsName] = useState('');
   const timerRef = useRef<any>(null);
   const latestRef = useRef<any>(null);
 
@@ -330,11 +332,17 @@ function WorkflowGlobalSettingsSection() {
     await callProfileRoute('profiles-activate', { name });
   };
 
+  /** 另存为：用面板里的输入框取名（Electron 里 window.prompt 不可用）。 */
   const saveAsProfile = async () => {
-    const suggestion = readOnlyProfile ? '我的存档' : `${activeProfile} 副本`;
-    const name = window.prompt('另存为存档（会复制当前这份 A/B/C/D）', suggestion);
-    if (name === null || name.trim() === '') return;
-    await callProfileRoute('profiles-save', { name: name.trim() });
+    const name = saveAsName.trim();
+    if (name === '') {
+      window.alert('先填一个存档名');
+      return;
+    }
+    if (await callProfileRoute('profiles-save', { name })) {
+      setSaveAsOpen(false);
+      setSaveAsName('');
+    }
   };
 
   const removeProfile = async () => {
@@ -436,7 +444,7 @@ function WorkflowGlobalSettingsSection() {
         >
           {profiles.map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
-        <ProfileToolButton onClick={() => { void saveAsProfile(); }}>另存为</ProfileToolButton>
+        <ProfileToolButton onClick={() => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }}>另存为</ProfileToolButton>
         <ProfileToolButton onClick={() => { void removeProfile(); }} disabled={readOnlyProfile}>删除</ProfileToolButton>
         <ProfileToolButton onClick={() => { void refreshProfiles(); }}>刷新</ProfileToolButton>
         <ProfileToolButton onClick={() => { void exportProfile(); }}>备份</ProfileToolButton>
@@ -447,6 +455,41 @@ function WorkflowGlobalSettingsSection() {
           </span>
         ) : null}
       </div>
+
+      {saveAsOpen ? (
+        <div style={{
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 10,
+          background: 'var(--dsw-alias-bg-base)',
+        }}>
+          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }}>
+            复制当前这份 A/B/C/D 成一份新存档（文件名即存档名）。
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={saveAsName}
+              onChange={(event) => setSaveAsName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') void saveAsProfile(); }}
+              placeholder="存档名"
+              autoFocus
+              style={{
+                flex: '1 1 auto',
+                height: 26,
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l1)',
+                background: 'var(--dsw-alias-bg-layer-1)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 12,
+                padding: '0 8px',
+              }}
+            />
+            <ProfileToolButton onClick={() => { void saveAsProfile(); }}>保存</ProfileToolButton>
+            <ProfileToolButton onClick={() => { setSaveAsOpen(false); setSaveAsName(''); }}>取消</ProfileToolButton>
+          </div>
+        </div>
+      ) : null}
 
       {importOpen ? (
         <div style={{

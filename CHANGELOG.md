@@ -2,6 +2,12 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.2] - 2026-11-12
+
+### 修复
+
+- **「另存为」点了没反应**：原来用 `window.prompt` 取名，而 Electron 不支持 `prompt`（调用即抛错/返回空），所以按钮等于失灵。改成按钮下方展开一个小面板，输入框 + 「保存 / 取消」，回车也能提交。
+
 ## [0.4.1] - 2026-11-12
 
 ### 变更
