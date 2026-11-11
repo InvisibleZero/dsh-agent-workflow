@@ -5,7 +5,7 @@
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：**工作区 = 一个项目，会话 = 一个 workflow 单元**。每个会话走**四态状态机**（讨论 → 实现 → 验收），当前状态自动决定注入给模型的操作细节，并把项目的总览、决策、约束与坑沉淀进**两层手册**（项目手册 + 会话手册）。
 
 - **仓库地址**：<https://github.com/InvisibleZero/dsh-agent-workflow>
-- **版本**：`0.3.2`（更新记录见 [CHANGELOG.md](./CHANGELOG.md)）
+- **版本**：`0.5.0`（更新记录见 [CHANGELOG.md](./CHANGELOG.md)）
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
 - **项目历程**：[JOURNEY.md](./JOURNEY.md)（从加法到减法：为什么先做树、又为什么拆掉）
