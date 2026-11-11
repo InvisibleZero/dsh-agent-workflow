@@ -107,6 +107,11 @@ var AgentNode = z2.object({
 });
 
 // src/schema/workflow.ts
+var HardRules = z3.object({
+  discussing: z3.string().optional(),
+  implementing: z3.string().optional(),
+  verifying: z3.string().optional()
+});
 var GlobalOperationDetail = z3.object({
   shared_detail: z3.string(),
   // A：三态通用的公共操作细节
@@ -114,8 +119,10 @@ var GlobalOperationDetail = z3.object({
   // B
   implementing: StateDetail,
   // C
-  verifying: StateDetail
+  verifying: StateDetail,
   // D
+  /** 硬规则覆盖值；缺省 = 用 DEFAULT_HARD_RULES。 */
+  hard_rules: HardRules.optional()
 });
 var AggregationMode = z3.enum(["manual", "all_complete", "any_active"]);
 var WorkflowSettings = z3.object({
@@ -159,9 +166,7 @@ var DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 3. \u53D6\u820D\u4E0E\u5EFA\u8BAE\uFF1A\u9009\u54EA\u4E2A\u3001\u4E3A\u4EC0\u4E48\u3001\u8FD8\u6709\u54EA\u4E9B\u5206\u53C9\u70B9\u6CA1\u5B9A\u3002
 
-\u9700\u8981\u5148\u786E\u8BA4\u7684\u5730\u65B9\u5355\u72EC\u5217\u51FA\u6765\uFF0C\u7B49\u4EBA\u786E\u8BA4\u540E\u518D\u63A8\u8FDB\u3002
-
-\uFF08\u6536\u5C3E\uFF09\u65B9\u6848\u786E\u8BA4\u540E\u3001\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u4E4B\u524D\uFF0C\u7528 workflow_manual({ target: "session", action: "replace_section", section: "\u65B9\u6848", content: "..." }) \u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u5BF9\u5916\u5951\u7EA6 \u2192 \u7ED3\u6784\u4E0E\u4F9D\u8D56 \u2192 \u6570\u636E\u4E0E\u72B6\u6001 \u2192 \u8868\u73B0\u4E0E\u6587\u6848\u300D\u5199\u8FDB\u672C\u8282\u70B9\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\uFF08\u8FD9\u4E00\u6B65\u540C\u6837\u7528 workflow_manual \u5199\uFF09\u3002\u6CA1\u5199\u8FDB\u624B\u518C\u4E0D\u80FD\u63A8\u8FDB\u2014\u2014\u63A8\u8FDB\u5DE5\u5177\u4F1A\u62E6\u4F60\u3002`,
+\u9700\u8981\u5148\u786E\u8BA4\u7684\u5730\u65B9\u5355\u72EC\u5217\u51FA\u6765\uFF0C\u7B49\u4EBA\u786E\u8BA4\u540E\u518D\u63A8\u8FDB\u3002`,
     enter_trigger: null
   },
   // C —— 实现中
@@ -174,14 +179,12 @@ var DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 \u5B8C\u6210\u540E\u7ED9\u51FA\u9A8C\u8BC1\u65B9\u5F0F\uFF1A\u600E\u4E48\u8FD0\u884C\u3001\u770B\u4EC0\u4E48\u8F93\u51FA\u3001\u4EC0\u4E48\u7B97\u901A\u8FC7\u3002
 
-\u5B9E\u73B0\u4E2D\u53D1\u73B0\u65B9\u6848\u6709\u6D1E\uFF0C\u505C\u4E0B\u6765\u8BF4\u660E\uFF0C\u4E0D\u8981\u81EA\u884C\u6269\u5927\u8303\u56F4\u3002
-
-\uFF08\u7EAA\u5F8B\uFF09\u4E00\u6B21\u53EA\u63A8\u8FDB\u4E00\u5C42\uFF1A\u6309\u5DE5\u4F5C\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5F53\u524D\u672A\u52FE\u7684\u7B2C\u4E00\u6761\u505A\uFF0C\u5B8C\u6210\u8FD9\u4E00\u5C42\u5C31\u7528 workflow_check({ item: "\u6761\u76EE\u539F\u6587", done: true }) \u52FE\u6389\u5E76\u505C\u4E0B\u6C47\u62A5\uFF0C\u7B49\u300C\u7EE7\u7EED\u300D\u518D\u505A\u4E0B\u4E00\u5C42\u3002\u53EA\u6539\u52FE\u9009\u72B6\u6001\uFF0C\u4E0D\u8981\u91CD\u6392\u6216\u6539\u5199\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u8FD9\u4E00\u8282\u3002`,
-    enter_trigger: "\u5148\u8BFB\u5DE5\u4F5C\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF0C\u6309\u672A\u52FE\u7684\u7B2C\u4E00\u5C42\u5F00\u59CB\u5B9E\u73B0\uFF0C\u5B8C\u6210\u4E00\u5C42\u52FE\u6389\u518D\u7EE7\u7EED\u3002"
+\u5B9E\u73B0\u4E2D\u53D1\u73B0\u65B9\u6848\u6709\u6D1E\uFF0C\u505C\u4E0B\u6765\u8BF4\u660E\uFF0C\u4E0D\u8981\u81EA\u884C\u6269\u5927\u8303\u56F4\u3002`,
+    enter_trigger: "\u5148\u8BFB\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF0C\u6309\u672A\u52FE\u7684\u7B2C\u4E00\u5C42\u5F00\u59CB\u5B9E\u73B0\uFF0C\u5B8C\u6210\u4E00\u5C42\u52FE\u6389\u518D\u7EE7\u7EED\u3002"
   },
   // D —— 验收中
   verifying: {
-    operation_detail: `\u672C\u9636\u6BB5\u4EE5\u6838\u5BF9\u4E3A\u4E3B\uFF1B\u53D1\u73B0\u95EE\u9898\u53EF\u4EE5\u76F4\u63A5\u4FEE\uFF0C\u4F46\u5FC5\u987B\u5728\u68C0\u67E5\u8868\u91CC\u6CE8\u660E\u6539\u4E86\u4EC0\u4E48\u3001\u5F71\u54CD\u54EA\u4E9B\u9A8C\u6536\u9879\u3002
+    operation_detail: `\u672C\u9636\u6BB5\u53EA\u6838\u5BF9\u4E0E\u62A5\u544A\uFF0C\u4E0D\u6539\u4EE3\u7801\u3002
 
 \u4EA4\u4E00\u5F20\u68C0\u67E5\u8868\uFF0C\u4E00\u884C\u4E00\u9879\uFF1A
 
@@ -195,7 +198,7 @@ var DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 \u6CA1\u6709\u8BC1\u636E\u7684\u300C\u901A\u8FC7\u300D\u4E0D\u7B97\u901A\u8FC7\uFF1B\u4E0D\u8981\u7528\u300C\u5E94\u8BE5\u6CA1\u95EE\u9898\u300D\u6536\u5C3E\u3002
 
-\u6539\u52A8\u8F83\u5927\u6216\u65B9\u6848\u672C\u8EAB\u6709\u95EE\u9898\u65F6\uFF0C\u8BF4\u660E\u540E\u56DE\u5230\u5B9E\u73B0\u4E2D\u9636\u6BB5\uFF08\u8FD4\u5DE5\u8981\u5E26 reason\uFF09\u3002`,
+\u53D1\u73B0\u5FC5\u987B\u4FEE\u7684\u95EE\u9898\uFF0C\u8BF4\u660E\u540E\u56DE\u5230\u5B9E\u73B0\u4E2D\u9636\u6BB5\u3002`,
     enter_trigger: "\u5F00\u59CB\u9A8C\u6536\uFF1A\u9010\u6761\u5BF9\u7167\u9A8C\u6536\u6761\u4EF6\uFF0C\u7ED9\u6211\u901A\u8FC7/\u4E0D\u901A\u8FC7\u548C\u8BC1\u636E\u3002"
   }
 };
@@ -312,23 +315,23 @@ function globalManualFileName() {
 var SESSION_MANUAL_TEMPLATE = [
   "# \u4F1A\u8BDD\u624B\u518C",
   "",
-  "## \u65B9\u6848\uFF08\u4E0A\u5C42 \u2192 \u4E0B\u5C42\uFF09",
+  "## \u65B9\u6848\uFF08\u81EA\u5E95\u5411\u4E0A\uFF09",
   "### 1. \u76EE\u6807\u4E0E\u9A8C\u6536",
   "<!-- \u8981\u89E3\u51B3\u4EC0\u4E48\u3001\u4E0D\u505A\u4EC0\u4E48\u3001\u9A8C\u6536\u6807\u51C6 -->",
-  "### 2. \u5BF9\u5916\u5951\u7EA6",
-  "<!-- \u5BF9\u5916\u63A5\u53E3 / \u547D\u4EE4 / \u4E8B\u4EF6\uFF0C\u5165\u53C2\u51FA\u53C2 -->",
-  "### 3. \u7ED3\u6784\u4E0E\u4F9D\u8D56",
-  "<!-- \u6A21\u5757\u5212\u5206\u3001\u804C\u8D23\u3001\u8C03\u7528\u65B9\u5411 -->",
-  "### 4. \u6570\u636E\u4E0E\u72B6\u6001",
-  "<!-- \u6570\u636E\u7ED3\u6784\u3001\u72B6\u6001\u6D41\u8F6C\u3001\u6301\u4E45\u5316 -->",
-  "### 5. \u8868\u73B0\u4E0E\u6587\u6848",
-  "<!-- \u754C\u9762\u3001\u5B57\u6BB5\u3001\u6587\u6848\u3001\u4EA4\u4E92\u7EC6\u8282 -->",
+  "### 2. \u6570\u636E\u5C42",
+  "<!-- \u6570\u636E\u6A21\u578B / \u6301\u4E45\u5316 / \u8FC1\u79FB\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1\uFF0C\u9644\u6D4B\u8BD5\u811A\u672C\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u5BF9\u5916\u53EA\u66B4\u9732 ____\uFF0C\u4E0A\u5C42\u4E0D\u76F4\u63A5\u78B0\u5B58\u50A8\u5B9E\u73B0 -->",
+  "### 3. \u9886\u57DF\u5C42",
+  "<!-- \u6838\u5FC3\u89C4\u5219 / \u72B6\u6001\u673A / \u7B97\u6CD5\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B\uFF0C\u9644\u6D4B\u8BD5\u811A\u672C\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u66B4\u9732\u7EAF\u51FD\u6570 ____\uFF0C\u4E0D\u78B0 DOM\u3001\u4E0D\u8BFB\u5199\u5168\u5C40 -->",
+  "### 4. \u63A5\u53E3\u5C42",
+  "<!-- \u5BF9\u5916\u5951\u7EA6\uFF08\u5DE5\u5177 / \u8DEF\u7531 / \u547D\u4EE4\uFF09\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u5951\u7EA6\u6D4B\u8BD5\u901A\u8FC7\uFF0C\u9644\u6D4B\u8BD5\u6587\u4EF6\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u505A\u4E8B\u4EF6 \u2192 action \u6620\u5C04\uFF0C\u4E0D\u505A\u8BA1\u7B97\u3001\u4E0D\u6E32\u67D3 -->",
+  "### 5. \u8868\u73B0\u5C42",
+  "<!-- UI / \u6587\u6848 / \u7AEF\u5230\u7AEF\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1Abuild + smoke \u901A\u8FC7\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u6D88\u8D39\u53EA\u8BFB\u72B6\u6001\u6E32\u67D3\uFF0C\u4E0D\u53CD\u5411\u5199\u6570\u636E\u5C42 -->",
   "",
   "## \u5B9E\u65BD\u987A\u5E8F",
-  "- [ ] 2. \u5BF9\u5916\u5951\u7EA6",
-  "- [ ] 3. \u7ED3\u6784\u4E0E\u4F9D\u8D56",
-  "- [ ] 4. \u6570\u636E\u4E0E\u72B6\u6001",
-  "- [ ] 5. \u8868\u73B0\u4E0E\u6587\u6848",
+  "- [ ] \u6570\u636E\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1",
+  "- [ ] \u9886\u57DF\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B",
+  "- [ ] \u63A5\u53E3\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u5951\u7EA6\u6D4B\u8BD5\u901A\u8FC7",
+  "- [ ] \u8868\u73B0\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1Abuild + smoke \u901A\u8FC7",
   ""
 ].join("\n");
 var GLOBAL_MANUAL_TEMPLATE = [
@@ -347,6 +350,7 @@ var GLOBAL_MANUAL_TEMPLATE = [
   "<!-- \u73B0\u8C61 \u2192 \u6839\u56E0 \u2192 \u9632\u7EBF \u2192 \u81EA\u67E5\uFF1B\u6BCF\u6761\u4E0D\u8D85\u8FC7 3 \u884C -->",
   ""
 ].join("\n");
+var CHECK_EVIDENCE_MARK = " \uFF5C \u81EA\u68C0\uFF1A";
 function parseChecklist(manual) {
   const lines = manual.split(/\r?\n/);
   let inSection = false;
@@ -359,7 +363,11 @@ function parseChecklist(manual) {
     if (inSection && line.startsWith("## ")) break;
     if (!inSection) continue;
     const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
-    if (match !== null) items.push({ label: (match[2] ?? "").trim(), done: match[1] !== " " });
+    if (match !== null) {
+      const raw = (match[2] ?? "").trim();
+      const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
+      items.push({ label: cut === -1 ? raw : raw.slice(0, cut).trim(), done: match[1] !== " " });
+    }
   }
   return items;
 }
@@ -432,7 +440,7 @@ function appendSection(manual, section, content) {
 ${body}
 `;
 }
-function toggleChecklistLine(manual, label, done) {
+function toggleChecklistLine(manual, label, done, evidence) {
   const lines = manual.split(/\r?\n/);
   let inSection = false;
   for (let index = 0; index < lines.length; index += 1) {
@@ -445,10 +453,14 @@ function toggleChecklistLine(manual, label, done) {
     if (inSection && line.startsWith("## ")) break;
     if (!inSection) continue;
     const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
-    if (match !== null && match[4] !== void 0 && match[4].trim() === label) {
-      lines[index] = `${match[1] ?? ""}${done ? "x" : " "}${match[3] ?? ""}${match[4]}`;
-      return lines.join("\n");
-    }
+    if (match === null || match[4] === void 0) continue;
+    const raw = match[4].trim();
+    const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
+    const lineLabel = cut === -1 ? raw : raw.slice(0, cut).trim();
+    if (lineLabel !== label) continue;
+    const suffix = done && evidence !== "" ? `${CHECK_EVIDENCE_MARK}${evidence}` : "";
+    lines[index] = `${match[1] ?? ""}${done ? "x" : " "}${match[3] ?? ""}${label}${suffix}`;
+    return lines.join("\n");
   }
   throw new Error(`\u6CA1\u80FD\u5B9A\u4F4D\u5230\u6761\u76EE\u300C${label}\u300D`);
 }
@@ -1036,6 +1048,10 @@ var WorkflowRepository = class {
    * @returns 勾选后的完整清单，方便模型确认进度。
    */
   async setChecklistItem(input) {
+    const evidence = typeof input.evidence === "string" ? input.evidence.trim() : "";
+    if (input.done === true && evidence === "") {
+      throw new Error("\u52FE\u9009\u9700\u8981 evidence\uFF1A\u5199\u6E05\u8FD9\u4E00\u5C42\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u662F\u4EC0\u4E48\uFF08\u4F8B\uFF1A\u8DD1 node test.mjs\uFF0C12 \u9879\u5168\u8FC7\uFF09\u3002");
+    }
     const { file } = await this.resolveManualFile(input.workflowId, input.nodeId);
     const current = await this.readFileOrTemplate(file, true);
     const items = parseChecklist(current);
@@ -1045,7 +1061,7 @@ var WorkflowRepository = class {
     if (match === void 0) {
       throw new Error(`\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u6CA1\u6709\u300C${target}\u300D\u8FD9\u6761\uFF1B\u53EF\u52FE\u9009\u7684\u6761\u76EE\uFF1A${items.map((item) => item.label).join(" / ")}`);
     }
-    const next = toggleChecklistLine(current, target, input.done);
+    const next = toggleChecklistLine(current, target, input.done, evidence);
     await writeTextAtomic(file, next);
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
     return parseChecklist(next);
@@ -1098,6 +1114,13 @@ var NODE_STATE_LABEL = {
   implementing: "\u5B9E\u73B0\u4E2D",
   verifying: "\u9A8C\u6536\u4E2D",
   completed: "\u5DF2\u5B8C\u7ED3"
+};
+
+// src/schema/hard-rules.ts
+var DEFAULT_HARD_RULES = {
+  discussing: `\uFF08\u6536\u5C3E\uFF09\u65B9\u6848\u786E\u8BA4\u540E\u3001\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u4E4B\u524D\uFF0C\u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u6570\u636E\u5C42 \u2192 \u9886\u57DF\u5C42 \u2192 \u63A5\u53E3\u5C42 \u2192 \u8868\u73B0\u5C42\u300D\u5199\u8FDB\u672C\u8282\u70B9\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF08\u6BCF\u5C42\u5199\u6E05\u5C42\u95F4\u5951\u7EA6\uFF09\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\uFF1B\u6CA1\u5199\u8FDB\u624B\u518C\u4E0D\u7B97\u8BA8\u8BBA\u7ED3\u675F\u3002`,
+  implementing: `\uFF08\u7EAA\u5F8B\uFF09\u6309\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u4ECE\u4E0B\u5230\u4E0A\u8FDE\u7EED\u5B8C\u6210\u6240\u6709\u5C42\uFF1A\u6BCF\u5B8C\u6210\u4E00\u5C42\uFF0C\u6309\u8BE5\u5C42\u300C\u5B8C\u6210\u6807\u51C6\u300D\u81EA\u68C0\uFF0C\u7528 workflow_check \u628A\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\uFF0C\u7136\u540E\u76F4\u63A5\u7EE7\u7EED\u4E0B\u4E00\u5C42\uFF0C\u4E0D\u8981\u9010\u5C42\u7B49\u6211\u786E\u8BA4\u3002\u53EA\u6709\u547D\u4E2D\u4EE5\u4E0B\u60C5\u51B5\u624D\u505C\u4E0B\u6765\u95EE\u6211\uFF1A\u2460 \u65B9\u6848\u6709\u6D1E\u6216\u81EA\u76F8\u77DB\u76FE\uFF0C\u9700\u8981\u6211\u62CD\u677F\uFF1B\u2461 \u8BE5\u5C42\u81EA\u68C0\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u5728\u672C\u5C42\u81EA\u884C\u4FEE\u590D\uFF1B\u2462 \u9700\u8981\u505A\u8D85\u51FA\u65B9\u6848\u8303\u56F4\u7684\u6539\u52A8\uFF1B\u2463 \u6D89\u53CA\u5220\u9664 / \u8986\u76D6\u4E0D\u53EF\u9006\u7684\u6570\u636E\u6216\u914D\u7F6E\uFF1B\u2464 \u9700\u8981\u6211\u63D0\u4F9B\u5916\u90E8\u8D44\u6E90\uFF08\u8D26\u53F7\u3001\u6587\u4EF6\u3001\u73AF\u5883\uFF09\u3002\u5168\u90E8\u5C42\u5B8C\u6210\u540E\uFF0C\u4E00\u6B21\u6027\u6C47\u62A5\u6BCF\u5C42\u505A\u4E86\u4EC0\u4E48\u3001\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF0C\u7136\u540E\u8BF7\u6C42\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002`,
+  verifying: `\uFF08\u7EAA\u5F8B\uFF09\u9A8C\u6536\u5FC5\u987B\u7ED9\u53EF\u590D\u8DD1\u7684\u8BC1\u636E\uFF1A\u6BCF\u4E00\u9879\u300C\u901A\u8FC7\u300D\u90FD\u8981\u9644\u547D\u4EE4 + \u8F93\u51FA\uFF0C\u6216\u6307\u5411\u5177\u4F53\u6D4B\u8BD5\u6587\u4EF6\uFF08\u8DEF\u5F84 + \u8DD1\u6CD5\uFF09\uFF1B\u6CA1\u6709\u53EF\u590D\u8DD1\u8BC1\u636E\u7684\u9879\u6807\u300C\u672A\u9A8C\u8BC1\u300D\uFF0C\u4E0D\u7B97\u901A\u8FC7\u3002`
 };
 
 // src/host/event-log.ts
@@ -1156,10 +1179,16 @@ function registerWorkflowStateContext(ctx, repository, isWorkflowSession = () =>
       "<workflow-state>",
       `\u8282\u70B9\uFF1A${node.title || "(\u672A\u547D\u540D)"}\u3000workflow\uFF1A${snapshot.title}`,
       `\u5F53\u524D\u72B6\u6001\uFF1A${label}`,
-      "\uFF08\u9636\u6BB5\u8FB9\u754C\u662F\u786C\u7EA6\u675F\uFF1A\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u300C\u9A8C\u6536\u4E2D\u300D\u300C\u5DF2\u5B8C\u7ED3\u300D\u65F6\u6539\u6587\u4EF6\u4F1A\u88AB\u62E6\u622A\u3002\u8981\u52A8\u624B\u5148\u8C03\u7528 workflow_advance \u63A8\u8FDB\u9636\u6BB5\uFF0C\u5DE5\u5177\u4F1A\u8FD4\u56DE\u8BE5\u9636\u6BB5\u7684\u5B8C\u6574\u89C4\u5219\u3002\uFF09"
+      "\uFF08\u9636\u6BB5\u8FB9\u754C\uFF1A\u53EA\u6709\u300C\u8BA8\u8BBA\u4E2D\u300D\u4F1A\u62E6\u5199\u64CD\u4F5C\uFF1B\u300C\u9A8C\u6536\u4E2D\u300D\u300C\u5DF2\u5B8C\u7ED3\u300D\u4E0D\u62E6\u5199\u6587\u4EF6\u3002\u6539\u4EE3\u7801\u4ECD\u6309\u9636\u6BB5\u89C4\u5219\u8D70\uFF0C\u5DE5\u5177\u4F1A\u8FD4\u56DE\u8BE5\u9636\u6BB5\u7684\u5B8C\u6574\u89C4\u5219\u3002\uFF09"
     ];
     if (typeof effective.full_detail === "string" && effective.full_detail.trim() !== "") {
       parts.push("", effective.full_detail.trim());
+    }
+    const hardOverride = (global && typeof global === "object" ? global.hard_rules : void 0) ?? {};
+    const hardRule = node.current_state === "discussing" ? hardOverride.discussing ?? DEFAULT_HARD_RULES.discussing : node.current_state === "implementing" ? hardOverride.implementing ?? DEFAULT_HARD_RULES.implementing : node.current_state === "verifying" ? hardOverride.verifying ?? DEFAULT_HARD_RULES.verifying : "";
+    if (typeof hardRule === "string" && hardRule.trim() !== "") {
+      parts.push("", `\u3010\u672C\u9636\u6BB5\u786C\u89C4\u5219\u3011
+${hardRule.trim()}`);
     }
     const nodeAdditional = typeof node.additional_detail === "object" && node.additional_detail !== null ? node.additional_detail.global : void 0;
     if (typeof nodeAdditional === "string" && nodeAdditional.trim() !== "") {
@@ -1189,7 +1218,7 @@ ${clip(projectSections.overview, 120)}`);
     if (projectSections.decisions.trim() !== "") projectBlocks.push(`\u3010\u51B3\u7B56\u8BB0\u5F55\u3011
 ${clip(projectSections.decisions, 160)}`);
     if (projectBlocks.length > 0) parts.push("", "\u9879\u76EE\u624B\u518C\uFF1A", projectBlocks.join("\n\n"));
-    parts.push("", "\u6536\u5C3E\u65F6\u56DE\u7B54\u4E09\u95EE\u5E76\u5199\u8FDB\u9879\u76EE\u624B\u518C\uFF1A\u2460 \u672C\u6B21\u65B0\u589E\u6216\u63A8\u7FFB\u4E86\u4EC0\u4E48\u51B3\u7B56\uFF08\u5199\u300C\u51B3\u7B56\u8BB0\u5F55\u300D\uFF09\uFF1B\u2461 \u8E29\u5230\u6216\u590D\u73B0\u4E86\u4EC0\u4E48\u5751\uFF08\u5199\u300C\u5751\u4E0E\u9632\u7EBF\u300D\uFF0C\u6309\u300C\u73B0\u8C61 \u2192 \u6839\u56E0 \u2192 \u9632\u7EBF \u2192 \u81EA\u67E5\u300D\uFF09\uFF1B\u2462 \u4E24\u6837\u90FD\u6CA1\u6709\u5C31\u5199\u300C\u65E0\u300D\u3002\u540C\u65F6\u540C\u6B65\u672C\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u4E0E\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u3002");
+    parts.push("", "\u6536\u5C3E\u65F6\u56DE\u7B54\u56DB\u95EE\u5E76\u5199\u8FDB\u9879\u76EE\u624B\u518C\uFF1A\u2460 \u672C\u6B21\u65B0\u589E\u6216\u63A8\u7FFB\u4E86\u4EC0\u4E48\u51B3\u7B56\uFF08\u5199\u300C\u51B3\u7B56\u8BB0\u5F55\u300D\uFF09\uFF1B\u2461 \u8E29\u5230\u6216\u590D\u73B0\u4E86\u4EC0\u4E48\u5751\uFF08\u5199\u300C\u5751\u4E0E\u9632\u7EBF\u300D\uFF0C\u6309\u300C\u73B0\u8C61 \u2192 \u6839\u56E0 \u2192 \u9632\u7EBF \u2192 \u81EA\u67E5\u300D\uFF09\uFF1B\u2462 \u4E24\u6837\u90FD\u6CA1\u6709\u5C31\u5199\u300C\u65E0\u300D\uFF1B\u2463 \u624B\u518C/\u6587\u6863\u63CF\u8FF0\u4E0E\u5B9E\u73B0\u662F\u5426\u4E00\u81F4\uFF0C\u4E0D\u4E00\u81F4\u6539\u4E86\u4EC0\u4E48\u3002\u540C\u65F6\u540C\u6B65\u672C\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u4E0E\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u3002");
     parts.push("</workflow-state>");
     let text = parts.join("\n");
     if (Buffer.byteLength(text, "utf8") > MAX_TEXT_BYTES) {
@@ -1446,14 +1475,15 @@ function registerWorkflowTools(ctx, deps) {
     }, { when: whenWorkflow }));
     toolCtx.effect(() => toolCtx.tools.register({
       name: "workflow_check",
-      description: "Check or uncheck ONE item in this workflow session's \u5B9E\u65BD\u987A\u5E8F checklist. The item text must match an existing line exactly \u2014 this tool never adds, rewords, or reorders items. Every item must be checked before the session can move to \u9A8C\u6536\u4E2D. Not available in \u8BA8\u8BBA\u4E2D.",
+      description: "Check or uncheck ONE item in this workflow session's \u5B9E\u65BD\u987A\u5E8F checklist. The item text must match an existing line exactly \u2014 this tool never adds, rewords, or reorders items. Checking an item REQUIRES evidence: say how you verified this layer and what the result was; the evidence is written into the checklist line. Every item must be checked (with evidence) before the session can move to \u9A8C\u6536\u4E2D. Not available in \u8BA8\u8BBA\u4E2D.",
       parameters: {
         type: "object",
         additionalProperties: false,
         required: ["item", "done"],
         properties: {
           item: { type: "string", description: "Exact text of an existing checklist item." },
-          done: { type: "boolean", description: "true = checked, false = unchecked." }
+          done: { type: "boolean", description: "true = checked, false = unchecked." },
+          evidence: { type: "string", description: "\u52FE\u9009\u65F6\u5FC5\u586B\uFF1A\u8FD9\u4E00\u5C42\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u662F\u4EC0\u4E48\uFF08\u81EA\u7531\u6587\u672C\uFF0C\u4F8B\uFF1A\u8DD1 node test.mjs\uFF0C12 \u9879\u5168\u8FC7\uFF09\u3002\u53D6\u6D88\u52FE\u9009\u53EF\u7701\u7565\u3002" }
         }
       },
       output: {
@@ -1493,7 +1523,8 @@ function registerWorkflowTools(ctx, deps) {
             workflowId: found.workflowId,
             nodeId: found.nodeId,
             label,
-            done: args?.done === true
+            done: args?.done === true,
+            evidence: typeof args?.evidence === "string" ? args.evidence : ""
           });
           return { items };
         });
@@ -1771,7 +1802,7 @@ function apply(ctx) {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, "info", `[workflow] global-settings ok (${Date.now() - startedAt}ms)`, traceId);
-        return { globalOperationDetail };
+        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

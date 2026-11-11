@@ -212,7 +212,7 @@ export function registerWorkflowTools(ctx, deps) {
         // —— 3. 勾选实施顺序 ——
         toolCtx.effect(() => toolCtx.tools.register({
             name: 'workflow_check',
-            description: 'Check or uncheck ONE item in this workflow session\'s 实施顺序 checklist. The item text must match an existing line exactly — this tool never adds, rewords, or reorders items. Every item must be checked before the session can move to 验收中. Not available in 讨论中.',
+            description: 'Check or uncheck ONE item in this workflow session\'s 实施顺序 checklist. The item text must match an existing line exactly — this tool never adds, rewords, or reorders items. Checking an item REQUIRES evidence: say how you verified this layer and what the result was; the evidence is written into the checklist line. Every item must be checked (with evidence) before the session can move to 验收中. Not available in 讨论中.',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
@@ -220,6 +220,7 @@ export function registerWorkflowTools(ctx, deps) {
                 properties: {
                     item: { type: 'string', description: 'Exact text of an existing checklist item.' },
                     done: { type: 'boolean', description: 'true = checked, false = unchecked.' },
+                    evidence: { type: 'string', description: '勾选时必填：这一层怎么验的、结果是什么（自由文本，例：跑 node test.mjs，12 项全过）。取消勾选可省略。' },
                 },
             },
             output: {
@@ -263,6 +264,7 @@ export function registerWorkflowTools(ctx, deps) {
                         nodeId: found.nodeId,
                         label,
                         done: args?.done === true,
+                        evidence: typeof args?.evidence === 'string' ? args.evidence : '',
                     });
                     return { items };
                 });

@@ -57,27 +57,27 @@ function globalManualFileName(): string {
   return '项目手册.md';
 }
 
-/** 会话手册模板：方案（5 层）+ 实施顺序（勾选清单）。 */
+/** 会话手册模板：方案（自底向上 4 层）+ 实施顺序（勾选清单）。 */
 const SESSION_MANUAL_TEMPLATE = [
   '# 会话手册',
   '',
-  '## 方案（上层 → 下层）',
+  '## 方案（自底向上）',
   '### 1. 目标与验收',
   '<!-- 要解决什么、不做什么、验收标准 -->',
-  '### 2. 对外契约',
-  '<!-- 对外接口 / 命令 / 事件，入参出参 -->',
-  '### 3. 结构与依赖',
-  '<!-- 模块划分、职责、调用方向 -->',
-  '### 4. 数据与状态',
-  '<!-- 数据结构、状态流转、持久化 -->',
-  '### 5. 表现与文案',
-  '<!-- 界面、字段、文案、交互细节 -->',
+  '### 2. 数据层',
+  '<!-- 数据模型 / 持久化 / 迁移；完成标准：能读写、迁移可跑，附测试脚本；层间契约：对外只暴露 ____，上层不直接碰存储实现 -->',
+  '### 3. 领域层',
+  '<!-- 核心规则 / 状态机 / 算法；完成标准：逻辑独立可测，附测试脚本；层间契约：只暴露纯函数 ____，不碰 DOM、不读写全局 -->',
+  '### 4. 接口层',
+  '<!-- 对外契约（工具 / 路由 / 命令）；完成标准：契约测试通过，附测试文件；层间契约：只做事件 → action 映射，不做计算、不渲染 -->',
+  '### 5. 表现层',
+  '<!-- UI / 文案 / 端到端；完成标准：build + smoke 通过；层间契约：只消费只读状态渲染，不反向写数据层 -->',
   '',
   '## 实施顺序',
-  '- [ ] 2. 对外契约',
-  '- [ ] 3. 结构与依赖',
-  '- [ ] 4. 数据与状态',
-  '- [ ] 5. 表现与文案',
+  '- [ ] 数据层 —— 完成标准：能读写、迁移可跑',
+  '- [ ] 领域层 —— 完成标准：逻辑独立可测',
+  '- [ ] 接口层 —— 完成标准：契约测试通过',
+  '- [ ] 表现层 —— 完成标准：build + smoke 通过',
   '',
 ].join('\n');
 
@@ -105,7 +105,10 @@ const GLOBAL_MANUAL_TEMPLATE = [
   '',
 ].join('\n');
 
-/** 从工作手册里解析「实施顺序」小节的勾选清单；解析不到返回空数组。 */
+/** 清单行里「自检证据」的分隔标记：- [x] 条目 ｜ 自检：<证据> */
+const CHECK_EVIDENCE_MARK = ' ｜ 自检：';
+
+/** 从会话手册里解析「实施顺序」小节的勾选清单；解析不到返回空数组。证据只从 label 里剥掉，不返回。 */
 function parseChecklist(manual: string): Array<{ label: string; done: boolean }> {
   const lines = manual.split(/\r?\n/);
   let inSection = false;
@@ -118,7 +121,11 @@ function parseChecklist(manual: string): Array<{ label: string; done: boolean }>
     if (inSection && line.startsWith('## ')) break;
     if (!inSection) continue;
     const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
-    if (match !== null) items.push({ label: (match[2] ?? '').trim(), done: match[1] !== ' ' });
+    if (match !== null) {
+      const raw = (match[2] ?? '').trim();
+      const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
+      items.push({ label: cut === -1 ? raw : raw.slice(0, cut).trim(), done: match[1] !== ' ' });
+    }
   }
   return items;
 }
@@ -214,7 +221,11 @@ function appendSection(manual: string, section: string, content: string): string
   return `${base}\n\n## ${section}\n\n${body}\n`;
 }
 
-/** 勾选/取消「实施顺序」里的某一条：按条目文字精确匹配，只改复选框字符。 */function toggleChecklistLine(manual: string, label: string, done: boolean): string {
+/**
+ * 勾选/取消「实施顺序」里的某一条：按条目文字精确匹配，只改复选框字符。
+ * 勾选时把证据写进行尾：`- [x] 条目 ｜ 自检：<证据>`；取消勾选时去掉证据。
+ */
+function toggleChecklistLine(manual: string, label: string, done: boolean, evidence: string): string {
   const lines = manual.split(/\r?\n/);
   let inSection = false;
   for (let index = 0; index < lines.length; index += 1) {
@@ -227,10 +238,14 @@ function appendSection(manual: string, section: string, content: string): string
     if (inSection && line.startsWith('## ')) break;
     if (!inSection) continue;
     const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
-    if (match !== null && match[4] !== undefined && match[4].trim() === label) {
-      lines[index] = `${match[1] ?? ''}${done ? 'x' : ' '}${match[3] ?? ''}${match[4]}`;
-      return lines.join('\n');
-    }
+    if (match === null || match[4] === undefined) continue;
+    const raw = match[4].trim();
+    const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
+    const lineLabel = cut === -1 ? raw : raw.slice(0, cut).trim();
+    if (lineLabel !== label) continue;
+    const suffix = done && evidence !== '' ? `${CHECK_EVIDENCE_MARK}${evidence}` : '';
+    lines[index] = `${match[1] ?? ''}${done ? 'x' : ' '}${match[3] ?? ''}${label}${suffix}`;
+    return lines.join('\n');
   }
   throw new Error(`没能定位到条目「${label}」`);
 }
@@ -911,7 +926,13 @@ export class WorkflowRepository {
     nodeId: string;
     label: string;
     done: boolean;
+    /** 勾选时必填：这一层怎么验的、结果是什么。 */
+    evidence?: string;
   }): Promise<Array<{ label: string; done: boolean }>> {
+    const evidence = typeof input.evidence === 'string' ? input.evidence.trim() : '';
+    if (input.done === true && evidence === '') {
+      throw new Error('勾选需要 evidence：写清这一层怎么验的、结果是什么（例：跑 node test.mjs，12 项全过）。');
+    }
     const { file } = await this.resolveManualFile(input.workflowId, input.nodeId);
     const current = await this.readFileOrTemplate(file, true);
     const items = parseChecklist(current);
@@ -921,7 +942,7 @@ export class WorkflowRepository {
     if (match === undefined) {
       throw new Error(`「实施顺序」里没有「${target}」这条；可勾选的条目：${items.map((item) => item.label).join(' / ')}`);
     }
-    const next = toggleChecklistLine(current, target, input.done);
+    const next = toggleChecklistLine(current, target, input.done, evidence);
     await writeTextAtomic(file, next);
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
     return parseChecklist(next);

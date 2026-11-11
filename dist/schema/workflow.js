@@ -1,12 +1,20 @@
 import { z } from 'zod';
 import { AgentNode } from './node';
 import { StateDetail } from './node-state';
-/** 全局操作细节 = A（公共）+ B/C/D（三态专属），只在设置里改。 */
+/** 硬规则：插件层强制的阶段约束，不随「操作细节」一起编辑；可覆盖但需警告。 */
+export const HardRules = z.object({
+    discussing: z.string().optional(),
+    implementing: z.string().optional(),
+    verifying: z.string().optional(),
+});
+/** 全局操作细节 = A（公共）+ B/C/D（三态专属）+ 硬规则覆盖，只在设置里改。 */
 export const GlobalOperationDetail = z.object({
     shared_detail: z.string(), // A：三态通用的公共操作细节
     discussing: StateDetail, // B
     implementing: StateDetail, // C
     verifying: StateDetail, // D
+    /** 硬规则覆盖值；缺省 = 用 DEFAULT_HARD_RULES。 */
+    hard_rules: HardRules.optional(),
 });
 /** 父节点状态聚合方式。 */
 export const AggregationMode = z.enum(['manual', 'all_complete', 'any_active']);
@@ -58,9 +66,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 3. 取舍与建议：选哪个、为什么、还有哪些分叉点没定。
 
-需要先确认的地方单独列出来，等人确认后再推进。
-
-（收尾）方案确认后、推进到实现中之前，用 workflow_manual({ target: "session", action: "replace_section", section: "方案", content: "..." }) 把方案按「目标与验收 → 对外契约 → 结构与依赖 → 数据与状态 → 表现与文案」写进本节点手册的「方案」小节，并在「实施顺序」里列出待办（这一步同样用 workflow_manual 写）。没写进手册不能推进——推进工具会拦你。`,
+需要先确认的地方单独列出来，等人确认后再推进。`,
         enter_trigger: null,
     },
     // C —— 实现中
@@ -73,14 +79,12 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 完成后给出验证方式：怎么运行、看什么输出、什么算通过。
 
-实现中发现方案有洞，停下来说明，不要自行扩大范围。
-
-（纪律）一次只推进一层：按工作手册「实施顺序」里当前未勾的第一条做，完成这一层就用 workflow_check({ item: "条目原文", done: true }) 勾掉并停下汇报，等「继续」再做下一层。只改勾选状态，不要重排或改写「实施顺序」这一节。`,
-        enter_trigger: '先读工作手册「实施顺序」，按未勾的第一层开始实现，完成一层勾掉再继续。',
+实现中发现方案有洞，停下来说明，不要自行扩大范围。`,
+        enter_trigger: '先读会话手册「实施顺序」，按未勾的第一层开始实现，完成一层勾掉再继续。',
     },
     // D —— 验收中
     verifying: {
-        operation_detail: `本阶段以核对为主；发现问题可以直接修，但必须在检查表里注明改了什么、影响哪些验收项。
+        operation_detail: `本阶段只核对与报告，不改代码。
 
 交一张检查表，一行一项：
 
@@ -94,7 +98,7 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 没有证据的「通过」不算通过；不要用「应该没问题」收尾。
 
-改动较大或方案本身有问题时，说明后回到实现中阶段（返工要带 reason）。`,
+发现必须修的问题，说明后回到实现中阶段。`,
         enter_trigger: '开始验收：逐条对照验收条件，给我通过/不通过和证据。',
     },
 };

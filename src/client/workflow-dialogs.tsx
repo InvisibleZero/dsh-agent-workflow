@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
@@ -117,8 +118,77 @@ const NODE_DETAIL_TABS = [
  * 设置页里的「操作细节」分区内容。
  * A/B/C/D 四个页签横向排开；每个状态页签内：默认输入在上（20%），操作细节在下（80%）。
  */
+/** 阶段硬规则面板：默认收起（只留标题行），点「展开」看全文；点「改写」先警告，确认后才解锁编辑。 */
+function HardRulePanel(props: {
+  state: string;
+  value: string;
+  overridden: boolean;
+  onChange: (next: string) => void;
+  onReset: () => void;
+}) {
+  const [unlocked, setUnlocked] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const label = props.state === 'discussing' ? '讨论中' : props.state === 'implementing' ? '实现中' : '验收中';
+  const showBody = expanded || unlocked;
+  return (
+    <div style={{
+      marginTop: 8,
+      border: '1px solid var(--dsw-alias-border-l1)',
+      borderRadius: 8,
+      padding: '5px 8px',
+      background: 'var(--dsw-alias-bg-base)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          本阶段硬规则（插件层，只读）· {label}
+        </span>
+        <span style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+          {props.overridden ? (
+            <button
+              type="button"
+              onClick={props.onReset}
+              style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }}
+            >恢复默认</button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }}
+          >{showBody ? '收起' : '展开'}</button>
+          <button
+            type="button"
+            onClick={() => { setUnlocked((value) => !value); setExpanded(true); }}
+            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }}
+          >{unlocked ? '完成改写' : '改写硬规则'}</button>
+        </span>
+      </div>
+      {showBody ? (
+        <div style={{ marginTop: 5 }}>
+          {unlocked ? (
+            <>
+              <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5, marginBottom: 4 }}>
+                ⚠ 硬规则用于阶段推进校验（方案是否写进手册、清单是否全勾）。改了可能导致校验与你的预期不符，确认后再改。
+              </div>
+              <textarea
+                style={{ ...FIELD_STYLE, minHeight: 80 }}
+                value={props.value}
+                onChange={(event) => props.onChange(event.target.value)}
+              />
+            </>
+          ) : (
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary)', maxHeight: 96, overflow: 'auto' }}>
+              {props.value}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function WorkflowGlobalSettingsSection() {
   const [detail, setDetail] = useState<any>(null);
+  const [defaults, setDefaults] = useState<any>(null);
   const [autoSend, setAutoSend] = useState(false);
   const [activeTab, setActiveTab] = useState('shared');
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
@@ -133,8 +203,10 @@ function WorkflowGlobalSettingsSection() {
         const response = await fetch('/dsh-agent-workflow/global-settings');
         const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
-        if (responseBody?.ok === true) setDetail(responseBody.globalOperationDetail);
-        else setError(String(responseBody?.error ?? '读取设置失败'));
+        if (responseBody?.ok === true) {
+          setDetail(responseBody.globalOperationDetail);
+          setDefaults(responseBody.defaults ?? null);
+        } else setError(String(responseBody?.error ?? '读取设置失败'));
       } catch (reason) {
         if (!cancelled) setError(String(reason));
       }
@@ -205,6 +277,14 @@ function WorkflowGlobalSettingsSection() {
       timerRef.current = null;
       void persist(next);
     }, 700);
+  };
+
+  /** 恢复出厂默认：用服务端返回的默认值覆盖当前全部操作细节，并清掉硬规则覆盖值。 */
+  const restoreFactoryDefaults = () => {
+    if (defaults === null) return;
+    const confirmed = window.confirm('恢复出厂默认？会覆盖当前所有操作细节（公共 / 讨论中 / 实现中 / 验收中），硬规则覆盖值也会一起清掉。');
+    if (!confirmed) return;
+    update({ ...defaults, hard_rules: {} });
   };
 
   // 卸载（关设置页）时把还没落盘的改动补写一次，避免丢最后几个字。
@@ -319,10 +399,23 @@ function WorkflowGlobalSettingsSection() {
             />
             <label style={{ ...LABEL_STYLE, marginTop: 10 }}>该状态的操作细节</label>
             <textarea
-              style={{ ...FIELD_STYLE, flex: '1 1 80%' }}
+              style={{ ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }}
               value={detail[activeTab]?.operation_detail ?? ''}
               onChange={(event) => patchTab(activeTab, { operation_detail: event.target.value })}
             />
+            {activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? (
+              <HardRulePanel
+                state={activeTab}
+                value={detail.hard_rules?.[activeTab] ?? DEFAULT_HARD_RULES[activeTab]}
+                overridden={detail.hard_rules?.[activeTab] !== undefined}
+                onChange={(next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } })}
+                onReset={() => {
+                  const next = { ...(detail.hard_rules ?? {}) };
+                  delete next[activeTab];
+                  update({ ...detail, hard_rules: next });
+                }}
+              />
+            ) : null}
           </>
         )}
       </div>
@@ -335,6 +428,22 @@ function WorkflowGlobalSettingsSection() {
                 : status === 'error' ? '' : '改动会自动保存'}
         </span>
         {error !== null ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }}>{error}</span> : null}
+        <span style={{ marginLeft: 'auto' }}>
+          <button
+            type="button"
+            onClick={restoreFactoryDefaults}
+            disabled={defaults === null}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              background: 'transparent',
+              color: 'var(--dsw-alias-label-secondary)',
+              cursor: defaults === null ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+            }}
+          >恢复出厂默认</button>
+        </span>
       </div>
     </div>
   );

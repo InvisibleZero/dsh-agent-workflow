@@ -9,8 +9,15 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  */
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
+/**
+ * 「切换状态时自动发送默认输入」勾选框是否显示。
+ * 交互还没定清楚（自动发送会对输入框现有内容动手），先屏蔽 UI；后端接口与自动发送逻辑保留，
+ * 想恢复把这里改成 true 即可。
+ */
+const AUTO_SEND_SETTING_VISIBLE = false;
 const FIELD_STYLE = {
     width: '100%',
     boxSizing: 'border-box',
@@ -84,8 +91,23 @@ const NODE_DETAIL_TABS = [
  * 设置页里的「操作细节」分区内容。
  * A/B/C/D 四个页签横向排开；每个状态页签内：默认输入在上（20%），操作细节在下（80%）。
  */
+/** 阶段硬规则面板：默认收起（只留标题行），点「展开」看全文；点「改写」先警告，确认后才解锁编辑。 */
+function HardRulePanel(props) {
+    const [unlocked, setUnlocked] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+    const label = props.state === 'discussing' ? '讨论中' : props.state === 'implementing' ? '实现中' : '验收中';
+    const showBody = expanded || unlocked;
+    return (_jsxs("div", { style: {
+            marginTop: 8,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            borderRadius: 8,
+            padding: '5px 8px',
+            background: 'var(--dsw-alias-bg-base)',
+        }, children: [_jsxs("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, children: [_jsxs("span", { style: { fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: ["\u672C\u9636\u6BB5\u786C\u89C4\u5219\uFF08\u63D2\u4EF6\u5C42\uFF0C\u53EA\u8BFB\uFF09\u00B7 ", label] }), _jsxs("span", { style: { display: 'flex', gap: 10, flexShrink: 0 }, children: [props.overridden ? (_jsx("button", { type: "button", onClick: props.onReset, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: "\u6062\u590D\u9ED8\u8BA4" })) : null, _jsx("button", { type: "button", onClick: () => setExpanded((value) => !value), style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: showBody ? '收起' : '展开' }), _jsx("button", { type: "button", onClick: () => { setUnlocked((value) => !value); setExpanded(true); }, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }, children: unlocked ? '完成改写' : '改写硬规则' })] })] }), showBody ? (_jsx("div", { style: { marginTop: 5 }, children: unlocked ? (_jsxs(_Fragment, { children: [_jsx("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5, marginBottom: 4 }, children: "\u26A0 \u786C\u89C4\u5219\u7528\u4E8E\u9636\u6BB5\u63A8\u8FDB\u6821\u9A8C\uFF08\u65B9\u6848\u662F\u5426\u5199\u8FDB\u624B\u518C\u3001\u6E05\u5355\u662F\u5426\u5168\u52FE\uFF09\u3002\u6539\u4E86\u53EF\u80FD\u5BFC\u81F4\u6821\u9A8C\u4E0E\u4F60\u7684\u9884\u671F\u4E0D\u7B26\uFF0C\u786E\u8BA4\u540E\u518D\u6539\u3002" }), _jsx("textarea", { style: { ...FIELD_STYLE, minHeight: 80 }, value: props.value, onChange: (event) => props.onChange(event.target.value) })] })) : (_jsx("div", { style: { whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary)', maxHeight: 96, overflow: 'auto' }, children: props.value })) })) : null] }));
+}
 function WorkflowGlobalSettingsSection() {
     const [detail, setDetail] = useState(null);
+    const [defaults, setDefaults] = useState(null);
     const [autoSend, setAutoSend] = useState(false);
     const [activeTab, setActiveTab] = useState('shared');
     const [status, setStatus] = useState('idle');
@@ -100,8 +122,10 @@ function WorkflowGlobalSettingsSection() {
                 const responseBody = await response.json().catch(() => null);
                 if (cancelled)
                     return;
-                if (responseBody?.ok === true)
+                if (responseBody?.ok === true) {
                     setDetail(responseBody.globalOperationDetail);
+                    setDefaults(responseBody.defaults ?? null);
+                }
                 else
                     setError(String(responseBody?.error ?? '读取设置失败'));
             }
@@ -179,6 +203,15 @@ function WorkflowGlobalSettingsSection() {
             void persist(next);
         }, 700);
     };
+    /** 恢复出厂默认：用服务端返回的默认值覆盖当前全部操作细节，并清掉硬规则覆盖值。 */
+    const restoreFactoryDefaults = () => {
+        if (defaults === null)
+            return;
+        const confirmed = window.confirm('恢复出厂默认？会覆盖当前所有操作细节（公共 / 讨论中 / 实现中 / 验收中），硬规则覆盖值也会一起清掉。');
+        if (!confirmed)
+            return;
+        update({ ...defaults, hard_rules: {} });
+    };
     // 卸载（关设置页）时把还没落盘的改动补写一次，避免丢最后几个字。
     useEffect(() => () => {
         if (timerRef.current !== null) {
@@ -192,7 +225,7 @@ function WorkflowGlobalSettingsSection() {
         return _jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
     }
     const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), _jsxs("label", { style: {
+    return (_jsxs("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [_jsx("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), AUTO_SEND_SETTING_VISIBLE ? (_jsxs("label", { style: {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
@@ -200,7 +233,7 @@ function WorkflowGlobalSettingsSection() {
                     fontSize: 12,
                     color: 'var(--dsw-alias-label-secondary)',
                     cursor: 'pointer',
-                }, children: [_jsx("input", { type: "checkbox", checked: autoSend, onChange: (event) => { void saveAutoSend(event.target.checked); } }), "\u5207\u6362\u72B6\u6001\u65F6\u81EA\u52A8\u53D1\u9001\u9ED8\u8BA4\u8F93\u5165\uFF08\u5F53\u524D\u662F\u53EA\u586B\u5165\u8F93\u5165\u6846\u3001\u4E0D\u53D1\u9001\uFF1B\u9ED8\u8BA4\u5173\u95ED\uFF09"] }), _jsxs("div", { style: {
+                }, children: [_jsx("input", { type: "checkbox", checked: autoSend, onChange: (event) => { void saveAutoSend(event.target.checked); } }), "\u5207\u6362\u72B6\u6001\u65F6\u81EA\u52A8\u53D1\u9001\u9ED8\u8BA4\u8F93\u5165\uFF08\u5F53\u524D\u662F\u53EA\u586B\u5165\u8F93\u5165\u6846\u3001\u4E0D\u53D1\u9001\uFF1B\u9ED8\u8BA4\u5173\u95ED\uFF09"] })) : null, _jsxs("div", { style: {
                     border: '1px solid var(--dsw-alias-border-l1)',
                     borderRadius: 8,
                     background: 'var(--dsw-alias-bg-base)',
@@ -220,10 +253,22 @@ function WorkflowGlobalSettingsSection() {
                         color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
                         cursor: 'pointer',
                         fontSize: 12,
-                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 80%' }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) })] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
+                    }, children: tab.label }, tab.id))) }), _jsx("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : (_jsxs(_Fragment, { children: [_jsx("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), _jsx("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), _jsx("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? (_jsx(HardRulePanel, { state: activeTab, value: detail.hard_rules?.[activeTab] ?? DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
+                                const next = { ...(detail.hard_rules ?? {}) };
+                                delete next[activeTab];
+                                update({ ...detail, hard_rules: next });
+                            } })) : null] })) }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [_jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
                             : status === 'saving' ? '保存中…'
                                 : status === 'saved' ? '已自动保存'
-                                    : status === 'error' ? '' : '改动会自动保存' }), error !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null] })] }));
+                                    : status === 'error' ? '' : '改动会自动保存' }), error !== null ? _jsx("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, _jsx("span", { style: { marginLeft: 'auto' }, children: _jsx("button", { type: "button", onClick: restoreFactoryDefaults, disabled: defaults === null, style: {
+                                padding: '4px 10px',
+                                borderRadius: 6,
+                                border: '1px solid var(--dsw-alias-border-l1)',
+                                background: 'transparent',
+                                color: 'var(--dsw-alias-label-secondary)',
+                                cursor: defaults === null ? 'not-allowed' : 'pointer',
+                                fontSize: 12,
+                            }, children: "\u6062\u590D\u51FA\u5382\u9ED8\u8BA4" }) })] })] }));
 }
 /** 设置左侧导航里的图标（与侧栏 workflow 工作区同一套树形图标）。 */
 function WorkflowSectionIcon() {

@@ -12,6 +12,7 @@
  */
 import { effectiveDetail } from '../engine/state-machine';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { logEvent } from './event-log';
 import { join } from 'node:path';
 /** 单块上下文上限（字节）：超了截断并标注，避免把系统提示撑爆。 */
@@ -54,10 +55,22 @@ isWorkflowSession = () => true) {
             '<workflow-state>',
             `节点：${node.title || '(未命名)'}　workflow：${snapshot.title}`,
             `当前状态：${label}`,
-            '（阶段边界是硬约束：在「讨论中」「验收中」「已完结」时改文件会被拦截。要动手先调用 workflow_advance 推进阶段，工具会返回该阶段的完整规则。）',
+            '（阶段边界：只有「讨论中」会拦写操作；「验收中」「已完结」不拦写文件。改代码仍按阶段规则走，工具会返回该阶段的完整规则。）',
         ];
         if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
             parts.push('', effective.full_detail.trim());
+        }
+        // 插件层硬规则：不随用户「操作细节」编辑，按当前状态追加（覆盖值优先，缺省用常量）。
+        const hardOverride = (global && typeof global === 'object' ? global.hard_rules : undefined) ?? {};
+        const hardRule = node.current_state === 'discussing'
+            ? (hardOverride.discussing ?? DEFAULT_HARD_RULES.discussing)
+            : node.current_state === 'implementing'
+                ? (hardOverride.implementing ?? DEFAULT_HARD_RULES.implementing)
+                : node.current_state === 'verifying'
+                    ? (hardOverride.verifying ?? DEFAULT_HARD_RULES.verifying)
+                    : '';
+        if (typeof hardRule === 'string' && hardRule.trim() !== '') {
+            parts.push('', `【本阶段硬规则】\n${hardRule.trim()}`);
         }
         // 节点级「全局附加」：不管当前什么状态都追加。
         const nodeAdditional = typeof node.additional_detail === 'object' && node.additional_detail !== null
@@ -99,7 +112,7 @@ isWorkflowSession = () => true) {
         if (projectBlocks.length > 0)
             parts.push('', '项目手册：', projectBlocks.join('\n\n'));
         // 常驻 + 状态推进后的落笔提示：推进会刷新本块，这里天然是"刚推进"那一刻。
-        parts.push('', '收尾时回答三问并写进项目手册：① 本次新增或推翻了什么决策（写「决策记录」）；② 踩到或复现了什么坑（写「坑与防线」，按「现象 → 根因 → 防线 → 自查」）；③ 两样都没有就写「无」。同时同步本会话手册的「方案」与「实施顺序」。');
+        parts.push('', '收尾时回答四问并写进项目手册：① 本次新增或推翻了什么决策（写「决策记录」）；② 踩到或复现了什么坑（写「坑与防线」，按「现象 → 根因 → 防线 → 自查」）；③ 两样都没有就写「无」；④ 手册/文档描述与实现是否一致，不一致改了什么。同时同步本会话手册的「方案」与「实施顺序」。');
         parts.push('</workflow-state>');
         let text = parts.join('\n');
         if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {

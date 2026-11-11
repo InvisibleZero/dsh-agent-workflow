@@ -15,6 +15,7 @@ import { effectiveDetail } from './engine/state-machine';
 import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
 import { logEvent, newTraceId, recentEvents } from './host/event-log';
+import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 
 export const inject = [];
 
@@ -322,7 +323,7 @@ export function apply(ctx: any) {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
         logEvent(ctx.logger, 'info', `[workflow] global-settings ok (${Date.now() - startedAt}ms)`, traceId);
-        return { globalOperationDetail };
+        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

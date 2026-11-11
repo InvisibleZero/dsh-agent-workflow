@@ -206,6 +206,8 @@ export declare class WorkflowRepository {
         nodeId: string;
         label: string;
         done: boolean;
+        /** 勾选时必填：这一层怎么验的、结果是什么。 */
+        evidence?: string;
     }): Promise<Array<{
         label: string;
         done: boolean;
