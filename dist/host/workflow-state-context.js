@@ -20,6 +20,22 @@ const MAX_TEXT_BYTES = 8000;
 /** 注入用的工作手册「最近内容」长度（全文不常驻，靠文件工具取更早部分）。 */
 const MANUAL_RECENT_CHARS = 2000;
 /**
+ * 按**字节**截断，且不切坏多字节字符。
+ *
+ * 之前是「按字节判断、按字符切」：中文一个字 3 字节，字节超了 8000、字符没超 8000 时
+ * 内容一个字都没切却照样追加「（已截断）」，等于骗模型；真到 8000 字符时又切出 24KB。
+ */
+export function truncateToBytes(text, maxBytes) {
+    const buffer = Buffer.from(text, 'utf8');
+    if (buffer.length <= maxBytes)
+        return text;
+    let end = maxBytes;
+    // 回退到 UTF-8 字符边界：续字节形如 10xxxxxx。
+    while (end > 0 && (buffer[end] & 0xc0) === 0x80)
+        end -= 1;
+    return `${buffer.subarray(0, end).toString('utf8')}…（已截断）`;
+}
+/**
  * 注册 workflow 状态上下文。
  * @returns 调试用的 peek(sessionId)：强制算一次并返回将要注入的文本。
  */
@@ -114,10 +130,7 @@ isWorkflowSession = () => true) {
         // 常驻 + 状态推进后的落笔提示：推进会刷新本块，这里天然是"刚推进"那一刻。
         parts.push('', '收尾时回答四问并写进项目手册：① 本次新增或推翻了什么决策（写「决策记录」）；② 踩到或复现了什么坑（写「坑与防线」，按「现象 → 根因 → 防线 → 自查」）；③ 两样都没有就写「无」；④ 手册/文档描述与实现是否一致，不一致改了什么。同时同步本会话手册的「方案」与「实施顺序」。');
         parts.push('</workflow-state>');
-        let text = parts.join('\n');
-        if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
-            text = `${text.slice(0, MAX_TEXT_BYTES)}…（已截断）`;
-        }
+        const text = truncateToBytes(parts.join('\n'), MAX_TEXT_BYTES);
         cache.set(sessionId, { text, nodeId: node.node_id, state: node.current_state });
         return text;
     };
