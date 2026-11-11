@@ -225,6 +225,7 @@ function WorkflowGlobalSettingsSection() {
   const [importName, setImportName] = useState('');
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [saveAsName, setSaveAsName] = useState('');
+  const importFileRef = useRef<HTMLInputElement | null>(null);
   const timerRef = useRef<any>(null);
   const latestRef = useRef<any>(null);
 
@@ -373,14 +374,22 @@ function WorkflowGlobalSettingsSection() {
     }
   };
 
-  const submitImport = async () => {
-    if (importText.trim() === '') return;
-    if (await callProfileRoute('profiles-import', { name: importName, json: importText })) {
-      setImportOpen(false);
-      setImportText('');
-      setImportName('');
+  /** 选一个 json 文件导入成存档：文件名即存档名。 */
+  const pickImportFile = async (event: any) => {
+    const file: File | undefined = event?.target?.files?.[0];
+    if (event?.target) event.target.value = ''; // 允许再次选同一个文件
+    if (file === undefined) return;
+    try {
+      const text = await file.text();
+      const name = file.name.replace(/\.json$/i, '');
+      if (await callProfileRoute('profiles-import', { name, json: text })) {
+        window.alert(`已导入「${name}」，可在下拉里选它。`);
+      }
+    } catch (reason) {
+      window.alert(String(reason));
     }
   };
+
 
   /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
   const update = (next: any) => {
@@ -449,7 +458,7 @@ function WorkflowGlobalSettingsSection() {
         <ProfileToolButton onClick={() => { void removeProfile(); }} disabled={readOnlyProfile}>删除</ProfileToolButton>
         <ProfileToolButton onClick={() => { void refreshProfiles(); }}>刷新</ProfileToolButton>
         <ProfileToolButton onClick={() => { void exportProfile(); }}>备份</ProfileToolButton>
-        <ProfileToolButton onClick={() => setImportOpen((value) => !value)}>导入</ProfileToolButton>
+        <ProfileToolButton onClick={() => { importFileRef.current?.click(); }}>导入</ProfileToolButton>
         {readOnlyProfile ? (
           <span style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }}>
             「{BUILTIN_PROFILE_NAME}」随插件提供、不可修改；要改先「另存为」
@@ -492,56 +501,13 @@ function WorkflowGlobalSettingsSection() {
         </div>
       ) : null}
 
-      {importOpen ? (
-        <div style={{
-          border: '1px solid var(--dsw-alias-border-l1)',
-          borderRadius: 8,
-          padding: 10,
-          marginBottom: 10,
-          background: 'var(--dsw-alias-bg-base)',
-        }}>
-          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }}>
-            粘贴导出的 JSON 内容；导入后不会自动切换，可在上面的下拉里选它。
-          </div>
-          <input
-            value={importName}
-            onChange={(event) => setImportName(event.target.value)}
-            placeholder="存档名（留空则用文件里的名字）"
-            style={{
-              width: '100%',
-              height: 26,
-              marginBottom: 6,
-              borderRadius: 6,
-              border: '1px solid var(--dsw-alias-border-l1)',
-              background: 'var(--dsw-alias-bg-layer-1)',
-              color: 'var(--dsw-alias-label-primary)',
-              fontSize: 12,
-              padding: '0 8px',
-            }}
-          />
-          <textarea
-            value={importText}
-            onChange={(event) => setImportText(event.target.value)}
-            rows={6}
-            placeholder='{"kind":"dsh-agent-workflow/operation-detail", …}'
-            style={{
-              width: '100%',
-              borderRadius: 6,
-              border: '1px solid var(--dsw-alias-border-l1)',
-              background: 'var(--dsw-alias-bg-layer-1)',
-              color: 'var(--dsw-alias-label-primary)',
-              fontSize: 11.5,
-              padding: 8,
-              resize: 'vertical',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <ProfileToolButton onClick={() => { void submitImport(); }}>导入为存档</ProfileToolButton>
-            <ProfileToolButton onClick={() => { setImportOpen(false); setImportText(''); setImportName(''); }}>取消</ProfileToolButton>
-          </div>
-        </div>
-      ) : null}
-
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: 'none' }}
+        onChange={(event) => { void pickImportFile(event); }}
+      />
       {/* 自动发送开关暂时屏蔽：交互还有没定清楚的地方，后端能力保留（app-settings 接口照旧）。 */}
       {AUTO_SEND_SETTING_VISIBLE ? (
       <label style={{
