@@ -5,6 +5,11 @@ import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
 import type { AgentNode } from '../schema/node';
 
+/** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
+export const BUILTIN_PROFILE_NAME = '默认存档';
+/** 旧版扁平设置文件迁移成的存档名。 */
+const MIGRATED_PROFILE_NAME = '我的存档';
+
 /**
  * workflow 工作区的持久化仓库：一份快照文件 = 一个 workflow 工作区。
  * 存储目录：<baseDir>/workflows/<workspace_id>.json（复用 JsonStorageAdapter 的原子写 + 迁移）。
@@ -390,31 +395,142 @@ export class WorkflowRepository {
     return snapshot === null ? null : snapshot.settings.global_operation_detail;
   }
 
-  /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+  /** 应用级全局操作细节（A + B/C/D）：多份「存档」共享一个文件，存在 <baseDir>/global-settings.json。 */
   private appGlobalSettingsPath(): string {
     return join(this.baseDir, 'global-settings.json');
   }
 
-  async getAppGlobalOperationDetail(): Promise<GlobalOperationDetail> {
+  /**
+   * 读存档文件。
+   * - 新格式 `{ active, profiles }`；
+   * - 旧格式（扁平 A/B/C/D）自动迁移成一份名为「我的存档」的用户存档；
+   * - 都没有时只有内置的「默认存档」。
+   */
+  private async loadProfiles(): Promise<{ active: string; profiles: Record<string, GlobalOperationDetail> }> {
+    const empty = { active: BUILTIN_PROFILE_NAME, profiles: {} as Record<string, GlobalOperationDetail> };
+    let raw: any;
     try {
-      const raw = JSON.parse(await fs.readFile(this.appGlobalSettingsPath(), 'utf8'));
-      return GlobalOperationDetail.parse(raw);
+      raw = JSON.parse(await fs.readFile(this.appGlobalSettingsPath(), 'utf8'));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return DEFAULT_GLOBAL_OPERATION_DETAIL;
-      // 文件损坏时退回内置默认值，不让设置页打不开。
-      return DEFAULT_GLOBAL_OPERATION_DETAIL;
+      // 文件不存在或损坏：只有内置存档可用，不让设置页打不开。
+      return empty;
     }
+    if (raw !== null && typeof raw === 'object' && typeof raw.active === 'string' && raw.profiles !== null && typeof raw.profiles === 'object') {
+      const profiles: Record<string, GlobalOperationDetail> = {};
+      for (const [name, value] of Object.entries(raw.profiles)) {
+        if (name === BUILTIN_PROFILE_NAME) continue; // 内置存档不可被文件覆盖
+        const parsed = GlobalOperationDetail.safeParse(value);
+        if (parsed.success) profiles[name] = parsed.data;
+      }
+      const active = raw.active === BUILTIN_PROFILE_NAME || profiles[raw.active] !== undefined
+        ? raw.active
+        : BUILTIN_PROFILE_NAME;
+      return { active, profiles };
+    }
+    const legacy = GlobalOperationDetail.safeParse(raw);
+    if (legacy.success) return { active: MIGRATED_PROFILE_NAME, profiles: { [MIGRATED_PROFILE_NAME]: legacy.data } };
+    return empty;
   }
 
-  async updateAppGlobalOperationDetail(raw: unknown): Promise<GlobalOperationDetail> {
-    const parsed = GlobalOperationDetail.parse(raw);
+  private async writeProfiles(store: { active: string; profiles: Record<string, GlobalOperationDetail> }): Promise<void> {
     await fs.mkdir(this.baseDir, { recursive: true });
     const target = this.appGlobalSettingsPath();
     const tmp = `${target}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(parsed, null, 2), 'utf8');
+    await fs.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
     await fs.rename(tmp, target);
+  }
+
+  /** 存档列表（内置存档永远排第一）。 */
+  async listProfiles(): Promise<{ active: string; names: string[] }> {
+    const store = await this.loadProfiles();
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+
+  /** 当前生效的操作细节：内置存档那份来自代码常量，其余来自文件。 */
+  async getAppGlobalOperationDetail(): Promise<GlobalOperationDetail> {
+    const store = await this.loadProfiles();
+    if (store.active === BUILTIN_PROFILE_NAME) return DEFAULT_GLOBAL_OPERATION_DETAIL;
+    const found = store.profiles[store.active];
+    return found === undefined ? DEFAULT_GLOBAL_OPERATION_DETAIL : found;
+  }
+
+  /** 保存当前生效的存档。内置存档只读，改它会被拒绝。 */
+  async updateAppGlobalOperationDetail(raw: unknown): Promise<GlobalOperationDetail> {
+    const store = await this.loadProfiles();
+    if (store.active === BUILTIN_PROFILE_NAME) {
+      throw new Error(`「${BUILTIN_PROFILE_NAME}」随插件提供、不可修改；请先「另存为」一份自己的存档`);
+    }
+    const parsed = GlobalOperationDetail.parse(raw);
+    store.profiles[store.active] = parsed;
+    await this.writeProfiles(store);
     return parsed;
   }
+
+  /** 新建/覆盖一份用户存档（内置存档名不可用）。detail 省略时复制当前生效的那份。 */
+  async saveProfile(name: string, raw?: unknown): Promise<{ active: string; names: string[] }> {
+    const trimmed = name.trim();
+    if (trimmed === '') throw new Error('存档名不能为空');
+    if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`「${BUILTIN_PROFILE_NAME}」是内置只读存档，换一个名字`);
+    if (trimmed.length > 40) throw new Error('存档名最多 40 个字');
+    const store = await this.loadProfiles();
+    const detail = raw === undefined ? await this.getAppGlobalOperationDetail() : GlobalOperationDetail.parse(raw);
+    store.profiles[trimmed] = detail;
+    store.active = trimmed;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+
+  async activateProfile(name: string): Promise<{ active: string; names: string[] }> {
+    const store = await this.loadProfiles();
+    if (name !== BUILTIN_PROFILE_NAME && store.profiles[name] === undefined) throw new Error(`没有名为「${name}」的存档`);
+    store.active = name;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+
+  async deleteProfile(name: string): Promise<{ active: string; names: string[] }> {
+    if (name === BUILTIN_PROFILE_NAME) throw new Error(`「${BUILTIN_PROFILE_NAME}」是内置只读存档，不能删除`);
+    const store = await this.loadProfiles();
+    if (store.profiles[name] === undefined) throw new Error(`没有名为「${name}」的存档`);
+    delete store.profiles[name];
+    if (store.active === name) store.active = BUILTIN_PROFILE_NAME;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+
+  /** 把当前生效的存档导出成一个文件，返回路径。 */
+  async exportActiveProfile(): Promise<{ path: string; name: string }> {
+    const store = await this.loadProfiles();
+    const name = store.active;
+    const detail = await this.getAppGlobalOperationDetail();
+    const dir = join(this.baseDir, 'exports');
+    await fs.mkdir(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const target = join(dir, `操作细节-${name}-${stamp}.json`);
+    await fs.writeFile(target, `${JSON.stringify({ kind: 'dsh-agent-workflow/operation-detail', version: 1, name, detail }, null, 2)}\n`, 'utf8');
+    return { path: target, name };
+  }
+
+  /**
+   * 导入一份存档：接受 `{ name, detail }` 包装，或直接一份 A/B/C/D。
+   * @returns 导入后的存档名与列表（不自动切换，避免导入即改全局行为）。
+   */
+  async importProfile(name: string, json: string): Promise<{ imported: string; names: string[] }> {
+    let raw: any;
+    try {
+      raw = JSON.parse(json);
+    } catch {
+      throw new Error('不是合法 JSON：请粘贴导出的文件内容');
+    }
+    const detail = GlobalOperationDetail.parse(raw?.detail ?? raw);
+    const trimmed = name.trim() !== '' ? name.trim() : (typeof raw?.name === 'string' ? raw.name : '导入的存档');
+    if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`「${BUILTIN_PROFILE_NAME}」是内置只读存档，换一个名字再导入`);
+    const store = await this.loadProfiles();
+    store.profiles[trimmed] = detail;
+    await this.writeProfiles(store);
+    return { imported: trimmed, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+
 
   /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
   async updateGlobalOperationDetail(

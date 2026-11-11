@@ -450,6 +450,8 @@ window.__ModuleLoader__.load({
      * 想恢复把这里改成 true 即可。
      */
     const AUTO_SEND_SETTING_VISIBLE = false;
+    /** 随插件提供的内置存档名：只读，不可改不可删。 */
+    const BUILTIN_PROFILE_NAME = '默认存档';
     const FIELD_STYLE = {
         width: '100%',
         boxSizing: 'border-box',
@@ -537,6 +539,20 @@ window.__ModuleLoader__.load({
                 background: 'var(--dsw-alias-bg-base)',
             }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: ["\u672C\u9636\u6BB5\u786C\u89C4\u5219\uFF08\u63D2\u4EF6\u5C42\uFF0C\u53EA\u8BFB\uFF09\u00B7 ", label] }), (0, jsx_runtime_1.jsxs)("span", { style: { display: 'flex', gap: 10, flexShrink: 0 }, children: [props.overridden ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: props.onReset, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: "\u6062\u590D\u9ED8\u8BA4" })) : null, (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setExpanded((value) => !value), style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: showBody ? '收起' : '展开' }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { setUnlocked((value) => !value); setExpanded(true); }, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }, children: unlocked ? '完成改写' : '改写硬规则' })] })] }), showBody ? ((0, jsx_runtime_1.jsx)("div", { style: { marginTop: 5 }, children: unlocked ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5, marginBottom: 4 }, children: "\u26A0 \u786C\u89C4\u5219\u7528\u4E8E\u9636\u6BB5\u63A8\u8FDB\u6821\u9A8C\uFF08\u65B9\u6848\u662F\u5426\u5199\u8FDB\u624B\u518C\u3001\u6E05\u5355\u662F\u5426\u5168\u52FE\uFF09\u3002\u6539\u4E86\u53EF\u80FD\u5BFC\u81F4\u6821\u9A8C\u4E0E\u4F60\u7684\u9884\u671F\u4E0D\u7B26\uFF0C\u786E\u8BA4\u540E\u518D\u6539\u3002" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 80 }, value: props.value, onChange: (event) => props.onChange(event.target.value) })] })) : ((0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary)', maxHeight: 96, overflow: 'auto' }, children: props.value })) })) : null] }));
     }
+    /** 设置页顶部那排小按钮：统一尺寸，避免每处手写 style。 */
+    function ProfileToolButton(props) {
+        return ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: props.onClick, disabled: props.disabled === true, style: {
+                height: 26,
+                padding: '0 10px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l1)',
+                background: 'var(--dsw-alias-bg-base)',
+                color: props.disabled === true ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-label-primary)',
+                fontSize: 12,
+                cursor: props.disabled === true ? 'default' : 'pointer',
+                opacity: props.disabled === true ? 0.6 : 1,
+            }, children: props.children }));
+    }
     function WorkflowGlobalSettingsSection() {
         const [detail, setDetail] = (0, react_1.useState)(null);
         const [defaults, setDefaults] = (0, react_1.useState)(null);
@@ -544,6 +560,11 @@ window.__ModuleLoader__.load({
         const [activeTab, setActiveTab] = (0, react_1.useState)('shared');
         const [status, setStatus] = (0, react_1.useState)('idle');
         const [error, setError] = (0, react_1.useState)(null);
+        const [profiles, setProfiles] = (0, react_1.useState)([BUILTIN_PROFILE_NAME]);
+        const [activeProfile, setActiveProfile] = (0, react_1.useState)(BUILTIN_PROFILE_NAME);
+        const [importOpen, setImportOpen] = (0, react_1.useState)(false);
+        const [importText, setImportText] = (0, react_1.useState)('');
+        const [importName, setImportName] = (0, react_1.useState)('');
         const timerRef = (0, react_1.useRef)(null);
         const latestRef = (0, react_1.useRef)(null);
         (0, react_1.useEffect)(() => {
@@ -557,6 +578,10 @@ window.__ModuleLoader__.load({
                     if (responseBody?.ok === true) {
                         setDetail(responseBody.globalOperationDetail);
                         setDefaults(responseBody.defaults ?? null);
+                        setProfiles(Array.isArray(responseBody.profiles) && responseBody.profiles.length > 0
+                            ? responseBody.profiles
+                            : [BUILTIN_PROFILE_NAME]);
+                        setActiveProfile(String(responseBody.activeProfile ?? BUILTIN_PROFILE_NAME));
                     }
                     else
                         setError(String(responseBody?.error ?? '读取设置失败'));
@@ -568,6 +593,34 @@ window.__ModuleLoader__.load({
             })();
             return () => { cancelled = true; };
         }, []);
+        /** 存档相关的写操作统一走这里：成功就刷新列表与内容。 */
+        const callProfileRoute = async (route, payload) => {
+            try {
+                const response = await fetch(`/dsh-agent-workflow/${route}`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const body = await response.json().catch(() => null);
+                if (body?.ok !== true) {
+                    window.alert(String(body?.error ?? '操作失败'));
+                    return false;
+                }
+                if (Array.isArray(body.profiles))
+                    setProfiles(body.profiles);
+                if (typeof body.activeProfile === 'string')
+                    setActiveProfile(body.activeProfile);
+                else if (typeof body.active === 'string')
+                    setActiveProfile(body.active);
+                if (body.globalOperationDetail !== undefined)
+                    setDetail(body.globalOperationDetail);
+                return true;
+            }
+            catch (reason) {
+                window.alert(String(reason));
+                return false;
+            }
+        };
         // 应用级开关：切换状态时是否自动发送默认输入（默认关闭）。
         (0, react_1.useEffect)(() => {
             let cancelled = false;
@@ -622,8 +675,43 @@ window.__ModuleLoader__.load({
                 setError(String(reason));
             }
         };
+        const readOnlyProfile = activeProfile === BUILTIN_PROFILE_NAME;
+        const switchProfile = async (name) => {
+            if (name === activeProfile)
+                return;
+            await callProfileRoute('profiles-activate', { name });
+        };
+        const saveAsProfile = async () => {
+            const suggestion = readOnlyProfile ? '我的存档' : `${activeProfile} 副本`;
+            const name = window.prompt('另存为存档（会复制当前这份 A/B/C/D）', suggestion);
+            if (name === null || name.trim() === '')
+                return;
+            await callProfileRoute('profiles-save', { name: name.trim() });
+        };
+        const removeProfile = async () => {
+            if (readOnlyProfile)
+                return;
+            if (!window.confirm(`删除存档「${activeProfile}」？删掉后会回到「${BUILTIN_PROFILE_NAME}」。`))
+                return;
+            await callProfileRoute('profiles-delete', { name: activeProfile });
+        };
+        const exportProfile = async () => {
+            if (await callProfileRoute('profiles-export', {}))
+                window.alert('已导出，文件已在资源管理器里打开。');
+        };
+        const submitImport = async () => {
+            if (importText.trim() === '')
+                return;
+            if (await callProfileRoute('profiles-import', { name: importName, json: importText })) {
+                setImportOpen(false);
+                setImportText('');
+                setImportName('');
+            }
+        };
         /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
         const update = (next) => {
+            if (readOnlyProfile)
+                return; // 内置存档只读：要改先另存为
             setDetail(next);
             latestRef.current = next;
             setStatus('pending');
@@ -657,7 +745,40 @@ window.__ModuleLoader__.load({
             return (0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 }, children: error ?? '加载中…' });
         }
         const patchTab = (tabId, patch) => (update({ ...detail, [tabId]: { ...detail[tabId], ...patch } }));
-        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), AUTO_SEND_SETTING_VISIBLE ? ((0, jsx_runtime_1.jsxs)("label", { style: {
+        return ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)' }, children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }, children: "\u8FD9\u4E9B\u64CD\u4F5C\u7EC6\u8282\u662F\u5E94\u7528\u7EA7\u5168\u5C40\u7684\uFF0C\u6240\u6709 workflow \u8282\u70B9\u5728\u5BF9\u5E94\u72B6\u6001\u4E0B\u90FD\u4F1A\u8BFB\u5230\uFF1B\u8282\u70B9\u53EF\u4EE5\u5355\u72EC\u8986\u76D6\u81EA\u5DF1\u5F53\u524D\u72B6\u6001\u90A3\u4E00\u6761\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }, children: [(0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: "\u5B58\u6863" }), (0, jsx_runtime_1.jsx)("select", { value: activeProfile, onChange: (event) => { void switchProfile(event.target.value); }, style: {
+                                height: 26,
+                                borderRadius: 6,
+                                border: '1px solid var(--dsw-alias-border-l1)',
+                                background: 'var(--dsw-alias-bg-base)',
+                                color: 'var(--dsw-alias-label-primary)',
+                                fontSize: 12,
+                                padding: '0 6px',
+                            }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5BFC\u51FA" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), importOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
+                        border: '1px solid var(--dsw-alias-border-l1)',
+                        borderRadius: 8,
+                        padding: 10,
+                        marginBottom: 10,
+                        background: 'var(--dsw-alias-bg-base)',
+                    }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }, children: "\u7C98\u8D34\u5BFC\u51FA\u7684 JSON \u5185\u5BB9\uFF1B\u5BFC\u5165\u540E\u4E0D\u4F1A\u81EA\u52A8\u5207\u6362\uFF0C\u53EF\u5728\u4E0A\u9762\u7684\u4E0B\u62C9\u91CC\u9009\u5B83\u3002" }), (0, jsx_runtime_1.jsx)("input", { value: importName, onChange: (event) => setImportName(event.target.value), placeholder: "\u5B58\u6863\u540D\uFF08\u7559\u7A7A\u5219\u7528\u6587\u4EF6\u91CC\u7684\u540D\u5B57\uFF09", style: {
+                                width: '100%',
+                                height: 26,
+                                marginBottom: 6,
+                                borderRadius: 6,
+                                border: '1px solid var(--dsw-alias-border-l1)',
+                                background: 'var(--dsw-alias-bg-layer-1)',
+                                color: 'var(--dsw-alias-label-primary)',
+                                fontSize: 12,
+                                padding: '0 8px',
+                            } }), (0, jsx_runtime_1.jsx)("textarea", { value: importText, onChange: (event) => setImportText(event.target.value), rows: 6, placeholder: '{"kind":"dsh-agent-workflow/operation-detail", \u2026}', style: {
+                                width: '100%',
+                                borderRadius: 6,
+                                border: '1px solid var(--dsw-alias-border-l1)',
+                                background: 'var(--dsw-alias-bg-layer-1)',
+                                color: 'var(--dsw-alias-label-primary)',
+                                fontSize: 11.5,
+                                padding: 8,
+                                resize: 'vertical',
+                            } }), (0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', gap: 8, marginTop: 8 }, children: [(0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void submitImport(); }, children: "\u5BFC\u5165\u4E3A\u5B58\u6863" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { setImportOpen(false); setImportText(''); setImportName(''); }, children: "\u53D6\u6D88" })] })] })) : null, AUTO_SEND_SETTING_VISIBLE ? ((0, jsx_runtime_1.jsxs)("label", { style: {
                         display: 'flex',
                         alignItems: 'center',
                         gap: 8,
@@ -685,7 +806,14 @@ window.__ModuleLoader__.load({
                             color: activeTab === tab.id ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
                             cursor: 'pointer',
                             fontSize: 12,
-                        }, children: tab.label }, tab.id))) }), (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', flexDirection: 'column', height: 380 }, children: activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
+                        }, children: tab.label }, tab.id))) }), (0, jsx_runtime_1.jsx)("div", { style: {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        height: 380,
+                        // 内置存档只读：整块禁用交互（含改写硬规则），要改先「另存为」
+                        opacity: readOnlyProfile ? 0.55 : 1,
+                        pointerEvents: readOnlyProfile ? 'none' : 'auto',
+                    }, children: activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
                                     const next = { ...(detail.hard_rules ?? {}) };
                                     delete next[activeTab];
                                     update({ ...detail, hard_rules: next });

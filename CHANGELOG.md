@@ -2,6 +2,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-11-11
+
+### 新增
+
+- **操作细节存档（多份 A/B/C/D）**：设置页顶部多了一个「存档」下拉，可以给不同项目准备不同口径，随时切换。
+  - **「默认存档」随插件提供、只读**：不可修改、不可删除，缺省就用它；
+  - 用户存档可「另存为」（复制当前这份）、切换、删除（删掉当前这份会回到「默认存档」）；
+  - **导出**：把当前存档写成 `~/.dsh/dsh-agent-workflow/exports/操作细节-<名字>-<时间>.json` 并打开文件夹；
+  - **导入**：粘贴导出的 JSON 内容即可存成新存档，导入后不自动切换。
+- 旧版扁平的 `global-settings.json` 自动迁移成一份名为「我的存档」的用户存档，不丢改动。
+- 硬规则**不随存档走**：存档只装 A/B/C/D 四个字段，插件层约束始终生效。
+
+### 变更
+
+- `/global-settings` 返回里增加 `profiles`（存档名列表）与 `activeProfile`（当前生效的存档）。
+- 新增 `/profiles-save`、`/profiles-activate`、`/profiles-delete`、`/profiles-export`、`/profiles-import` 五个接口。
+
 ## [0.3.4] - 2026-11-11
 
 ### 修复

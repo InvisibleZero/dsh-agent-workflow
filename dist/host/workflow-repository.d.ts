@@ -1,5 +1,7 @@
 import { GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
 import type { AgentNode } from '../schema/node';
+/** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
+export declare const BUILTIN_PROFILE_NAME = "\u9ED8\u8BA4\u5B58\u6863";
 /**
  * workflow 工作区的持久化仓库：一份快照文件 = 一个 workflow 工作区。
  * 存储目录：<baseDir>/workflows/<workspace_id>.json（复用 JsonStorageAdapter 的原子写 + 迁移）。
@@ -45,10 +47,51 @@ export declare class WorkflowRepository {
     get(id: string): Promise<WorkflowSnapshot | null>;
     /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
     getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null>;
-    /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+    /** 应用级全局操作细节（A + B/C/D）：多份「存档」共享一个文件，存在 <baseDir>/global-settings.json。 */
     private appGlobalSettingsPath;
+    /**
+     * 读存档文件。
+     * - 新格式 `{ active, profiles }`；
+     * - 旧格式（扁平 A/B/C/D）自动迁移成一份名为「我的存档」的用户存档；
+     * - 都没有时只有内置的「默认存档」。
+     */
+    private loadProfiles;
+    private writeProfiles;
+    /** 存档列表（内置存档永远排第一）。 */
+    listProfiles(): Promise<{
+        active: string;
+        names: string[];
+    }>;
+    /** 当前生效的操作细节：内置存档那份来自代码常量，其余来自文件。 */
     getAppGlobalOperationDetail(): Promise<GlobalOperationDetail>;
+    /** 保存当前生效的存档。内置存档只读，改它会被拒绝。 */
     updateAppGlobalOperationDetail(raw: unknown): Promise<GlobalOperationDetail>;
+    /** 新建/覆盖一份用户存档（内置存档名不可用）。detail 省略时复制当前生效的那份。 */
+    saveProfile(name: string, raw?: unknown): Promise<{
+        active: string;
+        names: string[];
+    }>;
+    activateProfile(name: string): Promise<{
+        active: string;
+        names: string[];
+    }>;
+    deleteProfile(name: string): Promise<{
+        active: string;
+        names: string[];
+    }>;
+    /** 把当前生效的存档导出成一个文件，返回路径。 */
+    exportActiveProfile(): Promise<{
+        path: string;
+        name: string;
+    }>;
+    /**
+     * 导入一份存档：接受 `{ name, detail }` 包装，或直接一份 A/B/C/D。
+     * @returns 导入后的存档名与列表（不自动切换，避免导入即改全局行为）。
+     */
+    importProfile(name: string, json: string): Promise<{
+        imported: string;
+        names: string[];
+    }>;
     /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
     updateGlobalOperationDetail(id: string, raw: unknown): Promise<WorkflowSnapshot['settings']['global_operation_detail']>;
     /**

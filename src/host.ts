@@ -322,8 +322,9 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
-        logEvent(ctx.logger, 'info', `[workflow] global-settings ok (${Date.now() - startedAt}ms)`, traceId);
-        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL };
+        const profiles = await repository.listProfiles();
+        logEvent(ctx.logger, 'info', `[workflow] global-settings ok (active=${profiles.active}, ${Date.now() - startedAt}ms)`, traceId);
+        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL, profiles: profiles.names, activeProfile: profiles.active };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -337,6 +338,59 @@ export function apply(ctx: any) {
         const globalOperationDetail = await repository.updateAppGlobalOperationDetail(body.globalOperationDetail);
         logEvent(ctx.logger, 'info', `[workflow] global-settings-save ok (shared=${Buffer.byteLength(String(globalOperationDetail.shared_detail ?? ''), 'utf8')}B, ${Date.now() - startedAt}ms)`, traceId);
         return { globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/profiles-save',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.name !== 'string' || body.name.trim() === '') throw new Error('缺少 name');
+        const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, 'info', `[workflow] profiles-save ok (name=${profiles.active}, total=${profiles.names.length})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/profiles-activate',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.name !== 'string' || body.name === '') throw new Error('缺少 name');
+        const profiles = await repository.activateProfile(body.name);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, 'info', `[workflow] profiles-activate ok (active=${profiles.active})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/profiles-delete',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.name !== 'string' || body.name === '') throw new Error('缺少 name');
+        const profiles = await repository.deleteProfile(body.name);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, 'info', `[workflow] profiles-delete ok (deleted=${body.name}, active=${profiles.active})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/profiles-export',
+      handler: makeHandler(ctx, repository, 'POST', async (_body, _query, traceId) => {
+        const exported = await repository.exportActiveProfile();
+        spawn('explorer.exe', [join(exported.path, '..')], { stdio: 'ignore', detached: true }).unref();
+        logEvent(ctx.logger, 'info', `[workflow] profiles-export ok (name=${exported.name})`, traceId);
+        return exported;
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/profiles-import',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.json !== 'string' || body.json.trim() === '') throw new Error('缺少 json：请粘贴导出的文件内容');
+        const result = await repository.importProfile(typeof body.name === 'string' ? body.name : '', body.json);
+        logEvent(ctx.logger, 'info', `[workflow] profiles-import ok (name=${result.imported})`, traceId);
+        return result;
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

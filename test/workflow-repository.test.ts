@@ -259,16 +259,63 @@ describe('WorkflowRepository：会话绑定 / 回收站 / 手册读取', () => {
     expect(meta?.hasPlan).toBe(false);
   });
 
-  it('全局操作细节能存能读；文件损坏时退回内置默认', async () => {
+  it('「默认存档」只读：直接改会被拒绝，另存为之后才能改', async () => {
     const repo = new WorkflowRepository(dir);
-    const saved = await repo.updateAppGlobalOperationDetail({
+
+    // 内置存档只读
+    await expect(repo.updateAppGlobalOperationDetail({
+      shared_detail: '公共细节',
+      discussing: { operation_detail: '讨论细节', enter_trigger: null },
+      implementing: { operation_detail: '实现细节', enter_trigger: '开始实现' },
+      verifying: { operation_detail: '验收细节', enter_trigger: null },
+    })).rejects.toThrow(/不可修改/);
+
+    // 另存为一份自己的存档，切过去之后就能改
+    const saved = await repo.saveProfile('我的存档');
+    expect(saved.active).toBe('我的存档');
+    expect(saved.names).toContain('默认存档');
+    expect(saved.names).toContain('我的存档');
+
+    const updated = await repo.updateAppGlobalOperationDetail({
       shared_detail: '公共细节',
       discussing: { operation_detail: '讨论细节', enter_trigger: null },
       implementing: { operation_detail: '实现细节', enter_trigger: '开始实现' },
       verifying: { operation_detail: '验收细节', enter_trigger: null },
     });
-    expect(saved.implementing.enter_trigger).toBe('开始实现');
+    expect(updated.implementing.enter_trigger).toBe('开始实现');
     expect((await repo.getAppGlobalOperationDetail()).shared_detail).toBe('公共细节');
+  });
+
+  it('存档可以切换、删除；切回「默认存档」读到的是出厂值', async () => {
+    const repo = new WorkflowRepository(dir);
+    await repo.saveProfile('前端项目');
+    const names = (await repo.listProfiles()).names;
+    expect(names[0]).toBe('默认存档');
+
+    // 内置存档不可删、不可被覆盖
+    await expect(repo.deleteProfile('默认存档')).rejects.toThrow(/不能删除/);
+    await expect(repo.saveProfile('默认存档')).rejects.toThrow(/内置/);
+
+    await repo.activateProfile('默认存档');
+    expect((await repo.getAppGlobalOperationDetail()).discussing.operation_detail)
+      .toContain('先对齐');
+
+    await repo.deleteProfile('前端项目');
+    expect((await repo.listProfiles()).names).toEqual(['默认存档']);
+  });
+
+  it('导出的存档能再导入（不自动切换）', async () => {
+    const repo = new WorkflowRepository(dir);
+    await repo.saveProfile('待导出');
+    await repo.activateProfile('默认存档');
+
+    const exported = await repo.exportActiveProfile();
+    const json = await readFile(exported.path, 'utf8');
+    const imported = await repo.importProfile('导入副本', json);
+    expect(imported.imported).toBe('导入副本');
+    expect(imported.names).toContain('导入副本');
+    // 导入不改变当前生效的存档
+    expect((await repo.listProfiles()).active).toBe('默认存档');
   });
 });
 

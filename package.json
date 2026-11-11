@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-workflow",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "会话即工作流单元：四态状态机（讨论/实现/验收/完结）+ 程序级门禁与人工同意 + 项目手册/会话手册两层 AI 自留记忆",
   "author": "InvisibleZero",
   "license": "Apache-2.0",

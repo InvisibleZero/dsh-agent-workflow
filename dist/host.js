@@ -284,6 +284,8 @@ var JsonStorageAdapter = class {
 };
 
 // src/host/workflow-repository.ts
+var BUILTIN_PROFILE_NAME = "\u9ED8\u8BA4\u5B58\u6863";
+var MIGRATED_PROFILE_NAME = "\u6211\u7684\u5B58\u6863";
 function buildRootNode(id, maxDepth, maxSteps) {
   return {
     node_id: id,
@@ -586,27 +588,128 @@ var WorkflowRepository = class {
     const snapshot = await this.storage.load(id);
     return snapshot === null ? null : snapshot.settings.global_operation_detail;
   }
-  /** 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份，存在 <baseDir>/global-settings.json。 */
+  /** 应用级全局操作细节（A + B/C/D）：多份「存档」共享一个文件，存在 <baseDir>/global-settings.json。 */
   appGlobalSettingsPath() {
     return join(this.baseDir, "global-settings.json");
   }
-  async getAppGlobalOperationDetail() {
+  /**
+   * 读存档文件。
+   * - 新格式 `{ active, profiles }`；
+   * - 旧格式（扁平 A/B/C/D）自动迁移成一份名为「我的存档」的用户存档；
+   * - 都没有时只有内置的「默认存档」。
+   */
+  async loadProfiles() {
+    const empty = { active: BUILTIN_PROFILE_NAME, profiles: {} };
+    let raw;
     try {
-      const raw = JSON.parse(await fs2.readFile(this.appGlobalSettingsPath(), "utf8"));
-      return GlobalOperationDetail.parse(raw);
+      raw = JSON.parse(await fs2.readFile(this.appGlobalSettingsPath(), "utf8"));
     } catch (error) {
-      if (error.code === "ENOENT") return DEFAULT_GLOBAL_OPERATION_DETAIL;
-      return DEFAULT_GLOBAL_OPERATION_DETAIL;
+      return empty;
     }
+    if (raw !== null && typeof raw === "object" && typeof raw.active === "string" && raw.profiles !== null && typeof raw.profiles === "object") {
+      const profiles = {};
+      for (const [name, value] of Object.entries(raw.profiles)) {
+        if (name === BUILTIN_PROFILE_NAME) continue;
+        const parsed = GlobalOperationDetail.safeParse(value);
+        if (parsed.success) profiles[name] = parsed.data;
+      }
+      const active = raw.active === BUILTIN_PROFILE_NAME || profiles[raw.active] !== void 0 ? raw.active : BUILTIN_PROFILE_NAME;
+      return { active, profiles };
+    }
+    const legacy = GlobalOperationDetail.safeParse(raw);
+    if (legacy.success) return { active: MIGRATED_PROFILE_NAME, profiles: { [MIGRATED_PROFILE_NAME]: legacy.data } };
+    return empty;
   }
-  async updateAppGlobalOperationDetail(raw) {
-    const parsed = GlobalOperationDetail.parse(raw);
+  async writeProfiles(store) {
     await fs2.mkdir(this.baseDir, { recursive: true });
     const target = this.appGlobalSettingsPath();
     const tmp = `${target}.tmp`;
-    await fs2.writeFile(tmp, JSON.stringify(parsed, null, 2), "utf8");
+    await fs2.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
     await fs2.rename(tmp, target);
+  }
+  /** 存档列表（内置存档永远排第一）。 */
+  async listProfiles() {
+    const store = await this.loadProfiles();
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+  /** 当前生效的操作细节：内置存档那份来自代码常量，其余来自文件。 */
+  async getAppGlobalOperationDetail() {
+    const store = await this.loadProfiles();
+    if (store.active === BUILTIN_PROFILE_NAME) return DEFAULT_GLOBAL_OPERATION_DETAIL;
+    const found = store.profiles[store.active];
+    return found === void 0 ? DEFAULT_GLOBAL_OPERATION_DETAIL : found;
+  }
+  /** 保存当前生效的存档。内置存档只读，改它会被拒绝。 */
+  async updateAppGlobalOperationDetail(raw) {
+    const store = await this.loadProfiles();
+    if (store.active === BUILTIN_PROFILE_NAME) {
+      throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8BF7\u5148\u300C\u53E6\u5B58\u4E3A\u300D\u4E00\u4EFD\u81EA\u5DF1\u7684\u5B58\u6863`);
+    }
+    const parsed = GlobalOperationDetail.parse(raw);
+    store.profiles[store.active] = parsed;
+    await this.writeProfiles(store);
     return parsed;
+  }
+  /** 新建/覆盖一份用户存档（内置存档名不可用）。detail 省略时复制当前生效的那份。 */
+  async saveProfile(name, raw) {
+    const trimmed = name.trim();
+    if (trimmed === "") throw new Error("\u5B58\u6863\u540D\u4E0D\u80FD\u4E3A\u7A7A");
+    if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u6362\u4E00\u4E2A\u540D\u5B57`);
+    if (trimmed.length > 40) throw new Error("\u5B58\u6863\u540D\u6700\u591A 40 \u4E2A\u5B57");
+    const store = await this.loadProfiles();
+    const detail = raw === void 0 ? await this.getAppGlobalOperationDetail() : GlobalOperationDetail.parse(raw);
+    store.profiles[trimmed] = detail;
+    store.active = trimmed;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+  async activateProfile(name) {
+    const store = await this.loadProfiles();
+    if (name !== BUILTIN_PROFILE_NAME && store.profiles[name] === void 0) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
+    store.active = name;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+  async deleteProfile(name) {
+    if (name === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u4E0D\u80FD\u5220\u9664`);
+    const store = await this.loadProfiles();
+    if (store.profiles[name] === void 0) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
+    delete store.profiles[name];
+    if (store.active === name) store.active = BUILTIN_PROFILE_NAME;
+    await this.writeProfiles(store);
+    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  }
+  /** 把当前生效的存档导出成一个文件，返回路径。 */
+  async exportActiveProfile() {
+    const store = await this.loadProfiles();
+    const name = store.active;
+    const detail = await this.getAppGlobalOperationDetail();
+    const dir = join(this.baseDir, "exports");
+    await fs2.mkdir(dir, { recursive: true });
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    const target = join(dir, `\u64CD\u4F5C\u7EC6\u8282-${name}-${stamp}.json`);
+    await fs2.writeFile(target, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name, detail }, null, 2)}
+`, "utf8");
+    return { path: target, name };
+  }
+  /**
+   * 导入一份存档：接受 `{ name, detail }` 包装，或直接一份 A/B/C/D。
+   * @returns 导入后的存档名与列表（不自动切换，避免导入即改全局行为）。
+   */
+  async importProfile(name, json) {
+    let raw;
+    try {
+      raw = JSON.parse(json);
+    } catch {
+      throw new Error("\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A\u8BF7\u7C98\u8D34\u5BFC\u51FA\u7684\u6587\u4EF6\u5185\u5BB9");
+    }
+    const detail = GlobalOperationDetail.parse(raw?.detail ?? raw);
+    const trimmed = name.trim() !== "" ? name.trim() : typeof raw?.name === "string" ? raw.name : "\u5BFC\u5165\u7684\u5B58\u6863";
+    if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u6362\u4E00\u4E2A\u540D\u5B57\u518D\u5BFC\u5165`);
+    const store = await this.loadProfiles();
+    store.profiles[trimmed] = detail;
+    await this.writeProfiles(store);
+    return { imported: trimmed, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
   }
   /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
   async updateGlobalOperationDetail(id, raw) {
@@ -1801,8 +1904,9 @@ function apply(ctx) {
       handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
-        logEvent(ctx.logger, "info", `[workflow] global-settings ok (${Date.now() - startedAt}ms)`, traceId);
-        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL };
+        const profiles = await repository.listProfiles();
+        logEvent(ctx.logger, "info", `[workflow] global-settings ok (active=${profiles.active}, ${Date.now() - startedAt}ms)`, traceId);
+        return { globalOperationDetail, defaults: DEFAULT_GLOBAL_OPERATION_DETAIL, profiles: profiles.names, activeProfile: profiles.active };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -1816,6 +1920,59 @@ function apply(ctx) {
         const globalOperationDetail = await repository.updateAppGlobalOperationDetail(body.globalOperationDetail);
         logEvent(ctx.logger, "info", `[workflow] global-settings-save ok (shared=${Buffer.byteLength(String(globalOperationDetail.shared_detail ?? ""), "utf8")}B, ${Date.now() - startedAt}ms)`, traceId);
         return { globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/profiles-save",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        if (typeof body?.name !== "string" || body.name.trim() === "") throw new Error("\u7F3A\u5C11 name");
+        const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, "info", `[workflow] profiles-save ok (name=${profiles.active}, total=${profiles.names.length})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/profiles-activate",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        if (typeof body?.name !== "string" || body.name === "") throw new Error("\u7F3A\u5C11 name");
+        const profiles = await repository.activateProfile(body.name);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, "info", `[workflow] profiles-activate ok (active=${profiles.active})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/profiles-delete",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        if (typeof body?.name !== "string" || body.name === "") throw new Error("\u7F3A\u5C11 name");
+        const profiles = await repository.deleteProfile(body.name);
+        const globalOperationDetail = await repository.getAppGlobalOperationDetail();
+        logEvent(ctx.logger, "info", `[workflow] profiles-delete ok (deleted=${body.name}, active=${profiles.active})`, traceId);
+        return { ...profiles, globalOperationDetail };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/profiles-export",
+      handler: makeHandler(ctx, repository, "POST", async (_body, _query, traceId) => {
+        const exported = await repository.exportActiveProfile();
+        spawn("explorer.exe", [join3(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
+        logEvent(ctx.logger, "info", `[workflow] profiles-export ok (name=${exported.name})`, traceId);
+        return exported;
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/profiles-import",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        if (typeof body?.json !== "string" || body.json.trim() === "") throw new Error("\u7F3A\u5C11 json\uFF1A\u8BF7\u7C98\u8D34\u5BFC\u51FA\u7684\u6587\u4EF6\u5185\u5BB9");
+        const result = await repository.importProfile(typeof body.name === "string" ? body.name : "", body.json);
+        logEvent(ctx.logger, "info", `[workflow] profiles-import ok (name=${result.imported})`, traceId);
+        return result;
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

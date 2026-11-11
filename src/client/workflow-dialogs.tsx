@@ -20,6 +20,9 @@ const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', m
  */
 const AUTO_SEND_SETTING_VISIBLE = false;
 
+/** 随插件提供的内置存档名：只读，不可改不可删。 */
+const BUILTIN_PROFILE_NAME = '默认存档';
+
 const FIELD_STYLE = {
   width: '100%',
   boxSizing: 'border-box',
@@ -186,6 +189,28 @@ function HardRulePanel(props: {
   );
 }
 
+/** 设置页顶部那排小按钮：统一尺寸，避免每处手写 style。 */
+function ProfileToolButton(props: { onClick: () => void; disabled?: boolean; children: any }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled === true}
+      style={{
+        height: 26,
+        padding: '0 10px',
+        borderRadius: 6,
+        border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-base)',
+        color: props.disabled === true ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-label-primary)',
+        fontSize: 12,
+        cursor: props.disabled === true ? 'default' : 'pointer',
+        opacity: props.disabled === true ? 0.6 : 1,
+      }}
+    >{props.children}</button>
+  );
+}
+
 function WorkflowGlobalSettingsSection() {
   const [detail, setDetail] = useState<any>(null);
   const [defaults, setDefaults] = useState<any>(null);
@@ -193,6 +218,11 @@ function WorkflowGlobalSettingsSection() {
   const [activeTab, setActiveTab] = useState('shared');
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<string[]>([BUILTIN_PROFILE_NAME]);
+  const [activeProfile, setActiveProfile] = useState<string>(BUILTIN_PROFILE_NAME);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importName, setImportName] = useState('');
   const timerRef = useRef<any>(null);
   const latestRef = useRef<any>(null);
 
@@ -206,6 +236,10 @@ function WorkflowGlobalSettingsSection() {
         if (responseBody?.ok === true) {
           setDetail(responseBody.globalOperationDetail);
           setDefaults(responseBody.defaults ?? null);
+          setProfiles(Array.isArray(responseBody.profiles) && responseBody.profiles.length > 0
+            ? responseBody.profiles
+            : [BUILTIN_PROFILE_NAME]);
+          setActiveProfile(String(responseBody.activeProfile ?? BUILTIN_PROFILE_NAME));
         } else setError(String(responseBody?.error ?? '读取设置失败'));
       } catch (reason) {
         if (!cancelled) setError(String(reason));
@@ -213,6 +247,30 @@ function WorkflowGlobalSettingsSection() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  /** 存档相关的写操作统一走这里：成功就刷新列表与内容。 */
+  const callProfileRoute = async (route: string, payload: unknown): Promise<boolean> => {
+    try {
+      const response = await fetch(`/dsh-agent-workflow/${route}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => null);
+      if (body?.ok !== true) {
+        window.alert(String(body?.error ?? '操作失败'));
+        return false;
+      }
+      if (Array.isArray(body.profiles)) setProfiles(body.profiles);
+      if (typeof body.activeProfile === 'string') setActiveProfile(body.activeProfile);
+      else if (typeof body.active === 'string') setActiveProfile(body.active);
+      if (body.globalOperationDetail !== undefined) setDetail(body.globalOperationDetail);
+      return true;
+    } catch (reason) {
+      window.alert(String(reason));
+      return false;
+    }
+  };
 
   // 应用级开关：切换状态时是否自动发送默认输入（默认关闭）。
   useEffect(() => {
@@ -244,8 +302,7 @@ function WorkflowGlobalSettingsSection() {
 
   /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
   const persist = async (value: any) => {
-    setStatus('saving');
-    setError(null);
+    setStatus('saving');    setError(null);
     try {
       const response = await fetch('/dsh-agent-workflow/global-settings-save', {
         method: 'POST',
@@ -266,8 +323,42 @@ function WorkflowGlobalSettingsSection() {
     }
   };
 
+  const readOnlyProfile = activeProfile === BUILTIN_PROFILE_NAME;
+
+  const switchProfile = async (name: string) => {
+    if (name === activeProfile) return;
+    await callProfileRoute('profiles-activate', { name });
+  };
+
+  const saveAsProfile = async () => {
+    const suggestion = readOnlyProfile ? '我的存档' : `${activeProfile} 副本`;
+    const name = window.prompt('另存为存档（会复制当前这份 A/B/C/D）', suggestion);
+    if (name === null || name.trim() === '') return;
+    await callProfileRoute('profiles-save', { name: name.trim() });
+  };
+
+  const removeProfile = async () => {
+    if (readOnlyProfile) return;
+    if (!window.confirm(`删除存档「${activeProfile}」？删掉后会回到「${BUILTIN_PROFILE_NAME}」。`)) return;
+    await callProfileRoute('profiles-delete', { name: activeProfile });
+  };
+
+  const exportProfile = async () => {
+    if (await callProfileRoute('profiles-export', {})) window.alert('已导出，文件已在资源管理器里打开。');
+  };
+
+  const submitImport = async () => {
+    if (importText.trim() === '') return;
+    if (await callProfileRoute('profiles-import', { name: importName, json: importText })) {
+      setImportOpen(false);
+      setImportText('');
+      setImportName('');
+    }
+  };
+
   /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
   const update = (next: any) => {
+    if (readOnlyProfile) return; // 内置存档只读：要改先另存为
     setDetail(next);
     latestRef.current = next;
     setStatus('pending');
@@ -309,6 +400,85 @@ function WorkflowGlobalSettingsSection() {
       <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 12 }}>
         这些操作细节是应用级全局的，所有 workflow 节点在对应状态下都会读到；节点可以单独覆盖自己当前状态那一条。
       </div>
+
+      {/* 存档：「默认存档」随插件提供、只读；其余是用户自己的，可切换 / 另存为 / 删除 / 导出 / 导入。 */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>存档</span>
+        <select
+          value={activeProfile}
+          onChange={(event) => { void switchProfile(event.target.value); }}
+          style={{
+            height: 26,
+            borderRadius: 6,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'var(--dsw-alias-bg-base)',
+            color: 'var(--dsw-alias-label-primary)',
+            fontSize: 12,
+            padding: '0 6px',
+          }}
+        >
+          {profiles.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+        <ProfileToolButton onClick={() => { void saveAsProfile(); }}>另存为</ProfileToolButton>
+        <ProfileToolButton onClick={() => { void removeProfile(); }} disabled={readOnlyProfile}>删除</ProfileToolButton>
+        <ProfileToolButton onClick={() => { void exportProfile(); }}>导出</ProfileToolButton>
+        <ProfileToolButton onClick={() => setImportOpen((value) => !value)}>导入</ProfileToolButton>
+        {readOnlyProfile ? (
+          <span style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }}>
+            「{BUILTIN_PROFILE_NAME}」随插件提供、不可修改；要改先「另存为」
+          </span>
+        ) : null}
+      </div>
+
+      {importOpen ? (
+        <div style={{
+          border: '1px solid var(--dsw-alias-border-l1)',
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 10,
+          background: 'var(--dsw-alias-bg-base)',
+        }}>
+          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }}>
+            粘贴导出的 JSON 内容；导入后不会自动切换，可在上面的下拉里选它。
+          </div>
+          <input
+            value={importName}
+            onChange={(event) => setImportName(event.target.value)}
+            placeholder="存档名（留空则用文件里的名字）"
+            style={{
+              width: '100%',
+              height: 26,
+              marginBottom: 6,
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontSize: 12,
+              padding: '0 8px',
+            }}
+          />
+          <textarea
+            value={importText}
+            onChange={(event) => setImportText(event.target.value)}
+            rows={6}
+            placeholder='{"kind":"dsh-agent-workflow/operation-detail", …}'
+            style={{
+              width: '100%',
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontSize: 11.5,
+              padding: 8,
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <ProfileToolButton onClick={() => { void submitImport(); }}>导入为存档</ProfileToolButton>
+            <ProfileToolButton onClick={() => { setImportOpen(false); setImportText(''); setImportName(''); }}>取消</ProfileToolButton>
+          </div>
+        </div>
+      ) : null}
 
       {/* 自动发送开关暂时屏蔽：交互还有没定清楚的地方，后端能力保留（app-settings 接口照旧）。 */}
       {AUTO_SEND_SETTING_VISIBLE ? (
@@ -378,7 +548,14 @@ function WorkflowGlobalSettingsSection() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', height: 380 }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: 380,
+        // 内置存档只读：整块禁用交互（含改写硬规则），要改先「另存为」
+        opacity: readOnlyProfile ? 0.55 : 1,
+        pointerEvents: readOnlyProfile ? 'none' : 'auto',
+      }}>
         {activeTab === 'shared' ? (
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
