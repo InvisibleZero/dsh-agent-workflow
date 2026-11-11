@@ -697,7 +697,27 @@ window.__ModuleLoader__.load({
         };
         const exportProfile = async () => {
             if (await callProfileRoute('profiles-export', {}))
-                window.alert('已导出，文件已在资源管理器里打开。');
+                window.alert('已备份到 exports/backup/，并已在资源管理器里打开。');
+        };
+        /** 重新扫一遍存档目录：手动往文件夹里丢 json 之后点它。 */
+        const refreshProfiles = async () => {
+            try {
+                const response = await fetch('/dsh-agent-workflow/global-settings');
+                const body = await response.json().catch(() => null);
+                if (body?.ok !== true) {
+                    window.alert(String(body?.error ?? '刷新失败'));
+                    return;
+                }
+                if (Array.isArray(body.profiles) && body.profiles.length > 0)
+                    setProfiles(body.profiles);
+                if (typeof body.activeProfile === 'string')
+                    setActiveProfile(body.activeProfile);
+                if (body.globalOperationDetail !== undefined)
+                    setDetail(body.globalOperationDetail);
+            }
+            catch (reason) {
+                window.alert(String(reason));
+            }
         };
         const submitImport = async () => {
             if (importText.trim() === '')
@@ -753,7 +773,7 @@ window.__ModuleLoader__.load({
                                 color: 'var(--dsw-alias-label-primary)',
                                 fontSize: 12,
                                 padding: '0 6px',
-                            }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5BFC\u51FA" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), importOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
+                            }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), importOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
                         border: '1px solid var(--dsw-alias-border-l1)',
                         borderRadius: 8,
                         padding: 10,

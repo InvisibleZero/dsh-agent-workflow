@@ -344,7 +344,24 @@ function WorkflowGlobalSettingsSection() {
   };
 
   const exportProfile = async () => {
-    if (await callProfileRoute('profiles-export', {})) window.alert('已导出，文件已在资源管理器里打开。');
+    if (await callProfileRoute('profiles-export', {})) window.alert('已备份到 exports/backup/，并已在资源管理器里打开。');
+  };
+
+  /** 重新扫一遍存档目录：手动往文件夹里丢 json 之后点它。 */
+  const refreshProfiles = async () => {
+    try {
+      const response = await fetch('/dsh-agent-workflow/global-settings');
+      const body = await response.json().catch(() => null);
+      if (body?.ok !== true) {
+        window.alert(String(body?.error ?? '刷新失败'));
+        return;
+      }
+      if (Array.isArray(body.profiles) && body.profiles.length > 0) setProfiles(body.profiles);
+      if (typeof body.activeProfile === 'string') setActiveProfile(body.activeProfile);
+      if (body.globalOperationDetail !== undefined) setDetail(body.globalOperationDetail);
+    } catch (reason) {
+      window.alert(String(reason));
+    }
   };
 
   const submitImport = async () => {
@@ -421,7 +438,8 @@ function WorkflowGlobalSettingsSection() {
         </select>
         <ProfileToolButton onClick={() => { void saveAsProfile(); }}>另存为</ProfileToolButton>
         <ProfileToolButton onClick={() => { void removeProfile(); }} disabled={readOnlyProfile}>删除</ProfileToolButton>
-        <ProfileToolButton onClick={() => { void exportProfile(); }}>导出</ProfileToolButton>
+        <ProfileToolButton onClick={() => { void refreshProfiles(); }}>刷新</ProfileToolButton>
+        <ProfileToolButton onClick={() => { void exportProfile(); }}>备份</ProfileToolButton>
         <ProfileToolButton onClick={() => setImportOpen((value) => !value)}>导入</ProfileToolButton>
         {readOnlyProfile ? (
           <span style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }}>

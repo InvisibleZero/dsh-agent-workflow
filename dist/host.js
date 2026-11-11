@@ -588,109 +588,167 @@ var WorkflowRepository = class {
     const snapshot = await this.storage.load(id);
     return snapshot === null ? null : snapshot.settings.global_operation_detail;
   }
-  /** 应用级全局操作细节（A + B/C/D）：多份「存档」共享一个文件，存在 <baseDir>/global-settings.json。 */
-  appGlobalSettingsPath() {
+  /** 存档目录：一份存档 = 一个 json 文件；内置「默认存档」来自代码常量，不落盘。 */
+  profilesDir() {
+    return join(this.baseDir, "exports");
+  }
+  /** 当前生效存档的指针：只存一个名字，存在 <baseDir>/global-settings.json。 */
+  activePointerPath() {
     return join(this.baseDir, "global-settings.json");
   }
-  /**
-   * 读存档文件。
-   * - 新格式 `{ active, profiles }`；
-   * - 旧格式（扁平 A/B/C/D）自动迁移成一份名为「我的存档」的用户存档；
-   * - 都没有时只有内置的「默认存档」。
-   */
-  async loadProfiles() {
-    const empty = { active: BUILTIN_PROFILE_NAME, profiles: {} };
-    let raw;
-    try {
-      raw = JSON.parse(await fs2.readFile(this.appGlobalSettingsPath(), "utf8"));
-    } catch (error) {
-      return empty;
-    }
-    if (raw !== null && typeof raw === "object" && typeof raw.active === "string" && raw.profiles !== null && typeof raw.profiles === "object") {
-      const profiles = {};
-      for (const [name, value] of Object.entries(raw.profiles)) {
-        if (name === BUILTIN_PROFILE_NAME) continue;
-        const parsed = GlobalOperationDetail.safeParse(value);
-        if (parsed.success) profiles[name] = parsed.data;
-      }
-      const active = raw.active === BUILTIN_PROFILE_NAME || profiles[raw.active] !== void 0 ? raw.active : BUILTIN_PROFILE_NAME;
-      return { active, profiles };
-    }
-    const legacy = GlobalOperationDetail.safeParse(raw);
-    if (legacy.success) return { active: MIGRATED_PROFILE_NAME, profiles: { [MIGRATED_PROFILE_NAME]: legacy.data } };
-    return empty;
+  /** 存档名 → 文件名：去掉路径分隔符等非法字符并限长，防止写到目录外。 */
+  profileFileName(name) {
+    const safe = name.trim().replace(/[\\/:*?"<>|]/g, "-").replace(/^\.+/, "").slice(0, 40);
+    if (safe === "" || safe === BUILTIN_PROFILE_NAME) throw new Error(`\u5B58\u6863\u540D\u4E0D\u53EF\u7528\uFF1A${name}`);
+    return `${safe}.json`;
   }
-  async writeProfiles(store) {
+  /** 列出存档名（不含内置存档；读不出来的文件跳过，不让坏文件阻塞设置页）。 */
+  async listProfileNames() {
+    let entries = [];
+    try {
+      entries = await fs2.readdir(this.profilesDir());
+    } catch {
+      return [];
+    }
+    const names = [];
+    for (const entry of entries) {
+      if (!entry.toLowerCase().endsWith(".json")) continue;
+      const name = entry.slice(0, -".json".length);
+      if (name === BUILTIN_PROFILE_NAME) continue;
+      try {
+        const raw = JSON.parse(await fs2.readFile(join(this.profilesDir(), entry), "utf8"));
+        GlobalOperationDetail.parse(raw?.detail ?? raw);
+        names.push(name);
+      } catch {
+      }
+    }
+    return names.sort();
+  }
+  /** 当前生效存档名；指针失效时回到内置存档。 */
+  async activeProfileName(names) {
+    try {
+      const raw = JSON.parse(await fs2.readFile(this.activePointerPath(), "utf8"));
+      const active = typeof raw?.active === "string" ? raw.active : BUILTIN_PROFILE_NAME;
+      if (active === BUILTIN_PROFILE_NAME) return active;
+      return names.includes(active) ? active : BUILTIN_PROFILE_NAME;
+    } catch {
+      return BUILTIN_PROFILE_NAME;
+    }
+  }
+  async writeActivePointer(name) {
     await fs2.mkdir(this.baseDir, { recursive: true });
-    const target = this.appGlobalSettingsPath();
+    const target = this.activePointerPath();
     const tmp = `${target}.tmp`;
-    await fs2.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
+    await fs2.writeFile(tmp, `${JSON.stringify({ active: name }, null, 2)}
+`, "utf8");
     await fs2.rename(tmp, target);
   }
-  /** 存档列表（内置存档永远排第一）。 */
-  async listProfiles() {
-    const store = await this.loadProfiles();
-    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+  async writeProfileFile(name, detail) {
+    await fs2.mkdir(this.profilesDir(), { recursive: true });
+    const target = join(this.profilesDir(), this.profileFileName(name));
+    const tmp = `${target}.tmp`;
+    await fs2.writeFile(tmp, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name, detail }, null, 2)}
+`, "utf8");
+    await fs2.rename(tmp, target);
   }
-  /** 当前生效的操作细节：内置存档那份来自代码常量，其余来自文件。 */
+  async readProfileFile(name) {
+    const raw = JSON.parse(await fs2.readFile(join(this.profilesDir(), this.profileFileName(name)), "utf8"));
+    return GlobalOperationDetail.parse(raw?.detail ?? raw);
+  }
+  /**
+   * 一次性迁移：旧的 `{ active, profiles }` 或更早的扁平 A/B/C/D，都拆成"一份存档一个文件"。
+   * 只在指针文件还是旧格式时动手，迁完就只剩 `{ active }`。
+   */
+  async migrateLegacySettings() {
+    let raw;
+    try {
+      raw = JSON.parse(await fs2.readFile(this.activePointerPath(), "utf8"));
+    } catch {
+      return;
+    }
+    if (raw === null || typeof raw !== "object") return;
+    const hasProfiles = raw.profiles !== null && typeof raw.profiles === "object";
+    const isFlat = typeof raw.shared_detail === "string";
+    if (!hasProfiles && !isFlat) return;
+    const entries = hasProfiles ? Object.entries(raw.profiles) : [[MIGRATED_PROFILE_NAME, raw]];
+    for (const [name, value] of entries) {
+      if (name === BUILTIN_PROFILE_NAME) continue;
+      const parsed = GlobalOperationDetail.safeParse(value);
+      if (!parsed.success) continue;
+      try {
+        await this.writeProfileFile(name, parsed.data);
+      } catch {
+      }
+    }
+    const active = typeof raw.active === "string" ? raw.active : MIGRATED_PROFILE_NAME;
+    await this.writeActivePointer(active);
+  }
+  /** 存档列表：内置存档永远排第一，其余按文件名排序。 */
+  async listProfiles() {
+    await this.migrateLegacySettings();
+    const names = await this.listProfileNames();
+    return { active: await this.activeProfileName(names), names: [BUILTIN_PROFILE_NAME, ...names] };
+  }
+  /** 当前生效的操作细节：内置存档来自代码常量，其余读对应的 json 文件。 */
   async getAppGlobalOperationDetail() {
-    const store = await this.loadProfiles();
-    if (store.active === BUILTIN_PROFILE_NAME) return DEFAULT_GLOBAL_OPERATION_DETAIL;
-    const found = store.profiles[store.active];
-    return found === void 0 ? DEFAULT_GLOBAL_OPERATION_DETAIL : found;
+    const { active } = await this.listProfiles();
+    if (active === BUILTIN_PROFILE_NAME) return DEFAULT_GLOBAL_OPERATION_DETAIL;
+    try {
+      return await this.readProfileFile(active);
+    } catch {
+      return DEFAULT_GLOBAL_OPERATION_DETAIL;
+    }
   }
   /** 保存当前生效的存档。内置存档只读，改它会被拒绝。 */
   async updateAppGlobalOperationDetail(raw) {
-    const store = await this.loadProfiles();
-    if (store.active === BUILTIN_PROFILE_NAME) {
+    const { active } = await this.listProfiles();
+    if (active === BUILTIN_PROFILE_NAME) {
       throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8BF7\u5148\u300C\u53E6\u5B58\u4E3A\u300D\u4E00\u4EFD\u81EA\u5DF1\u7684\u5B58\u6863`);
     }
     const parsed = GlobalOperationDetail.parse(raw);
-    store.profiles[store.active] = parsed;
-    await this.writeProfiles(store);
+    await this.writeProfileFile(active, parsed);
     return parsed;
   }
   /** 新建/覆盖一份用户存档（内置存档名不可用）。detail 省略时复制当前生效的那份。 */
   async saveProfile(name, raw) {
     const trimmed = name.trim();
-    if (trimmed === "") throw new Error("\u5B58\u6863\u540D\u4E0D\u80FD\u4E3A\u7A7A");
     if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u6362\u4E00\u4E2A\u540D\u5B57`);
-    if (trimmed.length > 40) throw new Error("\u5B58\u6863\u540D\u6700\u591A 40 \u4E2A\u5B57");
-    const store = await this.loadProfiles();
+    this.profileFileName(trimmed);
     const detail = raw === void 0 ? await this.getAppGlobalOperationDetail() : GlobalOperationDetail.parse(raw);
-    store.profiles[trimmed] = detail;
-    store.active = trimmed;
-    await this.writeProfiles(store);
-    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+    await this.writeProfileFile(trimmed, detail);
+    await this.writeActivePointer(trimmed);
+    return this.listProfiles();
   }
   async activateProfile(name) {
-    const store = await this.loadProfiles();
-    if (name !== BUILTIN_PROFILE_NAME && store.profiles[name] === void 0) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
-    store.active = name;
-    await this.writeProfiles(store);
-    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+    const names = await this.listProfileNames();
+    if (name !== BUILTIN_PROFILE_NAME && !names.includes(name)) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
+    await this.writeActivePointer(name);
+    return this.listProfiles();
   }
+  /** 删除存档：文件移进 exports/trash/（不直接删，误删可捞回来）。 */
   async deleteProfile(name) {
     if (name === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u4E0D\u80FD\u5220\u9664`);
-    const store = await this.loadProfiles();
-    if (store.profiles[name] === void 0) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
-    delete store.profiles[name];
-    if (store.active === name) store.active = BUILTIN_PROFILE_NAME;
-    await this.writeProfiles(store);
-    return { active: store.active, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+    const names = await this.listProfileNames();
+    if (!names.includes(name)) throw new Error(`\u6CA1\u6709\u540D\u4E3A\u300C${name}\u300D\u7684\u5B58\u6863`);
+    const source = join(this.profilesDir(), this.profileFileName(name));
+    const trash = join(this.profilesDir(), "trash");
+    await fs2.mkdir(trash, { recursive: true });
+    await fs2.rename(source, join(trash, `${this.profileFileName(name).replace(/\.json$/, "")}-${Date.now()}.json`));
+    const active = await this.activeProfileName(await this.listProfileNames());
+    if (active === name) await this.writeActivePointer(BUILTIN_PROFILE_NAME);
+    return this.listProfiles();
   }
-  /** 把当前生效的存档导出成一个文件，返回路径。 */
+  /** 把当前生效的存档复制一份到存档目录（带时间戳），返回路径。 */
   async exportActiveProfile() {
-    const store = await this.loadProfiles();
-    const name = store.active;
+    const { active } = await this.listProfiles();
     const detail = await this.getAppGlobalOperationDetail();
-    const dir = join(this.baseDir, "exports");
-    await fs2.mkdir(dir, { recursive: true });
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-    const target = join(dir, `\u64CD\u4F5C\u7EC6\u8282-${name}-${stamp}.json`);
-    await fs2.writeFile(target, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name, detail }, null, 2)}
+    const backupDir = join(this.profilesDir(), "backup");
+    await fs2.mkdir(backupDir, { recursive: true });
+    const target = join(backupDir, `\u64CD\u4F5C\u7EC6\u8282-${active}-${stamp}.json`);
+    await fs2.writeFile(target, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name: active, detail }, null, 2)}
 `, "utf8");
-    return { path: target, name };
+    return { path: target, name: active };
   }
   /**
    * 导入一份存档：接受 `{ name, detail }` 包装，或直接一份 A/B/C/D。
@@ -706,10 +764,9 @@ var WorkflowRepository = class {
     const detail = GlobalOperationDetail.parse(raw?.detail ?? raw);
     const trimmed = name.trim() !== "" ? name.trim() : typeof raw?.name === "string" ? raw.name : "\u5BFC\u5165\u7684\u5B58\u6863";
     if (trimmed === BUILTIN_PROFILE_NAME) throw new Error(`\u300C${BUILTIN_PROFILE_NAME}\u300D\u662F\u5185\u7F6E\u53EA\u8BFB\u5B58\u6863\uFF0C\u6362\u4E00\u4E2A\u540D\u5B57\u518D\u5BFC\u5165`);
-    const store = await this.loadProfiles();
-    store.profiles[trimmed] = detail;
-    await this.writeProfiles(store);
-    return { imported: trimmed, names: [BUILTIN_PROFILE_NAME, ...Object.keys(store.profiles).sort()] };
+    await this.writeProfileFile(trimmed, detail);
+    const { names } = await this.listProfiles();
+    return { imported: trimmed, names };
   }
   /** 覆盖某个 workflow 的全局操作细节（A + B/C/D），用 zod 校验后落盘。 */
   async updateGlobalOperationDetail(id, raw) {

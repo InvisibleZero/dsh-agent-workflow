@@ -2,6 +2,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.1] - 2026-11-12
+
+### 变更
+
+- **存档改成"一份存档 = 一个 json 文件"**：全部放在 `~/.dsh/dsh-agent-workflow/exports/`，下拉直接列出这个目录里的 `*.json`（文件名即存档名）。想加一份存档，把文件拷进去再点「刷新」即可；想分享，直接发文件。
+- `global-settings.json` 退化成一个指针：`{ "active": "存档名" }`。
+- **备份**按钮把当前存档复制到 `exports/backup/操作细节-<名字>-<时间>.json`（不参与下拉列表）。
+- **删除**不再真删：文件移进 `exports/trash/`，误删可捞回来。
+- 旧格式（扁平 A/B/C/D 或 `{ active, profiles }`）首次读取时自动拆成一份份文件，不丢改动。
+- 设置页存档工具条加「刷新」：手动往目录里丢 json 后点一下就能看到。
+
 ## [0.4.0] - 2026-11-11
 
 ### 新增

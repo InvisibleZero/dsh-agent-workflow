@@ -47,22 +47,30 @@ export declare class WorkflowRepository {
     get(id: string): Promise<WorkflowSnapshot | null>;
     /** 读取某个 workflow 的全局操作细节（A + B/C/D）。 */
     getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null>;
-    /** 应用级全局操作细节（A + B/C/D）：多份「存档」共享一个文件，存在 <baseDir>/global-settings.json。 */
-    private appGlobalSettingsPath;
+    /** 存档目录：一份存档 = 一个 json 文件；内置「默认存档」来自代码常量，不落盘。 */
+    private profilesDir;
+    /** 当前生效存档的指针：只存一个名字，存在 <baseDir>/global-settings.json。 */
+    private activePointerPath;
+    /** 存档名 → 文件名：去掉路径分隔符等非法字符并限长，防止写到目录外。 */
+    private profileFileName;
+    /** 列出存档名（不含内置存档；读不出来的文件跳过，不让坏文件阻塞设置页）。 */
+    private listProfileNames;
+    /** 当前生效存档名；指针失效时回到内置存档。 */
+    private activeProfileName;
+    private writeActivePointer;
+    private writeProfileFile;
+    private readProfileFile;
     /**
-     * 读存档文件。
-     * - 新格式 `{ active, profiles }`；
-     * - 旧格式（扁平 A/B/C/D）自动迁移成一份名为「我的存档」的用户存档；
-     * - 都没有时只有内置的「默认存档」。
+     * 一次性迁移：旧的 `{ active, profiles }` 或更早的扁平 A/B/C/D，都拆成"一份存档一个文件"。
+     * 只在指针文件还是旧格式时动手，迁完就只剩 `{ active }`。
      */
-    private loadProfiles;
-    private writeProfiles;
-    /** 存档列表（内置存档永远排第一）。 */
+    private migrateLegacySettings;
+    /** 存档列表：内置存档永远排第一，其余按文件名排序。 */
     listProfiles(): Promise<{
         active: string;
         names: string[];
     }>;
-    /** 当前生效的操作细节：内置存档那份来自代码常量，其余来自文件。 */
+    /** 当前生效的操作细节：内置存档来自代码常量，其余读对应的 json 文件。 */
     getAppGlobalOperationDetail(): Promise<GlobalOperationDetail>;
     /** 保存当前生效的存档。内置存档只读，改它会被拒绝。 */
     updateAppGlobalOperationDetail(raw: unknown): Promise<GlobalOperationDetail>;
@@ -75,11 +83,12 @@ export declare class WorkflowRepository {
         active: string;
         names: string[];
     }>;
+    /** 删除存档：文件移进 exports/trash/（不直接删，误删可捞回来）。 */
     deleteProfile(name: string): Promise<{
         active: string;
         names: string[];
     }>;
-    /** 把当前生效的存档导出成一个文件，返回路径。 */
+    /** 把当前生效的存档复制一份到存档目录（带时间戳），返回路径。 */
     exportActiveProfile(): Promise<{
         path: string;
         name: string;
