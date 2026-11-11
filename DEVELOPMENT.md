@@ -463,8 +463,8 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 - **语义**：进入实现中后，工作手册的 `## 实施顺序`（`- [ ]` / `- [x]`）就是实施进度；AI 勾、界面只读反映。
 - **数据来源**：手册文件是唯一真源，UI 不新增写路径。宿主 `parseChecklist()` 正则解析「实施顺序」小节，
   只认 `- [ ]` / `- [x]`，读到下一个 `## ` 停；解析不到返回空数组。
-- **模板**：`MANUAL_TEMPLATE` 预置「方案（目标与验收/对外契约/结构与依赖/数据与状态/表现与文案）+
-  决策记录 + 实施顺序 + 坑与防线」，让新节点的清单可解析、模型有骨架可填。
+- **模板**：`SESSION_MANUAL_TEMPLATE` 预置「方案（自底向上：目标与验收 / 数据层 / 领域层 / 接口层 / 表现层）+
+  实施顺序（每层一条，带完成标准）」，让新节点的清单可解析、模型有骨架可填。
 - **接口**：`/node-manual` 返回 `checklist: [{label, done}]`（供弹窗）；新增轻量 `/node-checklist`（供 3s 轮询），
   返回 `{ exists, checklist, hasPlan }`。
 - **清单缓存**：`getManualMeta()` 按 `workflowId:nodeId` 缓存 checklist + hasPlan，以文件 mtime 失效——
@@ -481,7 +481,7 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 
 ### D-25 减法：删掉「伪装模块」，不再替换宿主的侧栏浏览器
 
-- **现象/动机**：会话内的状态机 + 5 层方案 + 手册 + 清单，已经把"拆解→落地"整个搬进了会话；
+- **现象/动机**：会话内的状态机 + 分层方案 + 手册 + 清单，已经把"拆解→落地"整个搬进了会话；
   侧栏那棵"任务树"因此失去了本职工作，退化成一份平铺清单。当初为了画树而照抄的
   `WorkspaceBrowser`（伪装模块，~1500 行）成了最大最脆的负担。
 - **删了什么**：`client/workspace-browser.tsx`、`client/workspace-ui.tsx`、
@@ -503,7 +503,7 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
   不再有节点树、parent/child、深度限制——那些都废了（拆解已内化进会话）。
 - **两层手册**（都在 `<工作区>/.workflow/` 下）：
   - `项目手册.md`：项目总览 / 决策记录 / 约束 / 坑与防线（每工作区一份，跨会话延续，AI 收尾回写）；
-  - `会话手册-<node_id>.md`：方案（5 层）+ 实施顺序（每会话一份，AI 自己勾）。
+  - `会话手册-<node_id>.md`：方案（4 层，自底向上）+ 实施顺序（每会话一份，AI 自己勾并附自检证据）。
   - 旧的手册摘要（`手册摘要-<id>.md`）**删除**——"一层可见"现在直接注入项目手册。
 - **自动认领**：`POST /ensure-node { sessionId, workingDirectory }` —— 按工作目录找/建 workflow 快照 +
   项目手册，再按 sessionId 找/建节点 + 会话手册。客户端徽标用 `useSessions` 拿到会话 cwd 后调它，

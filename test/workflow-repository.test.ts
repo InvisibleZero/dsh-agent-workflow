@@ -302,7 +302,7 @@ describe('WorkflowRepository：手册编辑与勾选（AI 工具的实现）', (
     // 结构没被破坏：标题与「实施顺序」都还在。
     expect(manual).toContain('## 方案');
     expect(manual).toContain('## 实施顺序');
-    expect(manual).toContain('- [ ] 2. 对外契约');
+    expect(manual).toContain('- [ ] 数据层');
 
     const meta = await repo.getManualMeta(node.workflowId, node.nodeId);
     expect(meta?.hasPlan).toBe(true);
@@ -362,16 +362,18 @@ describe('WorkflowRepository：手册编辑与勾选（AI 工具的实现）', (
     expect(after.pitfalls).not.toContain('老坑');
   });
 
-  it('勾选按条目原文精确匹配，找不到时列出可勾项', async () => {    const repo = new WorkflowRepository(dir);
+  it('勾选按条目原文精确匹配，找不到时列出可勾项', async () => {
+    const repo = new WorkflowRepository(dir);
     const node = await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
 
     const items = await repo.setChecklistItem({
       workflowId: node.workflowId,
       nodeId: node.nodeId,
-      label: '2. 对外契约',
+      label: '数据层 —— 完成标准：能读写、迁移可跑',
       done: true,
+      evidence: '跑 node test.mjs，3 项全过',
     });
-    expect(items.find((item) => item.label === '2. 对外契约')?.done).toBe(true);
+    expect(items.find((item) => item.label === '数据层 —— 完成标准：能读写、迁移可跑')?.done).toBe(true);
     expect(items.filter((item) => item.done).length).toBe(1);
 
     await expect(repo.setChecklistItem({
@@ -379,6 +381,19 @@ describe('WorkflowRepository：手册编辑与勾选（AI 工具的实现）', (
       nodeId: node.nodeId,
       label: '不存在的条目',
       done: true,
+      evidence: '随便写点',
     })).rejects.toThrow(/可勾选/);
+  });
+
+  it('勾选时不给证据会被拒绝', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+
+    await expect(repo.setChecklistItem({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      label: '数据层 —— 完成标准：能读写、迁移可跑',
+      done: true,
+    })).rejects.toThrow(/evidence/);
   });
 });

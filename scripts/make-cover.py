@@ -148,11 +148,11 @@ def build_state():
         ]),
         ("实现中", STATE_BRAND, [
             "先读后改，只改与目标相关的文件。",
-            "完成一层勾掉，停下来等「继续」。",
+            "各层连续做完，别逐层等确认。",
         ]),
         ("验收中", STATE_VERIFY, [
             "只核对与报告，结论要带证据。",
-            "改动须在检查表里注明。",
+            "不改代码；要修就退回实现中。",
         ]),
     ]
     y = PANEL_TOP + 104
@@ -204,12 +204,12 @@ def build_manual():
     d.text((x0, PANEL_TOP + 122), "每个会话各有一份会话手册", font=note_font, fill=TEXT_MUTED)
 
     sessions = [
-        ("会话手册 1", "实现中", STATE_BRAND, "实施 2/4", True, 190),
+        ("会话手册 1", "实现中", STATE_BRAND, "方案 4 层 · 实施 2/4", True, 190),
         ("会话手册 2", "验收中", STATE_VERIFY, "", False, 67),
         ("会话手册 3", "讨论中", STATE_WARN, "", False, 67),
     ]
-    layers = ["1. 目标与验收", "2. 对外契约", "3. 结构与依赖", "4. 数据与状态", "5. 表现与文案"]
-    checks = [("2. 对外契约", True), ("3. 结构与依赖", True), ("4. 数据与状态", False), ("5. 表现与文案", False)]
+    layers = ["1. 目标与验收", "2. 数据层", "3. 领域层", "4. 接口层", "5. 表现层"]
+    checks = [("数据层", True), ("领域层", True), ("接口层", False), ("表现层", False)]
     col_font = ImageFont.truetype(FONT_BOLD, 11)
     tiny_font = ImageFont.truetype(FONT_BOLD, 9)
     dots_font = ImageFont.truetype(FONT_REG, 22)

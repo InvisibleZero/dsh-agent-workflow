@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
  * - `import type` / `export type` 编译后消失，一律放行。
  */
 const CLIENT_DIR = fileURLToPath(new URL('../src/client', import.meta.url));
-const ZOD_FREE_ALLOWLIST = new Set(['../schema/node-state-label']);
+const ZOD_FREE_ALLOWLIST = new Set(['../schema/node-state-label', '../schema/hard-rules']);
 const REACT_FAMILY = /^(react|react-dom)(\/[\w-]+)*$/;
 /** dsh 自带客户端模块（由宿主模块表提供），不是 node 依赖。 */
 const DSH_CLIENT_MODULES = new Set(['@deepseek-ai/dsh-client-ui-primitives']);
