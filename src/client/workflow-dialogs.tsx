@@ -11,6 +11,7 @@ import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { DEFAULT_MANUAL_LIMITS, MANUAL_LIMIT_MAX_CHARS, MANUAL_LIMIT_MIN_CHARS } from '../schema/manual-limits';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
+import { reportClientEvent } from './client-log';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
 
@@ -117,6 +118,118 @@ const NODE_DETAIL_TABS = [
   { id: 'sessionManual', label: '会话手册' },
   { id: 'globalManual', label: '项目手册' },
 ];
+
+/** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
+const APPENDIX_TAB = { id: 'appendix', label: '附表' };
+
+/** 附表的两组条目：字段与 GET /dsh-agent-workflow/appendix 的返回一一对应。 */
+interface AppendixPlanSection { id: number; title: string; hint: string }
+interface AppendixVerifyItem { id: number; name: string; judge: string; needsCommand: boolean }
+
+/**
+ * 附表：设置页里的只读清单。
+ *
+ * 内容不在客户端写死——点开页签（组件挂载）时才去 /appendix 现取；
+ * 读失败给错误 + 重试，绝不用空清单冒充「五项是空的」。
+ */
+function AppendixPanel() {
+  const [attempt, setAttempt] = useState(0);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [planSections, setPlanSections] = useState<AppendixPlanSection[]>([]);
+  const [planFallback, setPlanFallback] = useState('');
+  const [verifyItems, setVerifyItems] = useState<AppendixVerifyItem[]>([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    setError('');
+    void (async () => {
+      try {
+        const response = await fetch('/dsh-agent-workflow/appendix');
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (body?.ok !== true) {
+          const message = String(body?.error ?? '读取附表失败');
+          setStatus('error');
+          setError(message);
+          void reportClientEvent('warn', `[appendix] 读取失败（路由）：${message}`);
+          return;
+        }
+        setPlanSections(Array.isArray(body.planSections) ? body.planSections : []);
+        setPlanFallback(typeof body.planFallback === 'string' ? body.planFallback : '');
+        setVerifyItems(Array.isArray(body.verifyItems) ? body.verifyItems : []);
+        setStatus('ready');
+        // 成功也要留一跳：服务端只证明「返回了」，这条才证明「页面拿到了」。
+        void reportClientEvent('info', `[appendix] 已取回 方案 ${Array.isArray(body.planSections) ? body.planSections.length : 0} 条 / 验收 ${Array.isArray(body.verifyItems) ? body.verifyItems.length : 0} 条`);
+      } catch (reason) {
+        if (!cancelled) {
+          setStatus('error');
+          setError(String(reason));
+          void reportClientEvent('warn', `[appendix] 读取失败（异常）：${String(reason)}`);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attempt]);
+
+  if (status === 'loading') {
+    return <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>读取中…</div>;
+  }
+  if (status === 'error') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 }}>读不到附表：{error}</div>
+        <button
+          type="button"
+          onClick={() => setAttempt((value) => value + 1)}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'transparent',
+            color: 'var(--dsw-alias-label-primary)',
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+        >重试</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', overflow: 'auto', minHeight: 0 }}>
+      <div style={{ flex: '1 1 0', minWidth: 0 }}>
+        <div style={LABEL_STYLE}>实现中 · 五项（方案五小节，解析自会话手册模板）</div>
+        {planSections.length > 0 ? planSections.map((section) => (
+          <div key={section.id} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>{section.id}. {section.title}</div>
+            {section.hint !== '' ? (
+              <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }}>{section.hint}</div>
+            ) : null}
+          </div>
+        )) : (
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', margin: 0, lineHeight: 1.5 }}>{planFallback}</pre>
+        )}
+      </div>
+      <div style={{ flex: '1 1 0', minWidth: 0 }}>
+        <div style={LABEL_STYLE}>验收中 · 七项（七项验收项）</div>
+        {verifyItems.map((item) => (
+          <div key={item.id} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>
+              {item.id}. {item.name}
+              {item.needsCommand ? (
+                <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }}>必须带复跑命令</span>
+              ) : null}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }}>{item.judge}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 /**
  * 设置页里的「操作细节」分区内容。
@@ -631,7 +744,7 @@ function WorkflowGlobalSettingsSection() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
-        {STATE_TABS.map((tab) => (
+        {[...STATE_TABS, APPENDIX_TAB].map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -656,7 +769,9 @@ function WorkflowGlobalSettingsSection() {
         // 内置存档只读：输入框用 readOnly（仍能滚动、选中、复制），
         // 不能用 pointer-events:none 整块禁用——那样滚轮和文本选择都会一起失效。
       }}>
-        {activeTab === 'shared' ? (
+        {activeTab === 'appendix' ? (
+          <AppendixPanel />
+        ) : activeTab === 'shared' ? (
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
             <textarea

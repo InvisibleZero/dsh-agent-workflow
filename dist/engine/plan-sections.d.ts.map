@@ -1,0 +1,1 @@
+{"version":3,"file":"plan-sections.d.ts","sourceRoot":"","sources":["../../src/engine/plan-sections.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAEH,wCAAwC;AACxC,UAAU,WAAW;IACnB,EAAE,EAAE,MAAM,CAAC;IACX,KAAK,EAAE,MAAM,CAAC;IACd,yCAAyC;IACzC,IAAI,EAAE,MAAM,CAAC;CACd;AAKD;;;;;GAKG;AACH,wBAAgB,2BAA2B,CAAC,QAAQ,EAAE,MAAM,GAAG,WAAW,EAAE,CAyB3E"}

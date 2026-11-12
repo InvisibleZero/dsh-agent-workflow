@@ -218,6 +218,8 @@ export declare class WorkflowRepository {
             done: boolean;
         }>;
     } | null>;
+    /** 会话手册模板原文（方案五小节 + 实施顺序清单）：设置页「附表」按它现读，不另存第二份。 */
+    readSessionManualTemplate(): Promise<string>;
     /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
     readGlobalManual(workflowId: string): Promise<string>;
     /** 项目手册的绝对路径（只读用途：注入里那句「去哪查」要用它，不能只给相对名）。 */

@@ -1011,6 +1011,11 @@ export class WorkflowRepository {
     return { manual, notesDir: wfDir, checklist: parseChecklist(manual) };
   }
 
+  /** 会话手册模板原文（方案五小节 + 实施顺序清单）：设置页「附表」按它现读，不另存第二份。 */
+  async readSessionManualTemplate(): Promise<string> {
+    return SESSION_MANUAL_TEMPLATE;
+  }
+
   /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
   async readGlobalManual(workflowId: string): Promise<string> {
     const snapshot = await this.storage.load(workflowId);

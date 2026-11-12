@@ -1465,6 +1465,10 @@ var WorkflowRepository = class {
     const manual = await readTextCapped(join(wfDir, sessionManualFileName(nodeId)), MANUAL_MAX_BYTES);
     return { manual, notesDir: wfDir, checklist: parseChecklist(manual) };
   }
+  /** 会话手册模板原文（方案五小节 + 实施顺序清单）：设置页「附表」按它现读，不另存第二份。 */
+  async readSessionManualTemplate() {
+    return SESSION_MANUAL_TEMPLATE;
+  }
   /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
   async readGlobalManual(workflowId) {
     const snapshot = await this.storage.load(workflowId);
@@ -2737,6 +2741,7 @@ function registerWorkflowTools(ctx, deps) {
             "info",
             `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? "pending"}, round=${state.round}, pending=${progress.pending})`
           );
+          deps.notify?.(sessionId, "verify");
           return {
             item: { id: itemId, name: check.name, mark: item?.mark ?? "pending" },
             progress: {
@@ -2812,6 +2817,7 @@ function registerWorkflowTools(ctx, deps) {
             "info",
             `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`
           );
+          deps.notify?.(sessionId, "verify");
           return {
             item: { id: itemId, mark: item.mark },
             progress: {
@@ -2914,6 +2920,34 @@ async function ensureClaimedSessionNode(deps, sessionId, trigger) {
     );
     return null;
   }
+}
+
+// src/engine/plan-sections.ts
+var SECTION_HEADING = /^###\s+(\d+)\.\s*(.+?)\s*$/;
+var HINT_BLOCK = /<!--([\s\S]*?)-->/;
+function plan_sections_from_template(template) {
+  const lines = template.split(/\r?\n/);
+  const sections = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = SECTION_HEADING.exec(lines[index] ?? "");
+    if (heading === null) continue;
+    const id = Number(heading[1]);
+    const title = heading[2] ?? "";
+    let hint = "";
+    for (let scan = index + 1; scan < lines.length; scan += 1) {
+      const line = lines[scan] ?? "";
+      if (SECTION_HEADING.test(line)) break;
+      const hintBlock = HINT_BLOCK.exec(line);
+      if (hintBlock !== null) {
+        hint = (hintBlock[1] ?? "").trim();
+        break;
+      }
+      if (line.trim() !== "") break;
+    }
+    sections.push({ id, title, hint });
+  }
+  const complete = sections.length === 5 && sections.every((section, index) => section.id === index + 1);
+  return complete ? sections : [];
 }
 
 // src/host.ts
@@ -3186,7 +3220,9 @@ function apply(ctx) {
     clearPendingAdvance: (sessionId) => {
       pendingAdvances.delete(sessionId);
       broadcast(sessionId, "pending-cleared");
-    }
+    },
+    // 报备 / 撤勾不动状态，但徽标 n/7 会变：复用同一条推送通道让页面重取。
+    notify: (sessionId, reason) => broadcast(sessionId, reason)
   };
   registerWorkflowGuard(ctx, toolsDeps);
   registerWorkflowTools(ctx, toolsDeps);
@@ -3286,6 +3322,33 @@ function apply(ctx) {
         });
         logEvent(ctx.logger, "info", `[workflow] app-settings saved (autoSend=${saved.autoSendEnterTrigger}, \u7EA6\u675F=${saved.manualLimits.constraints_chars}\u5B57, \u65B9\u6848=${saved.manualLimits.plan_chars}\u5B57, \u6574\u672C=${saved.manualLimits.session_total_chars}\u5B57)`);
         return { autoSendEnterTrigger: saved.autoSendEnterTrigger, manualLimits: saved.manualLimits };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/appendix",
+      handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
+        const startedAt = Date.now();
+        const template = await repository.readSessionManualTemplate();
+        const planSections = plan_sections_from_template(template);
+        const verifyItems = VERIFY_CHECKS.map((check) => ({
+          id: check.id,
+          name: check.name,
+          judge: check.judge,
+          needsCommand: check.needs_command
+        }));
+        logEvent(
+          ctx.logger,
+          "info",
+          `[workflow] appendix (plan=${planSections.length}/5, verify=${verifyItems.length}, fallback=${String(planSections.length === 0)}, ${Date.now() - startedAt}ms)`,
+          traceId
+        );
+        return {
+          planSections,
+          // 解析凑不齐五节时给整段原文兜底：宁可显示得丑，不能显示成空清单。
+          planFallback: planSections.length === 0 ? template : "",
+          verifyItems
+        };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

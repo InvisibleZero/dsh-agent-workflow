@@ -17,6 +17,13 @@ export interface WorkflowToolsDeps {
         reason?: string;
     } | null;
     clearPendingAdvance: (sessionId: string) => void;
+    /**
+     * 通知前端「这个会话变了」。
+     *
+     * 报备 / 撤勾都不改状态，但徽标上的 n/7 会变；不推的话聊过的会话没有轮询，
+     * 只能等页面刷新才看得到——验收时会被当成「没打勾」。
+     */
+    notify?: (sessionId: string, reason: string) => void;
 }
 /** 注册门禁：只在「讨论中」拦截写操作。 */
 export declare function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void;

@@ -47,6 +47,13 @@ export interface WorkflowToolsDeps {
   requestAdvance: (input: { sessionId: string; to: string; reason?: string }) => void;
   pendingAdvanceOf: (sessionId: string) => { to: string; reason?: string } | null;
   clearPendingAdvance: (sessionId: string) => void;
+  /**
+   * 通知前端「这个会话变了」。
+   *
+   * 报备 / 撤勾都不改状态，但徽标上的 n/7 会变；不推的话聊过的会话没有轮询，
+   * 只能等页面刷新才看得到——验收时会被当成「没打勾」。
+   */
+  notify?: (sessionId: string, reason: string) => void;
 }
 
 function labelOf(state: string): string {
@@ -488,6 +495,8 @@ export function registerWorkflowTools(ctx: any, deps: WorkflowToolsDeps): void {
             'info',
             `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`,
           );
+          // 徽标上的 n/7 变了：推一次，别让页面等刷新才看见勾。
+          deps.notify?.(sessionId, 'verify');
           return {
             item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
             progress: {
@@ -566,6 +575,8 @@ export function registerWorkflowTools(ctx: any, deps: WorkflowToolsDeps): void {
             'info',
             `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`,
           );
+          // 撤勾也改徽标，同样要推。
+          deps.notify?.(sessionId, 'verify');
           return {
             item: { id: itemId, mark: item.mark },
             progress: {

@@ -464,6 +464,8 @@ export function registerWorkflowTools(ctx, deps) {
                     // 报备成功必须留「哪一项、什么标记、第几轮」：否则日志只能证明工具调过，
                     // 答不上「这一项是刚被标上的，还是上一轮遗留的」——验收排查第一跳就断。
                     logEvent(ctx.logger, 'info', `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`);
+                    // 徽标上的 n/7 变了：推一次，别让页面等刷新才看见勾。
+                    deps.notify?.(sessionId, 'verify');
                     return {
                         item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
                         progress: {
@@ -536,6 +538,8 @@ export function registerWorkflowTools(ctx, deps) {
                     });
                     const progress = summarizeVerification(state);
                     logEvent(ctx.logger, 'info', `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`);
+                    // 撤勾也改徽标，同样要推。
+                    deps.notify?.(sessionId, 'verify');
                     return {
                         item: { id: itemId, mark: item.mark },
                         progress: {

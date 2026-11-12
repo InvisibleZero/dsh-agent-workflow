@@ -19,6 +19,7 @@ import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host
 import { logEvent, newTraceId, recentEvents } from './host/event-log';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 import { VERIFY_CHECKS } from './schema/verify-checks';
+import { plan_sections_from_template } from './engine/plan-sections';
 
 export const inject = [];
 
@@ -407,6 +408,8 @@ export function apply(ctx: any) {
       pendingAdvances.delete(sessionId);
       broadcast(sessionId, 'pending-cleared');
     },
+    // 报备 / 撤勾不动状态，但徽标 n/7 会变：复用同一条推送通道让页面重取。
+    notify: (sessionId: string, reason: string) => broadcast(sessionId, reason),
   };
   // 硬机制：写操作门禁 + 模型专用工具（请求推进 / 写手册 / 勾选清单）。
   registerWorkflowGuard(ctx, toolsDeps);
@@ -518,6 +521,35 @@ export function apply(ctx: any) {
         });
         logEvent(ctx.logger, 'info', `[workflow] app-settings saved (autoSend=${saved.autoSendEnterTrigger}, 约束=${saved.manualLimits.constraints_chars}字, 方案=${saved.manualLimits.plan_chars}字, 整本=${saved.manualLimits.session_total_chars}字)`);
         return { autoSendEnterTrigger: saved.autoSendEnterTrigger, manualLimits: saved.manualLimits };
+      }),
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/appendix',
+      handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
+        const startedAt = Date.now();
+        // 两份清单都现取：方案五小节解析自会话手册模板（模板改了这里跟着变），
+        // 七项直接来自协议常量。客户端不存任何一条文案。
+        const template = await repository.readSessionManualTemplate();
+        const planSections = plan_sections_from_template(template);
+        const verifyItems = VERIFY_CHECKS.map((check) => ({
+          id: check.id,
+          name: check.name,
+          judge: check.judge,
+          needsCommand: check.needs_command,
+        }));
+        logEvent(
+          ctx.logger,
+          'info',
+          `[workflow] appendix (plan=${planSections.length}/5, verify=${verifyItems.length}, fallback=${String(planSections.length === 0)}, ${Date.now() - startedAt}ms)`,
+          traceId,
+        );
+        return {
+          planSections,
+          // 解析凑不齐五节时给整段原文兜底：宁可显示得丑，不能显示成空清单。
+          planFallback: planSections.length === 0 ? template : '',
+          verifyItems,
+        };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
