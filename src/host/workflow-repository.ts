@@ -51,6 +51,9 @@ export interface WorkflowSummary {
   updatedAt: string;
 }
 
+/** 侧栏状态表读盘时，坏快照被跳过的回调：让上层能留一条痕，分清「没有这个会话」和「快照读坏了」。 */
+export type BrokenSnapshotHandler = (fileName: string, error: unknown) => void;
+
 /** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 discussing）。 */
 export function buildRootNode(id: string, maxDepth: number, maxSteps: number): AgentNode {
   return {
@@ -803,7 +806,10 @@ export class WorkflowRepository {
   }
 
   /** 按工作目录反查 workflow 快照。 */
-  private async findByWorkingDirectory(workingDirectory: string): Promise<WorkflowSnapshot | null> {
+  private async findByWorkingDirectory(
+    workingDirectory: string,
+    onBroken?: BrokenSnapshotHandler,
+  ): Promise<WorkflowSnapshot | null> {
     const dir = join(this.baseDir, 'workflows');
     let names: string[] = [];
     try {
@@ -818,21 +824,61 @@ export class WorkflowRepository {
       try {
         const snapshot = await this.storage.load(id);
         if (snapshot !== null && snapshot.working_directory === workingDirectory) return snapshot;
-      } catch {
-        // 跳过损坏文件。
+      } catch (error) {
+        // 跳过损坏文件，但把文件名交给上层留痕。
+        onBroken?.(name, error);
       }
     }
     return null;
   }
 
   /** 侧栏批量用：返回某工作区所有会话节点的状态映射（sessionId → current_state）。 */
-  async getNodeStatesByDirectory(workingDirectory: string): Promise<Record<string, string>> {
-    const snapshot = await this.findByWorkingDirectory(workingDirectory);
+  async getNodeStatesByDirectory(
+    workingDirectory: string,
+    onBroken?: BrokenSnapshotHandler,
+  ): Promise<Record<string, string>> {
+    const snapshot = await this.findByWorkingDirectory(workingDirectory, onBroken);
     if (snapshot === null) return {};
     const map: Record<string, string> = {};
     for (const node of snapshot.nodes) {
       if (typeof node.session_id === 'string' && node.session_id !== '') {
         map[node.session_id] = node.current_state;
+      }
+    }
+    return map;
+  }
+
+  /**
+   * 侧栏全量用：一次汇总所有工作区里已绑定会话的状态（sessionId → current_state）。
+   *
+   * 状态点的显示只认「节点绑过哪个会话」这条持久化事实，不读宿主内存里的预设名单：
+   * 名单是进程内的，重启后为空，会让重启前的会话全部丢掉状态点。
+   * 坏了 / 读不出来的快照直接跳过，不影响其他工作区；跳过时通过 onBroken 留痕。
+   */
+  async getAllNodeStates(onBroken?: BrokenSnapshotHandler): Promise<Record<string, string>> {
+    const dir = join(this.baseDir, 'workflows');
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw error;
+    }
+    const map: Record<string, string> = {};
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const id = name.slice(0, -'.json'.length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot === null) continue;
+        for (const node of snapshot.nodes) {
+          if (typeof node.session_id === 'string' && node.session_id !== '') {
+            map[node.session_id] = node.current_state;
+          }
+        }
+      } catch (error) {
+        // 跳过损坏文件：一个坏快照不该让整张状态表变空。
+        onBroken?.(name, error);
       }
     }
     return map;

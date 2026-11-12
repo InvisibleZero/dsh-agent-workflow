@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { WorkflowRepository } from './host/workflow-repository';
+import { readSidebarNodes } from './host/sidebar-nodes';
 import { effectiveDetail } from './engine/state-machine';
 import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
@@ -477,16 +478,16 @@ export function apply(ctx: any) {
       path: '/dsh-agent-workflow/sidebar-nodes',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const path = query.get('path');
-        if (typeof path !== 'string' || path === '') return { nodes: {} };
         const startedAt = Date.now();
-        const nodes = await repository.getNodeStatesByDirectory(path);
-        // 侧栏状态点只画本预设接管的会话。
-        const owned: Record<string, string> = {};
-        for (const [sessionId, state] of Object.entries(nodes)) {
-          if (presetSessions.has(sessionId)) owned[sessionId] = state;
-        }
-        logEvent(ctx.logger, 'info', `[workflow] sidebar-nodes ok (nodes=${Object.keys(owned).length}, ${Date.now() - startedAt}ms)`);
-        return { nodes: owned };
+        // 显示只认「节点绑过哪个会话」：不能再用进程内名单过滤，重启后名单为空会把旧会话全丢掉。
+        // 坏快照被跳过时留一条 warn：否则「没有这个会话」和「快照读坏了」分不开。
+        const onBroken = (fileName: string, error: unknown) => {
+          logEvent(ctx.logger, 'warn', `[workflow] sidebar-nodes skipped broken snapshot (file=${fileName}): ${String((error as Error)?.message ?? error)}`);
+        };
+        const nodes = await readSidebarNodes(repository, path, onBroken);
+        const mode = typeof path === 'string' && path.trim() !== '' ? 'directory' : 'all';
+        logEvent(ctx.logger, 'info', `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
+        return { nodes };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

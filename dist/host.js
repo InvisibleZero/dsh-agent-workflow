@@ -1131,7 +1131,7 @@ var WorkflowRepository = class {
     return updated;
   }
   /** 按工作目录反查 workflow 快照。 */
-  async findByWorkingDirectory(workingDirectory) {
+  async findByWorkingDirectory(workingDirectory, onBroken) {
     const dir = join(this.baseDir, "workflows");
     let names = [];
     try {
@@ -1146,19 +1146,54 @@ var WorkflowRepository = class {
       try {
         const snapshot = await this.storage.load(id);
         if (snapshot !== null && snapshot.working_directory === workingDirectory) return snapshot;
-      } catch {
+      } catch (error) {
+        onBroken?.(name, error);
       }
     }
     return null;
   }
   /** 侧栏批量用：返回某工作区所有会话节点的状态映射（sessionId → current_state）。 */
-  async getNodeStatesByDirectory(workingDirectory) {
-    const snapshot = await this.findByWorkingDirectory(workingDirectory);
+  async getNodeStatesByDirectory(workingDirectory, onBroken) {
+    const snapshot = await this.findByWorkingDirectory(workingDirectory, onBroken);
     if (snapshot === null) return {};
     const map = {};
     for (const node of snapshot.nodes) {
       if (typeof node.session_id === "string" && node.session_id !== "") {
         map[node.session_id] = node.current_state;
+      }
+    }
+    return map;
+  }
+  /**
+   * 侧栏全量用：一次汇总所有工作区里已绑定会话的状态（sessionId → current_state）。
+   *
+   * 状态点的显示只认「节点绑过哪个会话」这条持久化事实，不读宿主内存里的预设名单：
+   * 名单是进程内的，重启后为空，会让重启前的会话全部丢掉状态点。
+   * 坏了 / 读不出来的快照直接跳过，不影响其他工作区；跳过时通过 onBroken 留痕。
+   */
+  async getAllNodeStates(onBroken) {
+    const dir = join(this.baseDir, "workflows");
+    let names = [];
+    try {
+      names = await fs2.readdir(dir);
+    } catch (error) {
+      if (error.code === "ENOENT") return {};
+      throw error;
+    }
+    const map = {};
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const id = name.slice(0, -".json".length);
+      try {
+        const snapshot = await this.storage.load(id);
+        if (snapshot === null) continue;
+        for (const node of snapshot.nodes) {
+          if (typeof node.session_id === "string" && node.session_id !== "") {
+            map[node.session_id] = node.current_state;
+          }
+        }
+      } catch (error) {
+        onBroken?.(name, error);
       }
     }
     return map;
@@ -1579,6 +1614,13 @@ ${entry}`;
     }
   }
 };
+
+// src/host/sidebar-nodes.ts
+async function readSidebarNodes(repository, workingDirectory, onBroken) {
+  const path2 = typeof workingDirectory === "string" ? workingDirectory.trim() : "";
+  if (path2 === "") return repository.getAllNodeStates(onBroken);
+  return repository.getNodeStatesByDirectory(path2, onBroken);
+}
 
 // src/engine/state-machine.ts
 function effectiveDetail(targetState, node, global) {
@@ -2714,15 +2756,14 @@ function apply(ctx) {
       path: "/dsh-agent-workflow/sidebar-nodes",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const path2 = query.get("path");
-        if (typeof path2 !== "string" || path2 === "") return { nodes: {} };
         const startedAt = Date.now();
-        const nodes = await repository.getNodeStatesByDirectory(path2);
-        const owned = {};
-        for (const [sessionId, state] of Object.entries(nodes)) {
-          if (presetSessions.has(sessionId)) owned[sessionId] = state;
-        }
-        logEvent(ctx.logger, "info", `[workflow] sidebar-nodes ok (nodes=${Object.keys(owned).length}, ${Date.now() - startedAt}ms)`);
-        return { nodes: owned };
+        const onBroken = (fileName, error) => {
+          logEvent(ctx.logger, "warn", `[workflow] sidebar-nodes skipped broken snapshot (file=${fileName}): ${String(error?.message ?? error)}`);
+        };
+        const nodes = await readSidebarNodes(repository, path2, onBroken);
+        const mode = typeof path2 === "string" && path2.trim() !== "" ? "directory" : "all";
+        logEvent(ctx.logger, "info", `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
+        return { nodes };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

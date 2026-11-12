@@ -15,6 +15,7 @@ import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
 import { menuPointFromEvent, menuAnchorRect } from './menu-anchor';
 import { NODE_STATE_COLOR } from './node-state-color';
+import { WORKFLOW_STATE_CHANGED_EVENT } from './session-state-store';
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
 /** 四态单向推进表。 */
@@ -64,7 +65,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     ? props.useSessions((s: any) => (s?.byId?.[sessionId]?.cwd ?? ''))
     : '';
 
-  const ensureNode = async (workingDirectory: string): Promise<boolean> => {
+  /** 通知侧栏状态点：只带本次变化的会话，别再让每个点各自重取整表。 */
+  const notifyStateChanged = (state: string): void => {
+    window.dispatchEvent(new CustomEvent(WORKFLOW_STATE_CHANGED_EVENT, { detail: { sessionId, state } }));
+  };
+
+  const ensureNode = async (workingDirectory: string): Promise<string | null> => {
     try {
       const response = await fetch('/dsh-agent-workflow/ensure-node', {
         method: 'POST',
@@ -72,9 +78,11 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         body: JSON.stringify({ sessionId, workingDirectory }),
       });
       const responseBody = await response.json().catch(() => null);
-      return responseBody?.ok === true && responseBody.node !== null && responseBody.node !== undefined;
+      const node = responseBody?.ok === true ? responseBody.node : null;
+      const state = typeof node?.current_state === 'string' ? node.current_state : '';
+      return state === '' ? null : state;
     } catch {
-      return false;
+      return null;
     }
   };
 
@@ -200,8 +208,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
       if (info === null && !claimedRef.current && sessionCwd !== '') {
         claimedRef.current = true;
-        const ok = await ensureNode(sessionCwd);
-        if (ok) info = await readNode();
+        const ensuredState = await ensureNode(sessionCwd);
+        if (ensuredState !== null) {
+          // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
+          notifyStateChanged(ensuredState);
+          info = await readNode();
+        }
       }
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
       else setChecklist([]);
@@ -236,8 +248,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         window.alert(String(reason));
         return;
       }
-      // 通知侧栏会话行的状态点刷新（清缓存并重取）。
-      window.dispatchEvent(new Event('dsh-workflow-state-changed'));
+      // 通知侧栏会话行的状态点刷新：只更新这一个会话。
+      notifyStateChanged(to);
       const info = await readNode();
       if (info !== null) await applyEnterTrigger(info.enterTrigger);
       if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
@@ -284,10 +296,14 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         window.alert(String(payload?.error ?? '处理推进请求失败'));
         return;
       }
-      window.dispatchEvent(new Event('dsh-workflow-state-changed'));
       const info = await readNode();
-      if (accept && info !== null) await applyEnterTrigger(info.enterTrigger);
-      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
+      if (info !== null) {
+        // 同意 / 拒绝之后都可能改变节点状态：按服务端读回的状态更新这一行。
+        notifyStateChanged(info.state);
+        if (accept) await applyEnterTrigger(info.enterTrigger);
+        if (info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
+        else setChecklist([]);
+      }
     } catch (error) {
       console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
     }

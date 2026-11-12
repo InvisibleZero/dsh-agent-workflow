@@ -22,6 +22,8 @@ export interface WorkflowSummary {
     /** 文件最后修改时间（ISO），用于列表排序；不是严格意义上的"创建时间"。 */
     updatedAt: string;
 }
+/** 侧栏状态表读盘时，坏快照被跳过的回调：让上层能留一条痕，分清「没有这个会话」和「快照读坏了」。 */
+export type BrokenSnapshotHandler = (fileName: string, error: unknown) => void;
 /** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 discussing）。 */
 export declare function buildRootNode(id: string, maxDepth: number, maxSteps: number): AgentNode;
 export declare class WorkflowRepository {
@@ -172,7 +174,15 @@ export declare class WorkflowRepository {
     /** 按工作目录反查 workflow 快照。 */
     private findByWorkingDirectory;
     /** 侧栏批量用：返回某工作区所有会话节点的状态映射（sessionId → current_state）。 */
-    getNodeStatesByDirectory(workingDirectory: string): Promise<Record<string, string>>;
+    getNodeStatesByDirectory(workingDirectory: string, onBroken?: BrokenSnapshotHandler): Promise<Record<string, string>>;
+    /**
+     * 侧栏全量用：一次汇总所有工作区里已绑定会话的状态（sessionId → current_state）。
+     *
+     * 状态点的显示只认「节点绑过哪个会话」这条持久化事实，不读宿主内存里的预设名单：
+     * 名单是进程内的，重启后为空，会让重启前的会话全部丢掉状态点。
+     * 坏了 / 读不出来的快照直接跳过，不影响其他工作区；跳过时通过 onBroken 留痕。
+     */
+    getAllNodeStates(onBroken?: BrokenSnapshotHandler): Promise<Record<string, string>>;
     /** 确保工作区根目录有项目手册（项目总览 / 决策 / 要点）。 */
     private ensureGlobalManual;
     /** 确保某目录是一个 workflow 工作区（没有快照就建，含根节点），返回快照。 */

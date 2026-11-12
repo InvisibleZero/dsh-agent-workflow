@@ -3,67 +3,79 @@
  * 侧栏会话行「行尾常驻状态点」：非悬停时始终显示一个按 workflow 状态着色的小圆点。
  *
  * - 挂在 sidebar.session.row.trailing（常驻图标位，非交互；悬停该行时宿主自动隐藏）。
- * - 数据走批量接口 /sidebar-nodes?path=…，一次拿整个工作区的节点状态，模块内 promise 缓存去重，
- *   5 秒 TTL；状态机推进后由 badge 派发 window 事件 `dsh-workflow-state-changed` 触发刷新。
+ * - 数据：第一次挂载时把「所有工作区里已绑定节点的会话状态」整表拉一次（模块内单例 promise），
+ *   之后只由状态变化事件按会话更新——不再逐行请求、不再按工作目录缓存 5 秒、不依赖内存名单。
+ * - 事件没有 detail 时（旧格式）退回一次全量重取，保证升级路径不会静默失效。
  */
 import { useEffect, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { NODE_STATE_COLOR } from './node-state-color';
+import {
+  WORKFLOW_STATE_CHANGED_EVENT,
+  getSessionState,
+  readStateChangedDetail,
+  replaceSessionStates,
+  setSessionState,
+  subscribeSessionStates,
+} from './session-state-store';
 
-const CACHE_TTL_MS = 5000;
-const promiseCache = new Map<string, Promise<Record<string, string>>>();
+/** 全量加载只跑一次；失败时清掉，下一次挂载还能重试。 */
+let loadingPromise: Promise<void> | null = null;
 
-function getWorkspaceStates(path: string): Promise<Record<string, string>> {
-  const cached = promiseCache.get(path);
-  if (cached !== undefined) return cached;
-  const promise = (async () => {
+function loadAllSessionStates(): Promise<void> {
+  if (loadingPromise !== null) return loadingPromise;
+  loadingPromise = (async () => {
     try {
-      const response = await fetch(`/dsh-agent-workflow/sidebar-nodes?path=${encodeURIComponent(path)}`);
+      const response = await fetch('/dsh-agent-workflow/sidebar-nodes');
       const responseBody = await response.json().catch(() => null);
       if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
-        return responseBody.nodes as Record<string, string>;
+        replaceSessionStates(responseBody.nodes as Record<string, string>);
+        return;
       }
-      return {};
-    } catch {
-      return {};
+      // 埋点：接口回了但不是成功结构，必须留痕，否则「一个点都没有」分不清是没数据还是加载失败。
+      console.warn(`[dsh-agent-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
+    } catch (error) {
+      // 网络/接口暂时不可用：不缓存失败，下一次挂载重试。
+      console.warn('[dsh-agent-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
     }
+    loadingPromise = null;
   })();
-  promiseCache.set(path, promise);
-  window.setTimeout(() => {
-    if (promiseCache.get(path) === promise) promiseCache.delete(path);
-  }, CACHE_TTL_MS);
-  return promise;
+  return loadingPromise;
 }
 
-function SessionStateDot(props: { sessionId?: string; useSessions?: any }) {
+function SessionStateDot(props: { sessionId?: string }) {
   const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
-  const cwd = typeof props?.useSessions === 'function'
-    ? props.useSessions((s: any) => (s?.byId?.[sessionId]?.cwd ?? ''))
-    : '';
-  const [state, setState] = useState<string | null>(null);
+  const [state, setState] = useState<string | null>(() => getSessionState(sessionId));
 
   useEffect(() => {
-    if (sessionId === '' || cwd === '') {
+    if (sessionId === '') {
       setState(null);
       return undefined;
     }
-    let cancelled = false;
-    const load = () => {
-      void getWorkspaceStates(cwd).then((map) => {
-        if (!cancelled) setState(map[sessionId] ?? null);
-      });
+    const sync = () => setState(getSessionState(sessionId));
+    sync();
+
+    const unsubscribe = subscribeSessionStates(sync);
+    void loadAllSessionStates().then(sync);
+
+    const onChanged = (event: Event) => {
+      const detail = readStateChangedDetail(event);
+      if (detail !== null) {
+        // 单条更新：只动这一行，其他会话不受影响。
+        setSessionState(detail.sessionId, detail.state);
+        return;
+      }
+      // 旧格式事件没有 detail：退回全量重取（下次挂载也会重新加载）。
+      loadingPromise = null;
+      void loadAllSessionStates().then(sync);
     };
-    load();
-    const onChanged = () => {
-      promiseCache.clear();
-      load();
-    };
-    window.addEventListener('dsh-workflow-state-changed', onChanged);
+    window.addEventListener(WORKFLOW_STATE_CHANGED_EVENT, onChanged);
+
     return () => {
-      cancelled = true;
-      window.removeEventListener('dsh-workflow-state-changed', onChanged);
+      unsubscribe();
+      window.removeEventListener(WORKFLOW_STATE_CHANGED_EVENT, onChanged);
     };
-  }, [sessionId, cwd]);
+  }, [sessionId]);
 
   if (state === null) return null;
   const color = NODE_STATE_COLOR[state];

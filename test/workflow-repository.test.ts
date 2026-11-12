@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository, buildRootNode } from '../src/host/workflow-repository';
@@ -149,6 +149,42 @@ describe('WorkflowRepository：会话自动认领（ensure-node）', () => {
   it('缺少工作目录时报错', async () => {
     const repo = new WorkflowRepository(dir);
     await expect(repo.ensureNode({ sessionId: 's-1', workingDirectory: '   ' })).rejects.toThrow('缺少工作目录');
+  });
+
+  it('getAllNodeStates 跨工作区汇总全部已绑定会话（不依赖进程内名单）', async () => {
+    const repo = new WorkflowRepository(dir);
+    const otherDir = await mkdtemp(join(tmpdir(), 'wf-work-'));
+    try {
+      await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+      await repo.ensureNode({ sessionId: 's-2', workingDirectory: otherDir });
+      // 直接新建一个仓库实例读盘：模拟重启后新进程，内存里没有任何认领记录。
+      const fresh = new WorkflowRepository(dir);
+      expect(await fresh.getAllNodeStates()).toEqual({ 's-1': 'discussing', 's-2': 'discussing' });
+    } finally {
+      await rm(otherDir, { recursive: true, force: true });
+    }
+  });
+
+  it('getAllNodeStates 跳过损坏快照，空目录返回空表', async () => {
+    const empty = await mkdtemp(join(tmpdir(), 'wf-empty-'));
+    try {
+      expect(await new WorkflowRepository(empty).getAllNodeStates()).toEqual({});
+    } finally {
+      await rm(empty, { recursive: true, force: true });
+    }
+
+    const repo = new WorkflowRepository(dir);
+    await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+    await mkdir(join(dir, 'workflows'), { recursive: true });
+    await writeFile(join(dir, 'workflows', 'broken.json'), '{ not json', 'utf8');
+
+    const onBroken = vi.fn();
+    const map = await repo.getAllNodeStates(onBroken);
+    expect(Object.keys(map)).toEqual(['s-1']);
+    expect(map['s-1']).toBe('discussing');
+    // 坏快照被跳过时要把文件名交出来：否则「没有这个会话」和「快照读坏了」分不开。
+    expect(onBroken).toHaveBeenCalledTimes(1);
+    expect(onBroken.mock.calls[0]?.[0]).toBe('broken.json');
   });
 });
 

@@ -1,0 +1,1 @@
+{"version":3,"file":"sidebar-nodes.d.ts","sourceRoot":"","sources":["../../src/host/sidebar-nodes.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AACH,OAAO,KAAK,EAAE,qBAAqB,EAAE,kBAAkB,EAAE,MAAM,uBAAuB,CAAC;AAEvF,wBAAsB,gBAAgB,CACpC,UAAU,EAAE,kBAAkB,EAC9B,gBAAgB,EAAE,MAAM,GAAG,IAAI,GAAG,SAAS,EAC3C,QAAQ,CAAC,EAAE,qBAAqB,GAC/B,OAAO,CAAC,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC,CAAC,CAIjC"}

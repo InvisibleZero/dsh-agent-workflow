@@ -68,6 +68,7 @@ window.__ModuleLoader__.load({
     const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
     const menu_anchor_1 = __req("client/menu-anchor.js");
     const node_state_color_1 = __req("client/node-state-color.js");
+    const session_state_store_1 = __req("client/session-state-store.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     /** 四态单向推进表。 */
     const NEXT_NODE_STATE = {
@@ -98,6 +99,10 @@ window.__ModuleLoader__.load({
         const sessionCwd = typeof props?.useSessions === 'function'
             ? props.useSessions((s) => (s?.byId?.[sessionId]?.cwd ?? ''))
             : '';
+        /** 通知侧栏状态点：只带本次变化的会话，别再让每个点各自重取整表。 */
+        const notifyStateChanged = (state) => {
+            window.dispatchEvent(new CustomEvent(session_state_store_1.WORKFLOW_STATE_CHANGED_EVENT, { detail: { sessionId, state } }));
+        };
         const ensureNode = async (workingDirectory) => {
             try {
                 const response = await fetch('/dsh-agent-workflow/ensure-node', {
@@ -106,10 +111,12 @@ window.__ModuleLoader__.load({
                     body: JSON.stringify({ sessionId, workingDirectory }),
                 });
                 const responseBody = await response.json().catch(() => null);
-                return responseBody?.ok === true && responseBody.node !== null && responseBody.node !== undefined;
+                const node = responseBody?.ok === true ? responseBody.node : null;
+                const state = typeof node?.current_state === 'string' ? node.current_state : '';
+                return state === '' ? null : state;
             }
             catch {
-                return false;
+                return null;
             }
         };
         const readChecklist = async (workflowId, nodeId) => {
@@ -240,9 +247,12 @@ window.__ModuleLoader__.load({
                 // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
                 if (info === null && !claimedRef.current && sessionCwd !== '') {
                     claimedRef.current = true;
-                    const ok = await ensureNode(sessionCwd);
-                    if (ok)
+                    const ensuredState = await ensureNode(sessionCwd);
+                    if (ensuredState !== null) {
+                        // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
+                        notifyStateChanged(ensuredState);
                         info = await readNode();
+                    }
                 }
                 if (info !== null && info.state === 'implementing')
                     void readChecklist(info.workflowId, info.nodeId);
@@ -279,8 +289,8 @@ window.__ModuleLoader__.load({
                     window.alert(String(reason));
                     return;
                 }
-                // 通知侧栏会话行的状态点刷新（清缓存并重取）。
-                window.dispatchEvent(new Event('dsh-workflow-state-changed'));
+                // 通知侧栏会话行的状态点刷新：只更新这一个会话。
+                notifyStateChanged(to);
                 const info = await readNode();
                 if (info !== null)
                     await applyEnterTrigger(info.enterTrigger);
@@ -331,12 +341,17 @@ window.__ModuleLoader__.load({
                     window.alert(String(payload?.error ?? '处理推进请求失败'));
                     return;
                 }
-                window.dispatchEvent(new Event('dsh-workflow-state-changed'));
                 const info = await readNode();
-                if (accept && info !== null)
-                    await applyEnterTrigger(info.enterTrigger);
-                if (info !== null && info.state === 'implementing')
-                    void readChecklist(info.workflowId, info.nodeId);
+                if (info !== null) {
+                    // 同意 / 拒绝之后都可能改变节点状态：按服务端读回的状态更新这一行。
+                    notifyStateChanged(info.state);
+                    if (accept)
+                        await applyEnterTrigger(info.enterTrigger);
+                    if (info.state === 'implementing')
+                        void readChecklist(info.workflowId, info.nodeId);
+                    else
+                        setChecklist([]);
+                }
             }
             catch (error) {
                 console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
@@ -1281,6 +1296,89 @@ window.__ModuleLoader__.load({
     }
     //# sourceMappingURL=menu-anchor.js.map
     },
+    "client/session-state-store.js": function(__req, module, exports) {
+    "use strict";
+    /**
+     * 侧栏会话状态表（客户端共享单例）。
+     *
+     * 为什么单独成模块：状态点要能在「一次全量加载」和「单条状态变化」两种入口下更新，
+     * 但这两条路径不该各自维护一份数据。这里只做内存表 + 订阅，不碰 DOM、不发请求，
+     * 组件和同步逻辑都只是它的使用方。
+     */
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.WORKFLOW_STATE_CHANGED_EVENT = void 0;
+    exports.getSessionState = getSessionState;
+    exports.replaceSessionStates = replaceSessionStates;
+    exports.setSessionState = setSessionState;
+    exports.subscribeSessionStates = subscribeSessionStates;
+    exports.readStateChangedDetail = readStateChangedDetail;
+    /** 状态变化事件名：推进 / 同意推进 / 新建会话后由徽标派发。 */
+    exports.WORKFLOW_STATE_CHANGED_EVENT = 'dsh-workflow-state-changed';
+    const states = new Map();
+    const listeners = new Set();
+    function isNonEmptyString(value) {
+        return typeof value === 'string' && value !== '';
+    }
+    function notify() {
+        for (const listener of listeners) {
+            try {
+                listener();
+            }
+            catch {
+                // 单个订阅者抛错不能拖垮其他行。
+            }
+        }
+    }
+    /** 读某个会话的状态；没有返回 null（组件据此不渲染圆点）。 */
+    function getSessionState(sessionId) {
+        if (!isNonEmptyString(sessionId))
+            return null;
+        return states.get(sessionId) ?? null;
+    }
+    /**
+     * 全量替换：打开侧栏时同步一次磁盘快照。
+     * 空值 / 非法条目直接忽略；有变化才通知，避免无意义重渲染。
+     */
+    function replaceSessionStates(next) {
+        const normalized = Object.entries(next ?? {}).filter(([sessionId, state]) => isNonEmptyString(sessionId) && isNonEmptyString(state));
+        if (normalized.length === states.size && normalized.every(([sessionId, state]) => states.get(sessionId) === state)) {
+            return;
+        }
+        states.clear();
+        for (const [sessionId, state] of normalized)
+            states.set(sessionId, state);
+        notify();
+    }
+    /** 单条更新：状态变化事件走这里，只影响目标会话。 */
+    function setSessionState(sessionId, state) {
+        if (!isNonEmptyString(sessionId) || !isNonEmptyString(state))
+            return false;
+        if (states.get(sessionId) === state)
+            return false;
+        states.set(sessionId, state);
+        notify();
+        return true;
+    }
+    /** 订阅状态表变化（组件在挂载时订阅，卸载时退订）；返回退订函数。 */
+    function subscribeSessionStates(listener) {
+        if (typeof listener !== 'function')
+            return () => { };
+        listeners.add(listener);
+        return () => {
+            listeners.delete(listener);
+        };
+    }
+    /** 解析事件 detail；旧格式（无 detail 的 Event）返回 null，由调用方退回全量重取。 */
+    function readStateChangedDetail(event) {
+        const detail = event.detail;
+        if (detail === undefined || detail === null)
+            return null;
+        if (!isNonEmptyString(detail.sessionId) || !isNonEmptyString(detail.state))
+            return null;
+        return { sessionId: detail.sessionId, state: detail.state };
+    }
+    //# sourceMappingURL=session-state-store.js.map
+    },
     "client/session-row-dot.js": function(__req, module, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1291,67 +1389,67 @@ window.__ModuleLoader__.load({
      * 侧栏会话行「行尾常驻状态点」：非悬停时始终显示一个按 workflow 状态着色的小圆点。
      *
      * - 挂在 sidebar.session.row.trailing（常驻图标位，非交互；悬停该行时宿主自动隐藏）。
-     * - 数据走批量接口 /sidebar-nodes?path=…，一次拿整个工作区的节点状态，模块内 promise 缓存去重，
-     *   5 秒 TTL；状态机推进后由 badge 派发 window 事件 `dsh-workflow-state-changed` 触发刷新。
+     * - 数据：第一次挂载时把「所有工作区里已绑定节点的会话状态」整表拉一次（模块内单例 promise），
+     *   之后只由状态变化事件按会话更新——不再逐行请求、不再按工作目录缓存 5 秒、不依赖内存名单。
+     * - 事件没有 detail 时（旧格式）退回一次全量重取，保证升级路径不会静默失效。
      */
     const react_1 = require("react");
     const node_state_label_1 = __req("schema/node-state-label.js");
     const node_state_color_1 = __req("client/node-state-color.js");
-    const CACHE_TTL_MS = 5000;
-    const promiseCache = new Map();
-    function getWorkspaceStates(path) {
-        const cached = promiseCache.get(path);
-        if (cached !== undefined)
-            return cached;
-        const promise = (async () => {
+    const session_state_store_1 = __req("client/session-state-store.js");
+    /** 全量加载只跑一次；失败时清掉，下一次挂载还能重试。 */
+    let loadingPromise = null;
+    function loadAllSessionStates() {
+        if (loadingPromise !== null)
+            return loadingPromise;
+        loadingPromise = (async () => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/sidebar-nodes?path=${encodeURIComponent(path)}`);
+                const response = await fetch('/dsh-agent-workflow/sidebar-nodes');
                 const responseBody = await response.json().catch(() => null);
                 if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
-                    return responseBody.nodes;
+                    (0, session_state_store_1.replaceSessionStates)(responseBody.nodes);
+                    return;
                 }
-                return {};
+                // 埋点：接口回了但不是成功结构，必须留痕，否则「一个点都没有」分不清是没数据还是加载失败。
+                console.warn(`[dsh-agent-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
             }
-            catch {
-                return {};
+            catch (error) {
+                // 网络/接口暂时不可用：不缓存失败，下一次挂载重试。
+                console.warn('[dsh-agent-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
             }
+            loadingPromise = null;
         })();
-        promiseCache.set(path, promise);
-        window.setTimeout(() => {
-            if (promiseCache.get(path) === promise)
-                promiseCache.delete(path);
-        }, CACHE_TTL_MS);
-        return promise;
+        return loadingPromise;
     }
     function SessionStateDot(props) {
         const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';
-        const cwd = typeof props?.useSessions === 'function'
-            ? props.useSessions((s) => (s?.byId?.[sessionId]?.cwd ?? ''))
-            : '';
-        const [state, setState] = (0, react_1.useState)(null);
+        const [state, setState] = (0, react_1.useState)(() => (0, session_state_store_1.getSessionState)(sessionId));
         (0, react_1.useEffect)(() => {
-            if (sessionId === '' || cwd === '') {
+            if (sessionId === '') {
                 setState(null);
                 return undefined;
             }
-            let cancelled = false;
-            const load = () => {
-                void getWorkspaceStates(cwd).then((map) => {
-                    if (!cancelled)
-                        setState(map[sessionId] ?? null);
-                });
+            const sync = () => setState((0, session_state_store_1.getSessionState)(sessionId));
+            sync();
+            const unsubscribe = (0, session_state_store_1.subscribeSessionStates)(sync);
+            void loadAllSessionStates().then(sync);
+            const onChanged = (event) => {
+                const detail = (0, session_state_store_1.readStateChangedDetail)(event);
+                if (detail !== null) {
+                    // 单条更新：只动这一行，其他会话不受影响。
+                    (0, session_state_store_1.setSessionState)(detail.sessionId, detail.state);
+                    return;
+                }
+                // 旧格式事件没有 detail：退回全量重取（下次挂载也会重新加载）。
+                loadingPromise = null;
+                void loadAllSessionStates().then(sync);
             };
-            load();
-            const onChanged = () => {
-                promiseCache.clear();
-                load();
-            };
-            window.addEventListener('dsh-workflow-state-changed', onChanged);
+            window.addEventListener(session_state_store_1.WORKFLOW_STATE_CHANGED_EVENT, onChanged);
             return () => {
-                cancelled = true;
-                window.removeEventListener('dsh-workflow-state-changed', onChanged);
+                unsubscribe();
+                window.removeEventListener(session_state_store_1.WORKFLOW_STATE_CHANGED_EVENT, onChanged);
             };
-        }, [sessionId, cwd]);
+        }, [sessionId]);
         if (state === null)
             return null;
         const color = node_state_color_1.NODE_STATE_COLOR[state];
