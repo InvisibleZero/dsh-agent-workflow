@@ -25,10 +25,11 @@ const NEXT_NODE_STATE = {
     verifying: 'completed',
     completed: null,
 };
-/** 返工（后退）转移表：当前态 → 可退回的态。 */
+/** 返工（后退）转移表：当前态 → 可退回的态。已完结允许退回验收中或讨论中。 */
 const BACKWARD_STATES = {
     implementing: ['discussing'],
     verifying: ['implementing', 'discussing'],
+    completed: ['verifying', 'discussing'],
 };
 function WorkflowStateBadge(props) {
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : '';

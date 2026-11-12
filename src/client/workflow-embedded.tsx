@@ -40,10 +40,11 @@ interface ChecklistItem {
   done: boolean;
 }
 
-/** 返工（后退）转移表：当前态 → 可退回的态。 */
+/** 返工（后退）转移表：当前态 → 可退回的态。已完结允许退回验收中或讨论中。 */
 const BACKWARD_STATES: Record<string, string[]> = {
   implementing: ['discussing'],
   verifying: ['implementing', 'discussing'],
+  completed: ['verifying', 'discussing'],
 };
 
 function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; useSessions?: any }) {

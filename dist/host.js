@@ -2013,7 +2013,7 @@ var ALLOWED_TRANSITIONS = {
   discussing: ["implementing"],
   implementing: ["verifying", "discussing"],
   verifying: ["completed", "implementing", "discussing"],
-  completed: ["implementing", "discussing"]
+  completed: ["verifying", "implementing", "discussing"]
 };
 var STATE_ORDER = ["discussing", "implementing", "verifying", "completed"];
 var WRITABLE_SECTIONS = {
@@ -2351,7 +2351,7 @@ async function assertAdvanceAllowed(repository, found, from, to) {
       );
     }
   }
-  if (to === "verifying") {
+  if (to === "verifying" && from === "implementing") {
     const meta = await repository.getManualMeta(found.workflowId, found.nodeId);
     const items = meta?.checklist ?? [];
     if (items.length === 0) {

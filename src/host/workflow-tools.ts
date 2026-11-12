@@ -17,12 +17,12 @@ import { logEvent } from './event-log';
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
 
-/** 合法推进表（与客户端推进/返工表保持一致）。 */
+/** 合法状态迁移表（客户端「返工」菜单是它的展示子集，两边都要能走通）。 */
 const ALLOWED_TRANSITIONS = {
   discussing: ['implementing'],
   implementing: ['verifying', 'discussing'],
   verifying: ['completed', 'implementing', 'discussing'],
-  completed: ['implementing', 'discussing'],
+  completed: ['verifying', 'implementing', 'discussing'],
 };
 
 const STATE_ORDER = ['discussing', 'implementing', 'verifying', 'completed'];
@@ -402,7 +402,7 @@ export async function assertAdvanceAllowed(repository: any, found: any, from: st
       );
     }
   }
-  if (to === 'verifying') {
+  if (to === 'verifying' && from === 'implementing') {
     const meta = await repository.getManualMeta(found.workflowId, found.nodeId);
     const items = meta?.checklist ?? [];
     if (items.length === 0) {

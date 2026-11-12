@@ -15,12 +15,12 @@ import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { logEvent } from './event-log';
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
-/** 合法推进表（与客户端推进/返工表保持一致）。 */
+/** 合法状态迁移表（客户端「返工」菜单是它的展示子集，两边都要能走通）。 */
 const ALLOWED_TRANSITIONS = {
     discussing: ['implementing'],
     implementing: ['verifying', 'discussing'],
     verifying: ['completed', 'implementing', 'discussing'],
-    completed: ['implementing', 'discussing'],
+    completed: ['verifying', 'implementing', 'discussing'],
 };
 const STATE_ORDER = ['discussing', 'implementing', 'verifying', 'completed'];
 /** 允许 AI 通过 workflow_manual 改的小节；「实施顺序」只在讨论中可定义，之后只能勾选。 */
@@ -381,7 +381,7 @@ export async function assertAdvanceAllowed(repository, found, from, to) {
             throw new Error('会话手册的「方案」还是空的：先用 workflow_manual({ target: "session", action: "replace_section", section: "方案", content: "..." }) 写入方案，再推进到「实现中」。');
         }
     }
-    if (to === 'verifying') {
+    if (to === 'verifying' && from === 'implementing') {
         const meta = await repository.getManualMeta(found.workflowId, found.nodeId);
         const items = meta?.checklist ?? [];
         if (items.length === 0) {
