@@ -130,23 +130,21 @@
 
 每次状态迁移记一条（时间 + 从哪来 + 到哪去），节点弹窗里可回看这个会话是怎么一步步走到现在的。
 
-### 9. 程序级约束：门禁 + 三个工具
+### 9. 程序级约束：门禁 + 工具网关
 
 状态机是硬约束，所以它不靠提示词，靠 DSH 的两个机制落地：
 
-- **写操作门禁（`tools.guard`）**：工具派发前判定，返回理由即拒绝，理由会作为错误结果回给模型；
-- **模型专用工具（`tools.register`，带 `when` 只对工作流会话可见）**。
+- **写操作门禁（`tools.guard`）**：工具派发前判定，返回理由即拒绝，理由会作为错误结果回给模型；讨论中拦 `write` / `edit` / `pwsh` 等宿主写工具；
+- **工具网关**：5 个基础工具**不再原生注册**，模型只看到 `workflow_tool_call` / `workflow_tool_add`；目录（基础 5 条 + 本工作区别名）注入系统提示。
 
-策略表：
+| 状态 | 宿主写工具 | 网关里的基础工具 |
+|---|---|---|
+| 讨论中 | **拒绝** | 可用；`workflow_check` 与验收类被目录阶段规则拒绝 |
+| 实现中 | 允许 | 全部可用 |
+| 验收中 | 允许 | 全部可用；`workflow_verify_report` / `workflow_verify_check` 只在验收中可用 |
+| 已完结 | 允许 | 全部可用（返工带 reason） |
 
-| 状态 | `write` / `edit` / `pwsh` … | `workflow_manual` | `workflow_check` | `workflow_advance` |
-|---|---|---|---|---|
-| 讨论中 | **拒绝** | 允许 | 拒绝 | 允许（方案非空才能进实现中） |
-| 实现中 | 允许 | 允许 | 允许 | 允许（清单全勾才能进验收中） |
-| 验收中 | 允许 | 允许 | 允许 | 允许 |
-| 已完结 | 允许 | 允许 | 允许 | 允许（返工带 reason） |
-
-三个工具：
+基础工具（目录里的名字）：
 
 ```
 workflow_advance { to, reason? }        // 只请求、不切换：校验前置后等你点「同意」
@@ -155,14 +153,26 @@ workflow_manual  { target, action, section?, content?, tags?, entry?, from?, to?
   // append_entry / update_entry / remove_entry（项目手册一条一写，必须带 tags）
   // rename_tag { from, to }：合并或重命名标签，级联改写所有引用它的条目
 workflow_check   { item, done, evidence? }  // 勾选「实施顺序」里已存在的条目；勾选必须带 evidence（怎么验的 + 结果）
+workflow_verify_report { item, result, summary, anchors, command?, findings? }  // 验收报备；锚点须在工作目录内
+workflow_verify_check  { item, done=false }  // 只能撤勾；打勾只能靠 report
+```
+
+两个入口：
+
+```
+workflow_tool_call { name, args }   // 用目录里的工具；目录外 / 阶段不符 / 参数不符 / 覆盖固定参数都会被拒，理由原样回给模型
+workflow_tool_add  { name, description, base_tool, sample_args, fixed_args?, allowed_states? }
+  // 别名 = 基础工具 + 固定参数；四关（类型 / 静态 / 样例 / 阶段继承）全过才登记，只登记、不执行
 ```
 
 要点：
 
 - **手册写入有闸门**：会话手册「方案」≤1200 字、整本 ≤2000 字（按**字符**算，勾选证据 `｜ 自检：…` 不计入）；项目手册「约束 / 红线」≤300 字；项目手册的条目**必须带标签**（`- [标签1｜标签2] 正文`），新标签自动登记进「## 标签表」（最多 30 条，满了用 `rename_tag` 合并，合并不占额度）；路径由插件拼，模型传不了路径；写后超过 200KB / 64KB 也会拒绝；
+- **别名只登记、不执行**：模型没有直接注册权；申请只写本工作区的 `tool-aliases.json`，四关全过立即生效，但不执行任何业务；不能挂别名（禁止链式），基础工具缺失或文件损坏时只让别名失效；
+- **审计与页面**：每次调用 / 申请写一条账（trace / 阶段 / 条目 / 参数摘要 / 结果 / 耗时 / 拒绝分类），`GET /dsh-agent-workflow/tools` 可读；设置页「工具」页签只读展示目录与最近 50 条；
 - **「实施顺序」进入实现中后不许改写**，只能 `workflow_check` 勾选；勾选时**必须附 `evidence`**（这一层怎么验的、结果是什么），证据会写进清单行；条目文字不匹配会报错并列出可勾项；
 - **推进前置**是"分步绝对"的落点：方案没写进手册 → 进不了实现中；清单没勾完 → 进不了验收中。人工点 `→` 走同一套前置，被拒会把原因弹出来。
-- **状态切换权在人手里**：模型调 `workflow_advance` 只是"请求"——前置校验通过后，徽标旁出现 `请求 → 实现中 [同意] [拒绝]`，点了同意才真正切换（时间线记 `by: agent-request`，人工点击记 `by: human`）。请求 5 分钟没处理就作废，避免僵尸按钮。
+- **状态切换权在人手里**：模型调 `workflow_tool_call({ name: "workflow_advance", args: { to: ... } })` 只是"请求"——前置校验通过后，徽标旁出现 `请求 → 实现中 [同意] [拒绝]`，点了同意才真正切换（时间线记 `by: agent-request`，人工点击记 `by: human`）。请求 5 分钟没处理就作废，避免僵尸按钮。
 
 ---
 
