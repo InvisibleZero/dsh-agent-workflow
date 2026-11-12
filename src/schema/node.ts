@@ -46,6 +46,36 @@ export const AgentNode = z.object({
     verifying: z.string().optional(),
   }).optional(),
   /**
+   * 验收七项的报备与标记（「验收中」专用）。
+   *
+   * 可选：旧快照没有这个字段 = 七项都没处理；读侧用 pickVerification 收口，不做数据迁移。
+   * 标记只能由报备落（pass → ✓，deferred → ？），取消勾会把条目清回 pending。
+   */
+  verification: z.object({
+    round: z.number().int().nonnegative(),
+    items: z.array(z.object({
+      id: z.number().int(),
+      mark: z.enum(['pending', 'pass', 'deferred']),
+      report: z.object({
+        round: z.number().int().nonnegative(),
+        result: z.enum(['pass', 'deferred']),
+        summary: z.string(),
+        anchors: z.array(z.object({
+          file: z.string(),
+          line: z.number().int().positive().optional(),
+        })),
+        command: z.string().optional(),
+        findings: z.array(z.object({
+          location: z.string(),
+          problem: z.string(),
+          why_not_fixed: z.string(),
+          impact: z.string(),
+        })).optional(),
+        at: z.string(),
+      }).nullable(),
+    })),
+  }).optional(),
+  /**
    * 状态迁移时间线：每次推进追加一条 { at, from, to }。
    * 可选，旧快照没有。
    */

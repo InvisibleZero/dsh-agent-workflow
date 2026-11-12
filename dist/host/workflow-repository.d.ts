@@ -1,6 +1,8 @@
 import { GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
 import { type ManualLimits } from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
+import { type VerificationState, type VerifyItem } from '../schema/verify-checks';
+import { type VerifyReportInput } from '../engine/verify-rules';
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
 export declare const BUILTIN_PROFILE_NAME = "\u9ED8\u8BA4\u5B58\u6863";
 /**
@@ -351,6 +353,36 @@ export declare class WorkflowRepository {
         label: string;
         done: boolean;
     }>>;
+    /**
+     * 读某个节点的验收清单。
+     * 旧快照没有 verification 字段时回落到「七项全空」，不做数据迁移。
+     */
+    getVerification(workflowId: string, nodeId: string): Promise<VerificationState>;
+    /**
+     * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
+     *
+     * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。
+     */
+    submitVerifyReport(input: {
+        workflowId: string;
+        nodeId: string;
+        itemId: number;
+        report: VerifyReportInput;
+    }): Promise<{
+        state: VerificationState;
+        item: VerifyItem;
+    }>;
+    /** 取消一项验收标记：回到 ○，报备一起作废（想再标就得重新报备）。 */
+    cancelVerifyMark(input: {
+        workflowId: string;
+        nodeId: string;
+        itemId: number;
+    }): Promise<{
+        state: VerificationState;
+        item: VerifyItem;
+    }>;
+    /** 锚点校验：文件必须真实存在于工作目录内；给了行号就核对行数。 */
+    private assertVerifyAnchors;
     /** 会话/项目手册的绝对路径与"是不是会话手册"。 */
     private resolveManualFile;
     private readFileOrTemplate;

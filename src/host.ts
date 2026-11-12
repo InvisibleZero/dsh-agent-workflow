@@ -15,8 +15,10 @@ import { readSidebarNodes } from './host/sidebar-nodes';
 import { effectiveDetail } from './engine/state-machine';
 import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
+import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host/session-claim';
 import { logEvent, newTraceId, recentEvents } from './host/event-log';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
+import { VERIFY_CHECKS } from './schema/verify-checks';
 
 export const inject = [];
 
@@ -123,6 +125,49 @@ export function apply(ctx: any) {
   const repository = new WorkflowRepository(resolveDataDir());
 
   /**
+   * 推送通道：把「这个会话变了」主动告诉浏览器半，代替每 3 秒轮询。
+   *
+   * 协议只有一条事件：`{ sessionId, reason, state? }`。客户端收到就重取一次
+   * `/node-by-session`，所以以后新增状态来源不用改协议。
+   * 只往本机回环连接推（路由层已限 loopback），写失败就把该连接摘掉。
+   */
+  const streamClients = new Set<any>();
+
+  /**
+   * 浏览器埋点的速率闸：60 秒最多 30 条。
+   *
+   * 浏览器侧只在状态变化时上报，正常远低于这个数；上限只为防止某处循环调用
+   * 把 500 条的事件环冲掉（环被冲掉时，几秒前的关键跳就查不到了）。
+   */
+  const CLIENT_LOG_LIMIT = 30;
+  const CLIENT_LOG_WINDOW_MS = 60_000;
+  const clientLogWindow = { startedAt: 0, count: 0 };
+  const clientLogAccepted = (now: number): boolean => {
+    if (now - clientLogWindow.startedAt >= CLIENT_LOG_WINDOW_MS) {
+      clientLogWindow.startedAt = now;
+      clientLogWindow.count = 0;
+    }
+    if (clientLogWindow.count >= CLIENT_LOG_LIMIT) return false;
+    clientLogWindow.count += 1;
+    return true;
+  };
+
+  const broadcast = (sessionId: string, reason: string, state?: string): void => {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    if (streamClients.size === 0) return;
+    const payload: Record<string, string> = { sessionId, reason };
+    if (typeof state === 'string' && state !== '') payload.state = state;
+    const frame = `data: ${JSON.stringify(payload)}\n\n`;
+    for (const client of streamClients) {
+      try {
+        client.write(frame);
+      } catch {
+        streamClients.delete(client);
+      }
+    }
+  };
+
+  /**
    * 本插件接管的会话集合 = 选了「工作流模式」预设的会话。
    *
    * 插件作为全局 bundle 挂载（这样客户端半才加载），但只对预设 id 为 workflow 的 Agent 生效：
@@ -146,10 +191,19 @@ export function apply(ctx: any) {
   const claim = (agent: any): void => {
     const sessionId = agent?.session?.id;
     if (typeof sessionId !== 'string' || sessionId === '') return;
+    const preset = presetIdOf(agent?.ctx);
+    if (preset !== WORKFLOW_PRESET_ID) {
+      // 预设明确是别的（用户把会话切回了标准模式）：立刻松手。
+      // 不能只是 return——之前认领过的会话会一直留在集合里，徽标和门禁就会跟着它走。
+      if (typeof preset === 'string') releaseClaim(sessionId, `preset=${preset}`);
+      return;
+    }
     if (presetSessions.has(sessionId)) return;
-    if (presetIdOf(agent?.ctx) !== WORKFLOW_PRESET_ID) return;
     presetSessions.add(sessionId);
     void refreshSessionState(sessionId);
+    // 认领了就一定有节点：不等浏览器补建。浏览器那一跳在新会话创建时会被拒（预设还没投影出来），
+    // 而它只试一次；缺了节点，首条消息的工具调用就会被门禁当成「状态未知」拦掉。
+    void ensureNodeAndPublish(sessionId, 'claim');
   };
   ctx.on('agent/created', (payload: any) => claim(payload?.agent));
   // 创建事件里预设可能还没绑好，第一步再认领一次兜底（瀑布事件，必须把 next 传下去）。
@@ -175,6 +229,47 @@ export function apply(ctx: any) {
   }
 
   /**
+   * 退出接管：会话从工作流预设切回标准模式后，插件必须立刻松手。
+   *
+   * 只改内存不够——`/node-by-session` 只要看到集合里还有它就会继续返回节点，
+   * 徽标、门禁、注入就都会留在标准模式的会话上（实测：切回标准模式后胶囊还在）。
+   * 节点本身不删：切回工作流预设时沿用同一个，历史与手册都还在。
+   */
+  const releaseClaim = (sessionId: string, reason: string): void => {
+    if (!presetSessions.delete(sessionId)) return;
+    sessionState.delete(sessionId);
+    logEvent(ctx.logger, 'info', `[workflow] released (session=${sessionId}, reason=${reason})`);
+    // 页面要立刻把徽标收掉：只靠轮询的话，切回标准模式的会话最多还会挂几秒。
+    broadcast(sessionId, 'released');
+  };
+
+  /**
+   * 认领即补建节点（宿主侧兜底，不依赖浏览器）。
+   *
+   * 只在内存里记一笔状态不够：节点不存在时 `findBySession` 永远返回 null，
+   * 门禁也就永远是「状态未知」。这里按会话自己的工作目录把节点建出来，并把
+   * 建出来的状态回填给门禁（门禁是同步执行的，等不了下一次读盘）。
+   *
+   * 返回 Promise 是为了让 `/node-by-session` 能「补建完再回读」；事件回调里不关心结果，用 void 调。
+   */
+  const claimNodeDeps = {
+    repository,
+    resolveWorkingDirectory: (id: string) => resolveSessionWorkingDirectory(ctx, id),
+    setState: (id: string, state: string) => sessionState.set(id, state),
+    log: (level: 'info' | 'warn', message: string) => logEvent(ctx.logger, level, message),
+  };
+  const ensureNodeAndPublish = async (sessionId: string, trigger: string): Promise<string | null> => {
+    const state = await ensureClaimedSessionNode(claimNodeDeps, sessionId, trigger);
+    // 节点是宿主补出来的：推一帧，页面上的徽标/侧栏点立刻出现，不必等轮询。
+    if (state !== null) broadcast(sessionId, 'created', state);
+    return state;
+  };
+
+  /** 自愈冷却：同一会话 30 秒内只补建一次，避免「建不出来」的会话把事件环刷满。 */
+  const SELF_HEAL_COOLDOWN_MS = 30 * 1000;
+  const selfHealAttemptAt = new Map<string, number>();
+
+  /**
    * 按会话 id 补认领。
    *
    * 之前只靠 agent 判预设，存在竞态：会话刚打开、agent 还没建好时判不出来，
@@ -182,26 +277,33 @@ export function apply(ctx: any) {
    * （`presetForSession`）直接读会话的预设，不依赖 agent 是否已就绪。
    */
   const claimBySession = (sessionId: string): boolean => {
+    // 每次问答都读当前预设，不用「认领过就一直算」：用户可能在会话里换预设，
+    // 缓存一份就会漏掉「切回标准模式」这种撤销。
+    let currentPreset: string | null = null;
+    try {
+      const registry = ctx.get('agentPresets');
+      const session = ctx.get('sessions')?.get?.(sessionId);
+      if (registry !== undefined && session !== undefined) {
+        currentPreset = registry.presetForSession(session) ?? null;
+      }
+    } catch {
+      // 投影读不到：按未知处理，后面退回缓存与 agent 判定（别因为一次读失败就把会话踢掉）。
+    }
+    if (typeof currentPreset === 'string' && currentPreset !== WORKFLOW_PRESET_ID) {
+      releaseClaim(sessionId, `preset=${currentPreset}`);
+      return false;
+    }
     if (presetSessions.has(sessionId)) {
       // 认领过但状态表可能仍是空的（认领发生在节点绑定之前）：这里补一次，
       // 否则门禁拿到空状态、"写实施顺序"也会被误判成非讨论中。
       if (!sessionState.has(sessionId)) void refreshSessionState(sessionId);
       return true;
     }
-    try {
-      const registry = ctx.get('agentPresets');
-      const session = ctx.get('sessions')?.get?.(sessionId);
-      if (registry !== undefined && session !== undefined) {
-        const preset = registry.presetForSession(session);
-        if (preset === WORKFLOW_PRESET_ID) {
-          presetSessions.add(sessionId);
-          void refreshSessionState(sessionId);
-          return true;
-        }
-        if (preset !== null && preset !== undefined) return false;
-      }
-    } catch {
-      // 投影读不到就退回 agent 判定。
+    if (currentPreset === WORKFLOW_PRESET_ID) {
+      presetSessions.add(sessionId);
+      void refreshSessionState(sessionId);
+      void ensureNodeAndPublish(sessionId, 'preset-projection');
+      return true;
     }
     try {
       const agent = ctx.get('agents')?.get?.(sessionId);
@@ -214,6 +316,57 @@ export function apply(ctx: any) {
 
   // 按状态注入操作细节（系统提示里的动态上下文，不写会话记录）；只对本预设接管的会话生效。
   const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession);
+
+  /** 读会话「此刻」的预设：true=工作流，false=明确是别的预设，null=读不到（别据此隐藏 UI）。 */
+  const workflowPresetNow = (sessionId: string): boolean | null => {
+    try {
+      const registry = ctx.get('agentPresets');
+      const session = ctx.get('sessions')?.get?.(sessionId);
+      if (registry === undefined || session === undefined) return null;
+      const preset = registry.presetForSession(session);
+      if (typeof preset !== 'string' || preset === '') return null;
+      return preset === WORKFLOW_PRESET_ID;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * 这个会话有没有产生过对话消息。
+   *
+   * 客户端拿它决定要不要轮询：空会话（新建、还没发过消息）一直轮询——预设可以在任何时候
+   * 被切过来，而那一刻宿主不会发任何事件；聊过的会话不需要轮询，推送就够了。
+   * 会话对象拿不到时按「空会话」处理：宁可多问几次，也别让新会话显示不出 UI。
+   */
+  const sessionHasMessages = (sessionId: string): boolean => {
+    try {
+      const session = ctx.get('sessions')?.get?.(sessionId);
+      const events = session?.snapshotEvents?.();
+      if (!Array.isArray(events)) return false;
+      return events.some((event: any) => event?.type === 'user/message' || event?.type === 'assistant/message');
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * 诊断用：把预设投影的原始值读出来。
+   *
+   * 「刚切到工作流，宿主还认成旧预设」这类问题，只能靠日志里这个值判断是投影滞后
+   * 还是根本没更新；不参与任何判定。
+   */
+  const rawPresetOf = (sessionId: string): string => {
+    try {
+      const registry = ctx.get('agentPresets');
+      const session = ctx.get('sessions')?.get?.(sessionId);
+      if (registry === undefined) return '(no-registry)';
+      if (session === undefined) return '(no-session)';
+      const preset = registry.presetForSession(session);
+      return typeof preset === 'string' && preset !== '' ? preset : '(empty)';
+    } catch {
+      return '(error)';
+    }
+  };
 
   /**
    * 待确认的推进请求：模型只能"请求"，真正切换必须由用户在界面上点同意。
@@ -246,10 +399,13 @@ export function apply(ctx: any) {
         ...(typeof input.reason === 'string' && input.reason !== '' ? { reason: input.reason } : {}),
         at: Date.now(),
       });
+      // 模型发了推进请求：让开着的那一页立刻显示「同意 / 拒绝」，不用等下一次轮询。
+      broadcast(input.sessionId, 'pending');
     },
     pendingAdvanceOf: (sessionId: string) => readPendingAdvance(sessionId),
     clearPendingAdvance: (sessionId: string) => {
       pendingAdvances.delete(sessionId);
+      broadcast(sessionId, 'pending-cleared');
     },
   };
   // 硬机制：写操作门禁 + 模型专用工具（请求推进 / 写手册 / 勾选清单）。
@@ -267,6 +423,42 @@ export function apply(ctx: any) {
 
 
   ctx.inject(['webServer'], (webCtx: any) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/stream',
+      handler: (req: any, res: any) => {
+        if (!isLoopbackRequest(req)) return denyRequest(res);
+        try {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-store',
+            connection: 'keep-alive',
+            // 有些反代会攒包，显式关掉缓冲；本机访问通常用不到，但写了不亏。
+            'x-accel-buffering': 'no',
+          });
+          res.write(': connected\n\n');
+        } catch {
+          return;
+        }
+        streamClients.add(res);
+        logEvent(ctx.logger, 'info', `[workflow] stream connected (clients=${streamClients.size})`);
+        // 心跳：防止长连接被当成空闲掐断；写失败说明连接已经没了，顺手摘掉。
+        const heartbeat = setInterval(() => {
+          try {
+            res.write(': ping\n\n');
+          } catch {
+            // 下面 cleanup 会处理。
+          }
+        }, 20_000);
+        const cleanup = () => {
+          clearInterval(heartbeat);
+          streamClients.delete(res);
+        };
+        req.on?.('close', cleanup);
+        res.on?.('close', cleanup);
+        res.on?.('error', cleanup);
+      },
+    }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: '/dsh-agent-workflow/list',
@@ -452,13 +644,23 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
         const sessionId = query.get('sessionId');
         if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
-        if (!claimBySession(sessionId)) return { node: null, enabled: false };
+        // 客户端靠这个决定要不要轮询：空会话（还没对话过）才轮询，聊过的靠推送。
+        const hasMessages = sessionHasMessages(sessionId);
+        if (!claimBySession(sessionId)) return { node: null, enabled: false, hasMessages };
         const startedAt = Date.now();
-        const node = await repository.findBySession(sessionId);
+        let node = await repository.findBySession(sessionId);
+        if (node === null && Date.now() - (selfHealAttemptAt.get(sessionId) ?? 0) >= SELF_HEAL_COOLDOWN_MS) {
+          // 认领到了却没有节点（认领早于绑节点 / 宿主刚重启）：补建一次再回读。
+          // 徽标会轮询这条路由，所以这条自愈就是「新会话自己长出来」的最后一跳；
+          // 冷却只为「一直建不出来」的会话（例如工作目录解析不到）别把事件环刷满。
+          selfHealAttemptAt.set(sessionId, Date.now());
+          const healedState = await ensureNodeAndPublish(sessionId, 'node-by-session');
+          if (healedState !== null) node = await repository.findBySession(sessionId);
+        }
         if (node === null) {
           // 「没找到节点」是徽标不出现的第一个断点：必须能查到这一跳确实走到了。
           logEvent(ctx.logger, 'info', `[workflow] node-by-session none (session=${sessionId}, ${Date.now() - startedAt}ms)`, traceId);
-          return { node: null };
+          return { node: null, hasMessages };
         }
         // 顺便算出当前状态的「进入后默认输入」，客户端推进后用它填输入框。
         const snapshot = await repository.get(node.workflowId);
@@ -470,7 +672,7 @@ export function apply(ctx: any) {
           enterTrigger = typeof effective.enter_trigger === 'string' ? effective.enter_trigger : '';
         }
         logEvent(ctx.logger, 'info', `[workflow] node-by-session ok (node=${node.nodeId}, state=${node.current_state}, ${Date.now() - startedAt}ms)`, traceId);
-        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId) };
+        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), hasMessages };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -485,8 +687,18 @@ export function apply(ctx: any) {
           logEvent(ctx.logger, 'warn', `[workflow] sidebar-nodes skipped broken snapshot (file=${fileName}): ${String((error as Error)?.message ?? error)}`);
         };
         const nodes = await readSidebarNodes(repository, path, onBroken);
+        // 节点绑过会话就会一直留在仓储里，但状态点是「这个会话是工作流单元」的标志：
+        // 会话切回标准模式后要跟着消失。预设读不到时保留（宁可多显示，也别误删别人的点）。
+        let hiddenByPreset = 0;
+        for (const sessionId of Object.keys(nodes)) {
+          if (workflowPresetNow(sessionId) === false) {
+            delete nodes[sessionId];
+            hiddenByPreset += 1;
+          }
+        }
         const mode = typeof path === 'string' && path.trim() !== '' ? 'directory' : 'all';
-        logEvent(ctx.logger, 'info', `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
+        const hiddenNote = hiddenByPreset === 0 ? '' : `, hidden=${hiddenByPreset}`;
+        logEvent(ctx.logger, 'info', `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}${hiddenNote}, ${Date.now() - startedAt}ms)`);
         return { nodes };
       }),
     }));
@@ -496,6 +708,22 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const rawLimit = Number(query.get('limit') ?? '100');
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
+      }),
+    }));
+    // 浏览器半的埋点入口：落在同一个事件环里，才能和宿主日志对时间。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/client-log',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        const level = body?.level === 'warn' ? 'warn' : 'info';
+        const message = typeof body?.message === 'string' ? body.message.trim() : '';
+        if (message === '') throw new Error('缺少 message');
+        if (!clientLogAccepted(Date.now())) {
+          // 超限静默丢弃：埋点不能反过来影响功能，也不需要报错重试。
+          return { accepted: false };
+        }
+        logEvent(ctx.logger, level, `[workflow] client ${message.slice(0, 200)}`, traceId);
+        return { accepted: true };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -524,6 +752,7 @@ export function apply(ctx: any) {
         if (body.accept !== true) {
           pendingAdvances.delete(body.sessionId);
           logEvent(ctx.logger, 'info', `[workflow] advance rejected by user (session=${body.sessionId}, to=${pending.to})`);
+          broadcast(body.sessionId, 'pending-cleared');
           return { accepted: false, requested: pending.to };
         }
         const found = await repository.findBySession(body.sessionId);
@@ -535,6 +764,7 @@ export function apply(ctx: any) {
         markState(body.sessionId, pending.to);
         await stateContext.refreshNow(body.sessionId);
         logEvent(ctx.logger, 'info', `[workflow] advance accepted by user (session=${body.sessionId}, ${from}→${pending.to})`);
+        broadcast(body.sessionId, 'state', pending.to);
         return { accepted: true, snapshot };
       }),
     }));
@@ -578,9 +808,15 @@ export function apply(ctx: any) {
       path: '/dsh-agent-workflow/ensure-node',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.sessionId !== 'string' || body.sessionId === '') throw new Error('缺少 sessionId');
-        if (typeof body?.workingDirectory !== 'string' || body.workingDirectory === '') throw new Error('缺少 workingDirectory');
+        // 客户端只传它能看到的工作目录；新会话可能还没提交过目录，这时由宿主按会话解析。
+        const workingDirectory = typeof body?.workingDirectory === 'string' && body.workingDirectory.trim() !== ''
+          ? body.workingDirectory.trim()
+          : resolveSessionWorkingDirectory(ctx, body.sessionId);
+        if (workingDirectory === '') throw new Error('缺少 workingDirectory（宿主也解析不到该会话的工作目录）');
         // 预设模式下不接管别的预设的会话：不建节点，客户端收到 node=null 就不显示徽标。
-        // 例外：会话集里查不到的 id（回归脚本 / CLI 用），放行并登记，否则接口级测试无法建节点。
+        // 宿主管不到的会话有两种来源：真实会话尚未注册进 sessions 服务的那一小段窗口，
+        // 以及回归脚本的合成 id。以前两种一律按测试放行，结果「默认预设的新会话」在窗口期
+        // 也会被建成节点、被门禁接管；现在必须由调用方显式标记 test: true 才放行。
         if (!claimBySession(body.sessionId)) {
           const knownSession = (() => {
             try {
@@ -590,16 +826,23 @@ export function apply(ctx: any) {
             }
           })();
           if (knownSession !== undefined) {
-            logEvent(ctx.logger, 'info', `[workflow] ensure-node skipped (session=${body.sessionId}, not a workflow session)`);
+            // 带上读到的预设值：排查「刚切成工作流，宿主还认成旧预设」时全靠这个。
+            logEvent(ctx.logger, 'info', `[workflow] ensure-node skipped (session=${body.sessionId}, preset=${rawPresetOf(body.sessionId)})`);
+            return { node: null, enabled: false };
+          }
+          if (body.test !== true) {
+            // 默认拒绝：宁可不建，也不能把一个陌生会话悄悄算进工作流。
+            logEvent(ctx.logger, 'warn', `[workflow] ensure-node refused (session=${body.sessionId}, reason=unknown-session-without-test-flag)`);
             return { node: null, enabled: false };
           }
           presetSessions.add(body.sessionId);
-          logEvent(ctx.logger, 'info', `[workflow] ensure-node for unknown session (session=${body.sessionId}, treated as test)`);
+          logEvent(ctx.logger, 'info', `[workflow] ensure-node for test session (session=${body.sessionId})`);
         }
         const startedAt = Date.now();
         try {
-          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory: body.workingDirectory });
+          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory });
           logEvent(ctx.logger, 'info', `[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
+          broadcast(body.sessionId, 'created', String(node.current_state));
           return { node };
         } catch (error) {
           logEvent(ctx.logger, 'warn', `[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String((error as Error)?.message ?? error)}`);
@@ -633,11 +876,21 @@ export function apply(ctx: any) {
         if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
         const startedAt = Date.now();
         const meta = await repository.getManualMeta(id, nodeId);
-        logEvent(ctx.logger, 'info', `[workflow] node-checklist (node=${nodeId}, exists=${String(meta !== null)}, items=${meta?.checklist.length ?? 0}, ${Date.now() - startedAt}ms)`, traceId);
+        // 验收七项：徽标要显示 n/7 与问询数，名字在服务端拼好，客户端不用再懂协议表。
+        const verification = await repository.getVerification(id, nodeId);
+        const verificationView = verification.items.map((item) => ({
+          id: item.id,
+          name: VERIFY_CHECKS.find((check) => check.id === item.id)?.name ?? '',
+          mark: item.mark,
+          summary: item.report?.summary ?? '',
+        }));
+        logEvent(ctx.logger, 'info', `[workflow] node-checklist (node=${nodeId}, exists=${String(meta !== null)}, items=${meta?.checklist.length ?? 0}, verify=${verificationView.filter((item) => item.mark !== 'pending').length}/7, ${Date.now() - startedAt}ms)`, traceId);
         return {
           exists: meta !== null,
           checklist: meta?.checklist ?? [],
           hasPlan: meta?.hasPlan ?? false,
+          verification: verificationView,
+          verificationRound: verification.round,
         };
       }),
     }));
@@ -679,6 +932,7 @@ export function apply(ctx: any) {
             pendingAdvances.delete(moved.session_id);
             markState(moved.session_id, body.to);
             await stateContext.refreshNow(moved.session_id);
+            broadcast(moved.session_id, 'state', body.to);
           }
           // 记 from → to：只看 to 分不清「从讨论中推进」还是「从验收中返工」。
           const lastEntry = moved?.history?.[moved.history.length - 1];

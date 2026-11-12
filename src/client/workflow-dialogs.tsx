@@ -127,6 +127,8 @@ function HardRulePanel(props: {
   state: string;
   value: string;
   overridden: boolean;
+  /** 内置「默认存档」只读：正文照常可滚动、可选中复制，只锁「改写 / 恢复默认」两个动作。 */
+  readOnly?: boolean;
   onChange: (next: string) => void;
   onReset: () => void;
 }) {
@@ -147,7 +149,7 @@ function HardRulePanel(props: {
           本阶段硬规则（插件层，只读）· {label}
         </span>
         <span style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-          {props.overridden ? (
+          {props.overridden && props.readOnly !== true ? (
             <button
               type="button"
               onClick={props.onReset}
@@ -159,11 +161,13 @@ function HardRulePanel(props: {
             onClick={() => setExpanded((value) => !value)}
             style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }}
           >{showBody ? '收起' : '展开'}</button>
-          <button
-            type="button"
-            onClick={() => { setUnlocked((value) => !value); setExpanded(true); }}
-            style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }}
-          >{unlocked ? '完成改写' : '改写硬规则'}</button>
+          {props.readOnly === true ? null : (
+            <button
+              type="button"
+              onClick={() => { setUnlocked((value) => !value); setExpanded(true); }}
+              style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }}
+            >{unlocked ? '完成改写' : '改写硬规则'}</button>
+          )}
         </span>
       </div>
       {showBody ? (
@@ -649,15 +653,15 @@ function WorkflowGlobalSettingsSection() {
         display: 'flex',
         flexDirection: 'column',
         height: 380,
-        // 内置存档只读：整块禁用交互（含改写硬规则），要改先「另存为」
-        opacity: readOnlyProfile ? 0.55 : 1,
-        pointerEvents: readOnlyProfile ? 'none' : 'auto',
+        // 内置存档只读：输入框用 readOnly（仍能滚动、选中、复制），
+        // 不能用 pointer-events:none 整块禁用——那样滚轮和文本选择都会一起失效。
       }}>
         {activeTab === 'shared' ? (
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '1 1 auto' }}
+              readOnly={readOnlyProfile}
               value={detail.shared_detail ?? ''}
               onChange={(event) => update({ ...detail, shared_detail: event.target.value })}
             />
@@ -667,6 +671,7 @@ function WorkflowGlobalSettingsSection() {
             <label style={LABEL_STYLE}>进入该状态后自动灌入输入框的默认文本（可空）</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }}
+              readOnly={readOnlyProfile}
               value={detail[activeTab]?.enter_trigger ?? ''}
               placeholder="留空则不自动灌入"
               onChange={(event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value })}
@@ -674,12 +679,14 @@ function WorkflowGlobalSettingsSection() {
             <label style={{ ...LABEL_STYLE, marginTop: 10 }}>该状态的操作细节</label>
             <textarea
               style={{ ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }}
+              readOnly={readOnlyProfile}
               value={detail[activeTab]?.operation_detail ?? ''}
               onChange={(event) => patchTab(activeTab, { operation_detail: event.target.value })}
             />
             {activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? (
               <HardRulePanel
                 state={activeTab}
+                readOnly={readOnlyProfile}
                 value={detail.hard_rules?.[activeTab] ?? DEFAULT_HARD_RULES[activeTab]}
                 overridden={detail.hard_rules?.[activeTab] !== undefined}
                 onChange={(next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } })}
@@ -706,14 +713,15 @@ function WorkflowGlobalSettingsSection() {
           <button
             type="button"
             onClick={restoreFactoryDefaults}
-            disabled={defaults === null}
+            disabled={defaults === null || readOnlyProfile}
             style={{
               padding: '4px 10px',
               borderRadius: 6,
               border: '1px solid var(--dsw-alias-border-l1)',
               background: 'transparent',
               color: 'var(--dsw-alias-label-secondary)',
-              cursor: defaults === null ? 'not-allowed' : 'pointer',
+              cursor: defaults === null || readOnlyProfile ? 'not-allowed' : 'pointer',
+              opacity: defaults === null || readOnlyProfile ? 0.6 : 1,
               fontSize: 12,
             }}
           >恢复出厂默认</button>

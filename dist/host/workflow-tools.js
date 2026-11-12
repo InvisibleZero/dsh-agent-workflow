@@ -12,6 +12,8 @@
  *   - 「分步绝对」落在推进前置上：方案没写不能进实现中，清单没勾完不能进验收中。
  */
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
+import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
 import { logEvent } from './event-log';
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
@@ -362,6 +364,190 @@ export function registerWorkflowTools(ctx, deps) {
                 });
             },
         }, { when: whenWorkflow }));
+        // —— 4. 提交验收报备（七项中的一项） ——
+        toolCtx.effect(() => toolCtx.tools.register({
+            name: 'workflow_verify_report',
+            description: 'Submit a verification report for ONE of the seven 验收项 in the 「验收中」 stage. The report must carry evidence anchors (file paths inside the workflow working directory, optional line numbers) — the program checks they exist, then sets the mark: result "pass" → ✓, result "deferred" (found a problem but decided not to fix it this round) → ？. A deferred report REQUIRES findings (location / problem / why_not_fixed / impact). Without a report an item can never leave ○. Every entry into 「验收中」 starts a new round: old reports expire automatically, so re-verification must re-report. Not available outside 「验收中」.',
+            parameters: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['item', 'result', 'summary', 'anchors'],
+                properties: {
+                    item: { type: 'string', description: '验收项：id 1-7 或名称（例：3 或「死代码扫描」）' },
+                    result: { type: 'string', enum: ['pass', 'deferred'], description: 'pass = 通过；deferred = 查出问题但本轮不修（记 ？）' },
+                    summary: { type: 'string', description: '结论摘要：做了什么、看到什么结果。' },
+                    anchors: {
+                        type: 'array',
+                        description: '证据锚点，至少一条；文件必须在工作目录内。',
+                        items: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['file'],
+                            properties: {
+                                file: { type: 'string', description: '工作目录内的相对路径' },
+                                line: { type: 'number', description: '可选行号；程序会核对它不超过文件行数' },
+                            },
+                        },
+                    },
+                    command: { type: 'string', description: '复跑命令；契约测试 / 边界测试 / 回归压测三项必填。' },
+                    findings: {
+                        type: 'array',
+                        description: 'deferred 时必填：每条写清 位置 / 问题 / 为什么不修 / 影响什么。',
+                        items: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['location', 'problem', 'why_not_fixed', 'impact'],
+                            properties: {
+                                location: { type: 'string' },
+                                problem: { type: 'string' },
+                                why_not_fixed: { type: 'string' },
+                                impact: { type: 'string' },
+                            },
+                        },
+                    },
+                },
+            },
+            output: {
+                schema: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['item', 'progress'],
+                    properties: {
+                        item: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['id', 'name', 'mark'],
+                            properties: {
+                                id: { type: 'number' },
+                                name: { type: 'string' },
+                                mark: { type: 'string' },
+                            },
+                        },
+                        progress: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['pass', 'deferred', 'pending', 'total'],
+                            properties: {
+                                pass: { type: 'number' },
+                                deferred: { type: 'number' },
+                                pending: { type: 'number' },
+                                total: { type: 'number' },
+                            },
+                        },
+                    },
+                },
+                render: (_args, value) => [
+                    {
+                        type: 'text',
+                        text: `验收项 ${value.item.id} ${value.item.name} → ${verifyMarkSymbol(value.item.mark)}`
+                            + `（通过 ${value.progress.pass} / 问询 ${value.progress.deferred} / 待处理 ${value.progress.pending}）`,
+                    },
+                ],
+            },
+            execute: async (args, exec) => {
+                const sessionId = requireSession(deps, exec);
+                return instrument('workflow_verify_report', sessionId, async () => {
+                    const found = await requireVerifyingNode(deps, sessionId);
+                    const itemId = resolveVerifyCheckId(args?.item);
+                    const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
+                    if (check === undefined)
+                        throw new Error(`没有 ${itemId} 号验收项`);
+                    const report = validateVerifyReportInput(check, args);
+                    const { state } = await deps.repository.submitVerifyReport({
+                        workflowId: found.workflowId,
+                        nodeId: found.nodeId,
+                        itemId,
+                        report,
+                    });
+                    const progress = summarizeVerification(state);
+                    const item = state.items.find((entry) => entry.id === itemId);
+                    // 报备成功必须留「哪一项、什么标记、第几轮」：否则日志只能证明工具调过，
+                    // 答不上「这一项是刚被标上的，还是上一轮遗留的」——验收排查第一跳就断。
+                    logEvent(ctx.logger, 'info', `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`);
+                    return {
+                        item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
+                        progress: {
+                            pass: progress.pass,
+                            deferred: progress.deferred,
+                            pending: progress.pending,
+                            total: progress.total,
+                        },
+                    };
+                });
+            },
+        }, { when: whenWorkflow }));
+        // —— 5. 取消验收标记（AI 只能取消，不能直接打勾） ——
+        toolCtx.effect(() => toolCtx.tools.register({
+            name: 'workflow_verify_check',
+            description: 'Uncheck ONE item of the 验收七项 checklist (done=false only). AI has no permission to check an item directly: a mark can only be produced by workflow_verify_report. done=true is always rejected — if the item needs to be re-marked, submit a new report. Not available outside 「验收中」.',
+            parameters: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['item', 'done'],
+                properties: {
+                    item: { type: 'string', description: '验收项：id 1-7 或名称' },
+                    done: { type: 'boolean', description: '只能是 false（取消勾）。传 true 会被拒。' },
+                },
+            },
+            output: {
+                schema: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['item', 'progress'],
+                    properties: {
+                        item: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['id', 'mark'],
+                            properties: {
+                                id: { type: 'number' },
+                                mark: { type: 'string' },
+                            },
+                        },
+                        progress: {
+                            type: 'object',
+                            additionalProperties: false,
+                            required: ['pass', 'deferred', 'pending', 'total'],
+                            properties: {
+                                pass: { type: 'number' },
+                                deferred: { type: 'number' },
+                                pending: { type: 'number' },
+                                total: { type: 'number' },
+                            },
+                        },
+                    },
+                },
+                render: (_args, value) => [
+                    { type: 'text', text: `验收项 ${value.item.id} 已取消（现为 ${verifyMarkSymbol(value.item.mark)}）` },
+                ],
+            },
+            execute: async (args, exec) => {
+                const sessionId = requireSession(deps, exec);
+                return instrument('workflow_verify_check', sessionId, async () => {
+                    if (args?.done !== false) {
+                        throw new Error('AI 不能直接打验收勾：先调用 workflow_verify_report 提交报备，标记由报备落。取消勾请传 done=false。');
+                    }
+                    const found = await requireVerifyingNode(deps, sessionId);
+                    const itemId = resolveVerifyCheckId(args?.item);
+                    const { state, item } = await deps.repository.cancelVerifyMark({
+                        workflowId: found.workflowId,
+                        nodeId: found.nodeId,
+                        itemId,
+                    });
+                    const progress = summarizeVerification(state);
+                    logEvent(ctx.logger, 'info', `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`);
+                    return {
+                        item: { id: itemId, mark: item.mark },
+                        progress: {
+                            pass: progress.pass,
+                            deferred: progress.deferred,
+                            pending: progress.pending,
+                            total: progress.total,
+                        },
+                    };
+                });
+            },
+        }, { when: whenWorkflow }));
     });
 }
 /** 取当前会话，并确认它归本插件管。 */
@@ -372,6 +558,23 @@ function requireSession(deps, exec) {
     if (!deps.isPresetSession(sessionId))
         throw new Error('这个工具只对「工作流模式」预设的会话可用');
     return sessionId;
+}
+/** 验收类工具的前置：必须在「验收中」，且能定位到节点。 */
+async function requireVerifyingNode(deps, sessionId) {
+    let state = deps.getState(sessionId);
+    if (state === undefined) {
+        await deps.refreshState?.(sessionId);
+        state = deps.getState(sessionId);
+    }
+    if (state === undefined)
+        throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）');
+    if (state !== 'verifying') {
+        throw new Error(`验收报备只能在「验收中」提交（当前是「${labelOf(state)}」）：先让用户推进到验收中。`);
+    }
+    const found = await deps.repository.findBySession(sessionId);
+    if (found === null)
+        throw new Error('当前会话还没有 workflow 节点');
+    return found;
 }
 /** 推进前置：方案非空才能进实现中；清单全勾才能进验收中。工具与人工点击共用。 */
 export async function assertAdvanceAllowed(repository, found, from, to) {
@@ -390,6 +593,14 @@ export async function assertAdvanceAllowed(repository, found, from, to) {
         const unchecked = items.filter((item) => item.done !== true);
         if (unchecked.length > 0) {
             throw new Error(`还有 ${unchecked.length} 条没勾完，不能进「验收中」：${unchecked.map((item) => item.label).join(' / ')}`);
+        }
+    }
+    if (to === 'completed' && from === 'verifying') {
+        const verification = await repository.getVerification(found.workflowId, found.nodeId);
+        const summary = summarizeVerification(verification);
+        if (!summary.complete) {
+            throw new Error(`验收还有 ${summary.pending} 项没处理（${describePendingItems(verification)}）：逐项用 workflow_verify_report 报备`
+                + '（pass 记 ✓，deferred 记 ？），全部处理完才能进「已完结」。');
         }
     }
 }

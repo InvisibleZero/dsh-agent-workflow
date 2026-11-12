@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 
 // src/host/workflow-repository.ts
 import { promises as fs2 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/adapter/json-storage.ts
@@ -87,6 +87,36 @@ var AgentNode = z2.object({
     discussing: z2.string().optional(),
     implementing: z2.string().optional(),
     verifying: z2.string().optional()
+  }).optional(),
+  /**
+   * 验收七项的报备与标记（「验收中」专用）。
+   *
+   * 可选：旧快照没有这个字段 = 七项都没处理；读侧用 pickVerification 收口，不做数据迁移。
+   * 标记只能由报备落（pass → ✓，deferred → ？），取消勾会把条目清回 pending。
+   */
+  verification: z2.object({
+    round: z2.number().int().nonnegative(),
+    items: z2.array(z2.object({
+      id: z2.number().int(),
+      mark: z2.enum(["pending", "pass", "deferred"]),
+      report: z2.object({
+        round: z2.number().int().nonnegative(),
+        result: z2.enum(["pass", "deferred"]),
+        summary: z2.string(),
+        anchors: z2.array(z2.object({
+          file: z2.string(),
+          line: z2.number().int().positive().optional()
+        })),
+        command: z2.string().optional(),
+        findings: z2.array(z2.object({
+          location: z2.string(),
+          problem: z2.string(),
+          why_not_fixed: z2.string(),
+          impact: z2.string()
+        })).optional(),
+        at: z2.string()
+      }).nullable()
+    }))
   }).optional(),
   /**
    * 状态迁移时间线：每次推进追加一条 { at, from, to }。
@@ -180,11 +210,9 @@ var DEFAULT_GLOBAL_OPERATION_DETAIL = {
   },
   // D —— 验收中
   verifying: {
-    operation_detail: `\u672C\u9636\u6BB5\u4EE5\u6838\u5BF9\u4E3A\u4E3B\uFF1B\u53D1\u73B0\u95EE\u9898\u53EF\u4EE5\u76F4\u63A5\u4FEE\uFF0C\u4F46\u5FC5\u987B\u5728\u68C0\u67E5\u8868\u91CC\u6CE8\u660E\u6539\u4E86\u4EC0\u4E48\u3001\u5F71\u54CD\u54EA\u4E9B\u9A8C\u6536\u9879\u3002
+    operation_detail: `\u672C\u9636\u6BB5\u4EE5\u6838\u5BF9\u4E3A\u4E3B\uFF1B\u53D1\u73B0\u95EE\u9898\u53EF\u4EE5\u76F4\u63A5\u4FEE\uFF0C\u4F46\u8981\u5728\u8BE5\u9879\u62A5\u5907\u91CC\u6CE8\u660E\u6539\u4E86\u4EC0\u4E48\u3001\u5F71\u54CD\u54EA\u4E9B\u9A8C\u6536\u9879\u3002
 
-\u4EA4\u4E00\u5F20\u68C0\u67E5\u8868\uFF0C\u4E00\u884C\u4E00\u9879\uFF1A
-
-\uFF5C\u9A8C\u6536\u9879\uFF5C\u7ED3\u679C\uFF08\u901A\u8FC7 / \u4E0D\u901A\u8FC7\uFF09\uFF5C\u8BC1\u636E\uFF08\u547D\u4EE4\u8F93\u51FA\u3001\u65E5\u5FD7\u3001\u6587\u4EF6\u4F4D\u7F6E\u3001\u754C\u9762\u73B0\u8C61\uFF09\uFF5C
+\u4E03\u9879\u9A8C\u6536\u9010\u6761\u63D0\u4EA4\u62A5\u5907\uFF1A\u7ED3\u8BBA pass \u8BB0 \u2713\uFF0C\u7ED3\u8BBA deferred\uFF08\u67E5\u51FA\u4F46\u672C\u8F6E\u4E0D\u4FEE\uFF09\u8BB0 \uFF1F\uFF1B\u6CA1\u6709\u62A5\u5907\u4E0D\u80FD\u51FA\u73B0\u4EFB\u4F55\u6807\u8BB0\u3002\u53D6\u6D88\u52FE\u53EA\u80FD\u64A4\u9500\uFF0C\u4E0D\u80FD\u76F4\u63A5\u6253\u52FE\u3002
 
 \u53E6\u5916\u5FC5\u987B\u5199\u4E24\u6BB5\uFF1A
 
@@ -194,7 +222,7 @@ var DEFAULT_GLOBAL_OPERATION_DETAIL = {
 
 \u6CA1\u6709\u8BC1\u636E\u7684\u300C\u901A\u8FC7\u300D\u4E0D\u7B97\u901A\u8FC7\uFF1B\u4E0D\u8981\u7528\u300C\u5E94\u8BE5\u6CA1\u95EE\u9898\u300D\u6536\u5C3E\u3002
 
-\u53D1\u73B0\u5FC5\u987B\u4FEE\u7684\u95EE\u9898\uFF0C\u80FD\u5C31\u5730\u4FEE\u7684\u4FEE\u6389\u5E76\u5728\u68C0\u67E5\u8868\u6CE8\u660E\uFF1B\u6539\u52A8\u8F83\u5927\u6216\u65B9\u6848\u672C\u8EAB\u6709\u95EE\u9898\u65F6\uFF0C\u8BF4\u660E\u540E\u56DE\u5230\u5B9E\u73B0\u4E2D\u9636\u6BB5\uFF08\u8FD4\u5DE5\u8981\u5E26 reason\uFF09\u3002`,
+\u53D1\u73B0\u5FC5\u987B\u4FEE\u7684\u95EE\u9898\uFF0C\u80FD\u5C31\u5730\u4FEE\u7684\u4FEE\u6389\u5E76\u5728\u62A5\u5907\u91CC\u6CE8\u660E\uFF1B\u6539\u52A8\u8F83\u5927\u6216\u65B9\u6848\u672C\u8EAB\u6709\u95EE\u9898\u65F6\uFF0C\u8BF4\u660E\u540E\u56DE\u5230\u5B9E\u73B0\u4E2D\u9636\u6BB5\uFF08\u8FD4\u5DE5\u8981\u5E26 reason\uFF09\u3002`,
     enter_trigger: "\u5F00\u59CB\u9A8C\u6536\uFF1A\u9010\u6761\u5BF9\u7167\u9A8C\u6536\u6761\u4EF6\uFF0C\u7ED9\u6211\u901A\u8FC7/\u4E0D\u901A\u8FC7\u548C\u8BC1\u636E\u3002"
   }
 };
@@ -272,7 +300,7 @@ var JsonStorageAdapter = class {
       } catch (error) {
         const code = error.code;
         if ((code === "EPERM" || code === "EACCES") && attempt < 6) {
-          await new Promise((resolve) => setTimeout(resolve, 8 * (attempt + 1)));
+          await new Promise((resolve2) => setTimeout(resolve2, 8 * (attempt + 1)));
           continue;
         }
         await fs.rm(tmp, { force: true }).catch(() => {
@@ -352,6 +380,133 @@ function assertSessionManualTotal(manual, limits) {
     );
   }
   return chars;
+}
+
+// src/schema/verify-checks.ts
+var VERIFY_CHECKS = [
+  { id: 1, name: "\u5951\u7EA6\u6D4B\u8BD5", needs_command: true, judge: "\u5BF9\u5916\u884C\u4E3A\u4E0E\u539F\u5B9E\u73B0\u4E00\u81F4\u6216\u6309\u65B0\u5951\u7EA6\u9A8C\u8BC1\uFF0C\u8981\u6709\u53EF\u590D\u73B0\u5BF9\u7167" },
+  { id: 2, name: "\u4F9D\u8D56\u68C0\u67E5", needs_command: false, judge: "\u65E0\u53CD\u5411\u4F9D\u8D56\u3001\u65E0\u5FAA\u73AF\u4F9D\u8D56\u3001\u65E0\u8DE8\u5C42\u5F15\u7528" },
+  { id: 3, name: "\u6B7B\u4EE3\u7801\u626B\u63CF", needs_command: false, judge: "\u65E0\u7528\u5BFC\u51FA / \u53C2\u6570 / \u5B57\u6BB5\uFF0C\u4E14\u8981\u8BC1\u660E\u786E\u5B9E\u53EF\u5220\uFF08\u5F15\u7528\u8BA1\u6570\u4E3A\u96F6\uFF09" },
+  { id: 4, name: "\u8FB9\u754C\u6D4B\u8BD5", needs_command: true, judge: "\u5916\u90E8\u4F9D\u8D56\u53EF mock\uFF0C\u6A21\u5757\u80FD\u72EC\u7ACB\u6D4B\u8BD5" },
+  { id: 5, name: "\u547D\u540D\u4E0E\u8FB9\u754C\u5BA1\u67E5", needs_command: false, judge: "\u6CDB\u5316\u8BCD\u3001\u8DE8\u6A21\u5757\u66B4\u9732\u3001\u53CD\u5411\u5197\u957F\u3001\u524D\u7F00\u8D8A\u754C\u56DB\u9879" },
+  { id: 6, name: "\u57CB\u70B9\u68C0\u6D4B", needs_command: false, judge: "\u9ED1\u76D2\u9010\u8DF3\u4E09\u95EE + \u767D\u76D2\u4E94\u5B57\u6BB5\uFF0C\u4E09\u7C7B\u7ED3\u8BBA\uFF1A\u65AD\u70B9 / \u65E0\u6548\u57CB\u70B9 / \u8D28\u91CF\u76F2\u533A" },
+  { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09" }
+];
+function verifyMarkSymbol(mark) {
+  if (mark === "pass") return "\u2713";
+  if (mark === "deferred") return "\uFF1F";
+  return "\u25CB";
+}
+function createVerification(round) {
+  return {
+    round,
+    items: VERIFY_CHECKS.map((check) => ({ id: check.id, mark: "pending", report: null }))
+  };
+}
+
+// src/engine/verify-rules.ts
+function resolveVerifyCheckId(raw) {
+  const text = String(raw ?? "").trim();
+  const asNumber = Number(text);
+  if (Number.isInteger(asNumber)) {
+    const found = VERIFY_CHECKS.find((check) => check.id === asNumber);
+    if (found !== void 0) return found.id;
+  }
+  const byName = VERIFY_CHECKS.find((check) => check.name === text);
+  if (byName !== void 0) return byName.id;
+  throw new Error(
+    `\u300C${text}\u300D\u4E0D\u662F\u9A8C\u6536\u9879\uFF1A\u7528 id 1-7 \u6216\u540D\u79F0\uFF08${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(" / ")}\uFF09`
+  );
+}
+function assertAnchorPathShape(file) {
+  const normalized = file.replace(/\\/g, "/");
+  if (normalized.trim() === "") throw new Error("\u8BC1\u636E\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A");
+  if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) {
+    throw new Error(`\u8BC1\u636E\u8DEF\u5F84\u5FC5\u987B\u662F\u5DE5\u4F5C\u76EE\u5F55\u5185\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF08\u4E0D\u8BA4\u7EDD\u5BF9\u8DEF\u5F84\uFF09\uFF1A${file}`);
+  }
+  if (normalized.split("/").some((segment) => segment === "..")) {
+    throw new Error(`\u8BC1\u636E\u8DEF\u5F84\u4E0D\u80FD\u542B ..\uFF08\u4E0D\u8BB8\u8DD1\u51FA\u5DE5\u4F5C\u76EE\u5F55\uFF09\uFF1A${file}`);
+  }
+}
+function validateVerifyReportInput(check, raw) {
+  const result = raw?.result;
+  if (result !== "pass" && result !== "deferred") {
+    throw new Error("\u62A5\u5907\u7ED3\u8BBA\u53EA\u80FD\u662F pass\uFF08\u901A\u8FC7\uFF09\u6216 deferred\uFF08\u67E5\u51FA\u95EE\u9898\u4F46\u672C\u8F6E\u4E0D\u4FEE\uFF0C\u8BB0 \uFF1F\uFF09");
+  }
+  const summary = typeof raw?.summary === "string" ? raw.summary.trim() : "";
+  if (summary === "") throw new Error("\u62A5\u5907\u8981\u5199\u7ED3\u8BBA\u6458\u8981\uFF1A\u505A\u4E86\u4EC0\u4E48\u3001\u770B\u5230\u4EC0\u4E48\u7ED3\u679C");
+  const rawAnchors = Array.isArray(raw?.anchors) ? raw.anchors : [];
+  if (rawAnchors.length === 0) {
+    throw new Error("\u62A5\u5907\u81F3\u5C11\u8981\u7ED9\u4E00\u6761\u8BC1\u636E\u951A\u70B9 anchors\uFF1A[{ file, line? }]\uFF08\u6587\u4EF6\u5FC5\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\uFF09");
+  }
+  const anchors = rawAnchors.map((anchor, index) => {
+    const file = typeof anchor?.file === "string" ? anchor.file.trim() : "";
+    if (file === "") throw new Error(`\u7B2C ${index + 1} \u6761\u951A\u70B9\u7F3A file`);
+    assertAnchorPathShape(file);
+    const line = anchor?.line;
+    if (line !== void 0 && line !== null) {
+      if (!Number.isInteger(line) || line <= 0) throw new Error(`\u951A\u70B9\u884C\u53F7\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF1A${file}:${String(line)}`);
+      return { file, line };
+    }
+    return { file };
+  });
+  const command = typeof raw?.command === "string" ? raw.command.trim() : "";
+  if (check.needs_command && command === "") {
+    throw new Error(`\u300C${check.name}\u300D\u5FC5\u987B\u5199\u590D\u8DD1\u547D\u4EE4 command\uFF08\u4F8B\uFF1Anpx vitest run test/xxx.test.ts\uFF09`);
+  }
+  const findings = [];
+  if (result === "deferred") {
+    const rawFindings = Array.isArray(raw?.findings) ? raw.findings : [];
+    if (rawFindings.length === 0) {
+      throw new Error("\u7ED3\u8BBA deferred \u5FC5\u987B\u5E26 findings\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48");
+    }
+    rawFindings.forEach((finding, index) => {
+      const fields = ["location", "problem", "why_not_fixed", "impact"];
+      const parsed = {};
+      for (const field of fields) {
+        const value = typeof finding?.[field] === "string" ? finding[field].trim() : "";
+        if (value === "") throw new Error(`\u7B2C ${index + 1} \u6761 findings \u7F3A\u300C${field}\u300D`);
+        parsed[field] = value;
+      }
+      findings.push(parsed);
+    });
+  }
+  return {
+    result,
+    summary,
+    anchors,
+    ...command === "" ? {} : { command },
+    ...findings.length === 0 ? {} : { findings }
+  };
+}
+function pickVerification(raw) {
+  if (raw === null || typeof raw !== "object") return createVerification(0);
+  const source = raw;
+  const round = typeof source.round === "number" && Number.isInteger(source.round) && source.round >= 0 ? source.round : 0;
+  const incoming = Array.isArray(source.items) ? source.items : [];
+  const items = VERIFY_CHECKS.map((check) => {
+    const found = incoming.find((item) => item?.id === check.id);
+    if (found === void 0 || found === null) return { id: check.id, mark: "pending", report: null };
+    const mark = found.mark === "pass" || found.mark === "deferred" ? found.mark : "pending";
+    const report = mark !== "pending" && found.report !== null && typeof found.report === "object" ? found.report : null;
+    return { id: check.id, mark: report === null ? "pending" : mark, report };
+  });
+  return { round, items };
+}
+function summarizeVerification(state) {
+  const pass = state.items.filter((item) => item.mark === "pass").length;
+  const deferred = state.items.filter((item) => item.mark === "deferred").length;
+  const pending = state.items.filter((item) => item.mark === "pending").length;
+  return {
+    total: state.items.length,
+    pass,
+    deferred,
+    pending,
+    complete: pending === 0
+  };
+}
+function describePendingItems(state) {
+  return state.items.filter((item) => item.mark === "pending").map((item) => `${item.id} ${VERIFY_CHECKS.find((check) => check.id === item.id)?.name ?? ""}`.trim()).join(" / ");
 }
 
 // src/engine/manual-parse.ts
@@ -1086,6 +1241,7 @@ var WorkflowRepository = class {
       const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
       if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
       const from = node.current_state;
+      const nextVerification = input.to === "verifying" ? createVerification((node.verification?.round ?? 0) + 1) : void 0;
       if (input.to === "discussing" && from !== "discussing") {
         await this.clearChecklistOnReturnToDiscussion(snapshot, input.nodeId);
       }
@@ -1095,6 +1251,7 @@ var WorkflowRepository = class {
           (candidate) => candidate.node_id === input.nodeId ? {
             ...candidate,
             current_state: input.to,
+            ...nextVerification === void 0 ? {} : { verification: nextVerification },
             history: [...candidate.history ?? [], {
               at: (/* @__PURE__ */ new Date()).toISOString(),
               from,
@@ -1621,6 +1778,96 @@ ${entry}`;
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
     return parseChecklist(next);
   }
+  /**
+   * 读某个节点的验收清单。
+   * 旧快照没有 verification 字段时回落到「七项全空」，不做数据迁移。
+   */
+  async getVerification(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    return pickVerification(node.verification);
+  }
+  /**
+   * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
+   *
+   * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。
+   */
+  async submitVerifyReport(input) {
+    return this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      if (!VERIFY_CHECKS.some((check) => check.id === input.itemId)) throw new Error(`\u6CA1\u6709 ${input.itemId} \u53F7\u9A8C\u6536\u9879`);
+      const workingDir = snapshot.working_directory;
+      if (typeof workingDir !== "string" || workingDir === "") {
+        throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u65E0\u6CD5\u6821\u9A8C\u8BC1\u636E\u951A\u70B9\uFF1B\u5148\u7ED9\u5B83\u6307\u5B9A\u5DE5\u4F5C\u76EE\u5F55");
+      }
+      await this.assertVerifyAnchors(workingDir, input.report.anchors);
+      const current = pickVerification(node.verification);
+      const report = { ...input.report, round: current.round, at: (/* @__PURE__ */ new Date()).toISOString() };
+      const mark = input.report.result === "pass" ? "pass" : "deferred";
+      const nextState = {
+        round: current.round,
+        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark, report } : entry)
+      };
+      const updated = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate)
+      };
+      await this.storage.save(updated);
+      const item = nextState.items.find((entry) => entry.id === input.itemId);
+      if (item === void 0) throw new Error(`\u6CA1\u80FD\u5199\u56DE ${input.itemId} \u53F7\u9A8C\u6536\u9879`);
+      return { state: nextState, item };
+    });
+  }
+  /** 取消一项验收标记：回到 ○，报备一起作废（想再标就得重新报备）。 */
+  async cancelVerifyMark(input) {
+    return this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const current = pickVerification(node.verification);
+      if (!current.items.some((entry) => entry.id === input.itemId)) throw new Error(`\u6CA1\u6709 ${input.itemId} \u53F7\u9A8C\u6536\u9879`);
+      const nextState = {
+        round: current.round,
+        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark: "pending", report: null } : entry)
+      };
+      const updated = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate)
+      };
+      await this.storage.save(updated);
+      const item = nextState.items.find((entry) => entry.id === input.itemId);
+      if (item === void 0) throw new Error(`\u6CA1\u80FD\u5199\u56DE ${input.itemId} \u53F7\u9A8C\u6536\u9879`);
+      return { state: nextState, item };
+    });
+  }
+  /** 锚点校验：文件必须真实存在于工作目录内；给了行号就核对行数。 */
+  async assertVerifyAnchors(workingDirectory, anchors) {
+    const root = resolve(workingDirectory);
+    for (const anchor of anchors) {
+      const target = resolve(root, anchor.file);
+      if (target !== root && !target.startsWith(`${root}${sep}`)) {
+        throw new Error(`\u8BC1\u636E\u8DEF\u5F84\u5FC5\u987B\u5728\u672C\u5DE5\u4F5C\u76EE\u5F55\u5185\uFF1A${anchor.file}`);
+      }
+      let content;
+      try {
+        content = await fs2.readFile(target, "utf8");
+      } catch {
+        throw new Error(`\u8BC1\u636E\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${anchor.file}`);
+      }
+      if (anchor.line !== void 0) {
+        const lineCount = content.split(/\r?\n/).length;
+        if (anchor.line > lineCount) {
+          throw new Error(`\u8BC1\u636E\u884C\u53F7\u8D85\u51FA\u6587\u4EF6\u8303\u56F4\uFF1A${anchor.file}:${anchor.line}\uFF08\u6587\u4EF6\u5171 ${lineCount} \u884C\uFF09`);
+        }
+      }
+    }
+  }
   /** 会话/项目手册的绝对路径与"是不是会话手册"。 */
   async resolveManualFile(workflowId, nodeId) {
     const snapshot = await this.storage.load(workflowId);
@@ -1737,6 +1984,7 @@ var PROMPT_LAYER_SPECS = [
   { name: "shared-detail", order: 145, hard: true, priority: 0 },
   { name: "state-detail", order: 150, hard: true, priority: 0 },
   { name: "node-addition", order: 155, hard: false, priority: 3 },
+  { name: "verify-progress", order: 156, hard: false, priority: 1 },
   { name: "constraints", order: 160, hard: false, priority: 1 },
   { name: "manual-tags", order: 162, hard: false, priority: 2 },
   { name: "manual-cue", order: 165, hard: false, priority: 2 },
@@ -1876,6 +2124,21 @@ ${projectSections.tags.join(" / ")}`;
     if (tagsText !== rawTagsText) {
       logEvent(ctx.logger, "warn", `[workflow] tag layer truncated (session=${sessionId}, tags=${projectSections.tags.length}, bytes=${countUtf8Bytes(tagsText)})`);
     }
+    let verifyProgress = "";
+    if (node.current_state === "verifying") {
+      const verification = await repository.getVerification(found.workflowId, found.nodeId);
+      const progress = summarizeVerification(verification);
+      const lines = [
+        `\u3010\u9A8C\u6536\u4E03\u9879\u3011\u901A\u8FC7 ${progress.pass} / \u95EE\u8BE2 ${progress.deferred} / \u5F85\u5904\u7406 ${progress.pending}\uFF08\u5171 ${progress.total}\uFF09`,
+        ...verification.items.map((item) => {
+          const definition = VERIFY_CHECKS.find((check) => check.id === item.id);
+          const tail = item.mark === "deferred" && item.report !== null ? `\uFF1A${item.report.summary}` : "";
+          return `${verifyMarkSymbol(item.mark)} ${item.id} ${definition?.name ?? ""}${tail}`.trim();
+        }),
+        "\uFF08\u2713 = \u5DF2\u62A5\u5907\u901A\u8FC7\uFF1B\uFF1F = \u67E5\u51FA\u95EE\u9898\u672C\u8F6E\u4E0D\u4FEE\uFF1B\u25CB = \u8FD8\u6CA1\u62A5\u5907\u3002\u62A5\u5907\u7528 workflow_verify_report\uFF0C\u4E03\u9879\u5168\u975E \u25CB \u624D\u80FD\u8FDB\u300C\u5DF2\u5B8C\u7ED3\u300D\u3002\uFF09"
+      ];
+      verifyProgress = lines.join("\n");
+    }
     const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
     let sessionManual = "";
     if (manualData !== null) {
@@ -1899,6 +2162,7 @@ ${hardRule.trim()}` : "" },
       { name: "shared-detail", text: detail.shared_detail },
       { name: "state-detail", text: detail.state_detail },
       { name: "node-addition", text: additionParts.join("\n\n") },
+      { name: "verify-progress", text: verifyProgress },
       { name: "constraints", text: constraints.text.trim() === "" ? "" : `\u3010\u7EA6\u675F / \u7EA2\u7EBF\u3011\uFF08\u672C\u9879\u76EE\u7EDD\u4E0D\u80FD\u505A\uFF09
 ${constraints.text.trim()}` },
       { name: "manual-tags", text: tagsText },
@@ -2366,6 +2630,192 @@ function registerWorkflowTools(ctx, deps) {
         });
       }
     }, { when: whenWorkflow }));
+    toolCtx.effect(() => toolCtx.tools.register({
+      name: "workflow_verify_report",
+      description: 'Submit a verification report for ONE of the seven \u9A8C\u6536\u9879 in the \u300C\u9A8C\u6536\u4E2D\u300D stage. The report must carry evidence anchors (file paths inside the workflow working directory, optional line numbers) \u2014 the program checks they exist, then sets the mark: result "pass" \u2192 \u2713, result "deferred" (found a problem but decided not to fix it this round) \u2192 \uFF1F. A deferred report REQUIRES findings (location / problem / why_not_fixed / impact). Without a report an item can never leave \u25CB. Every entry into \u300C\u9A8C\u6536\u4E2D\u300D starts a new round: old reports expire automatically, so re-verification must re-report. Not available outside \u300C\u9A8C\u6536\u4E2D\u300D.',
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["item", "result", "summary", "anchors"],
+        properties: {
+          item: { type: "string", description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0\uFF08\u4F8B\uFF1A3 \u6216\u300C\u6B7B\u4EE3\u7801\u626B\u63CF\u300D\uFF09" },
+          result: { type: "string", enum: ["pass", "deferred"], description: "pass = \u901A\u8FC7\uFF1Bdeferred = \u67E5\u51FA\u95EE\u9898\u4F46\u672C\u8F6E\u4E0D\u4FEE\uFF08\u8BB0 \uFF1F\uFF09" },
+          summary: { type: "string", description: "\u7ED3\u8BBA\u6458\u8981\uFF1A\u505A\u4E86\u4EC0\u4E48\u3001\u770B\u5230\u4EC0\u4E48\u7ED3\u679C\u3002" },
+          anchors: {
+            type: "array",
+            description: "\u8BC1\u636E\u951A\u70B9\uFF0C\u81F3\u5C11\u4E00\u6761\uFF1B\u6587\u4EF6\u5FC5\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\u3002",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["file"],
+              properties: {
+                file: { type: "string", description: "\u5DE5\u4F5C\u76EE\u5F55\u5185\u7684\u76F8\u5BF9\u8DEF\u5F84" },
+                line: { type: "number", description: "\u53EF\u9009\u884C\u53F7\uFF1B\u7A0B\u5E8F\u4F1A\u6838\u5BF9\u5B83\u4E0D\u8D85\u8FC7\u6587\u4EF6\u884C\u6570" }
+              }
+            }
+          },
+          command: { type: "string", description: "\u590D\u8DD1\u547D\u4EE4\uFF1B\u5951\u7EA6\u6D4B\u8BD5 / \u8FB9\u754C\u6D4B\u8BD5 / \u56DE\u5F52\u538B\u6D4B\u4E09\u9879\u5FC5\u586B\u3002" },
+          findings: {
+            type: "array",
+            description: "deferred \u65F6\u5FC5\u586B\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48\u3002",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["location", "problem", "why_not_fixed", "impact"],
+              properties: {
+                location: { type: "string" },
+                problem: { type: "string" },
+                why_not_fixed: { type: "string" },
+                impact: { type: "string" }
+              }
+            }
+          }
+        }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["item", "progress"],
+          properties: {
+            item: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "name", "mark"],
+              properties: {
+                id: { type: "number" },
+                name: { type: "string" },
+                mark: { type: "string" }
+              }
+            },
+            progress: {
+              type: "object",
+              additionalProperties: false,
+              required: ["pass", "deferred", "pending", "total"],
+              properties: {
+                pass: { type: "number" },
+                deferred: { type: "number" },
+                pending: { type: "number" },
+                total: { type: "number" }
+              }
+            }
+          }
+        },
+        render: (_args, value) => [
+          {
+            type: "text",
+            text: `\u9A8C\u6536\u9879 ${value.item.id} ${value.item.name} \u2192 ${verifyMarkSymbol(value.item.mark)}\uFF08\u901A\u8FC7 ${value.progress.pass} / \u95EE\u8BE2 ${value.progress.deferred} / \u5F85\u5904\u7406 ${value.progress.pending}\uFF09`
+          }
+        ]
+      },
+      execute: async (args, exec) => {
+        const sessionId = requireSession(deps, exec);
+        return instrument("workflow_verify_report", sessionId, async () => {
+          const found = await requireVerifyingNode(deps, sessionId);
+          const itemId = resolveVerifyCheckId(args?.item);
+          const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
+          if (check === void 0) throw new Error(`\u6CA1\u6709 ${itemId} \u53F7\u9A8C\u6536\u9879`);
+          const report = validateVerifyReportInput(check, args);
+          const { state } = await deps.repository.submitVerifyReport({
+            workflowId: found.workflowId,
+            nodeId: found.nodeId,
+            itemId,
+            report
+          });
+          const progress = summarizeVerification(state);
+          const item = state.items.find((entry) => entry.id === itemId);
+          logEvent(
+            ctx.logger,
+            "info",
+            `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? "pending"}, round=${state.round}, pending=${progress.pending})`
+          );
+          return {
+            item: { id: itemId, name: check.name, mark: item?.mark ?? "pending" },
+            progress: {
+              pass: progress.pass,
+              deferred: progress.deferred,
+              pending: progress.pending,
+              total: progress.total
+            }
+          };
+        });
+      }
+    }, { when: whenWorkflow }));
+    toolCtx.effect(() => toolCtx.tools.register({
+      name: "workflow_verify_check",
+      description: "Uncheck ONE item of the \u9A8C\u6536\u4E03\u9879 checklist (done=false only). AI has no permission to check an item directly: a mark can only be produced by workflow_verify_report. done=true is always rejected \u2014 if the item needs to be re-marked, submit a new report. Not available outside \u300C\u9A8C\u6536\u4E2D\u300D.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["item", "done"],
+        properties: {
+          item: { type: "string", description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0" },
+          done: { type: "boolean", description: "\u53EA\u80FD\u662F false\uFF08\u53D6\u6D88\u52FE\uFF09\u3002\u4F20 true \u4F1A\u88AB\u62D2\u3002" }
+        }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["item", "progress"],
+          properties: {
+            item: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id", "mark"],
+              properties: {
+                id: { type: "number" },
+                mark: { type: "string" }
+              }
+            },
+            progress: {
+              type: "object",
+              additionalProperties: false,
+              required: ["pass", "deferred", "pending", "total"],
+              properties: {
+                pass: { type: "number" },
+                deferred: { type: "number" },
+                pending: { type: "number" },
+                total: { type: "number" }
+              }
+            }
+          }
+        },
+        render: (_args, value) => [
+          { type: "text", text: `\u9A8C\u6536\u9879 ${value.item.id} \u5DF2\u53D6\u6D88\uFF08\u73B0\u4E3A ${verifyMarkSymbol(value.item.mark)}\uFF09` }
+        ]
+      },
+      execute: async (args, exec) => {
+        const sessionId = requireSession(deps, exec);
+        return instrument("workflow_verify_check", sessionId, async () => {
+          if (args?.done !== false) {
+            throw new Error("AI \u4E0D\u80FD\u76F4\u63A5\u6253\u9A8C\u6536\u52FE\uFF1A\u5148\u8C03\u7528 workflow_verify_report \u63D0\u4EA4\u62A5\u5907\uFF0C\u6807\u8BB0\u7531\u62A5\u5907\u843D\u3002\u53D6\u6D88\u52FE\u8BF7\u4F20 done=false\u3002");
+          }
+          const found = await requireVerifyingNode(deps, sessionId);
+          const itemId = resolveVerifyCheckId(args?.item);
+          const { state, item } = await deps.repository.cancelVerifyMark({
+            workflowId: found.workflowId,
+            nodeId: found.nodeId,
+            itemId
+          });
+          const progress = summarizeVerification(state);
+          logEvent(
+            ctx.logger,
+            "info",
+            `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`
+          );
+          return {
+            item: { id: itemId, mark: item.mark },
+            progress: {
+              pass: progress.pass,
+              deferred: progress.deferred,
+              pending: progress.pending,
+              total: progress.total
+            }
+          };
+        });
+      }
+    }, { when: whenWorkflow }));
   });
 }
 function requireSession(deps, exec) {
@@ -2373,6 +2823,20 @@ function requireSession(deps, exec) {
   if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u8FD9\u4E2A\u5DE5\u5177\u9700\u8981\u4E00\u4E2A\u4F1A\u8BDD");
   if (!deps.isPresetSession(sessionId)) throw new Error("\u8FD9\u4E2A\u5DE5\u5177\u53EA\u5BF9\u300C\u5DE5\u4F5C\u6D41\u6A21\u5F0F\u300D\u9884\u8BBE\u7684\u4F1A\u8BDD\u53EF\u7528");
   return sessionId;
+}
+async function requireVerifyingNode(deps, sessionId) {
+  let state = deps.getState(sessionId);
+  if (state === void 0) {
+    await deps.refreshState?.(sessionId);
+    state = deps.getState(sessionId);
+  }
+  if (state === void 0) throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09");
+  if (state !== "verifying") {
+    throw new Error(`\u9A8C\u6536\u62A5\u5907\u53EA\u80FD\u5728\u300C\u9A8C\u6536\u4E2D\u300D\u63D0\u4EA4\uFF08\u5F53\u524D\u662F\u300C${labelOf(state)}\u300D\uFF09\uFF1A\u5148\u8BA9\u7528\u6237\u63A8\u8FDB\u5230\u9A8C\u6536\u4E2D\u3002`);
+  }
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
+  return found;
 }
 async function assertAdvanceAllowed(repository, found, from, to) {
   if (to === "implementing" && from === "discussing") {
@@ -2393,6 +2857,54 @@ async function assertAdvanceAllowed(repository, found, from, to) {
     if (unchecked.length > 0) {
       throw new Error(`\u8FD8\u6709 ${unchecked.length} \u6761\u6CA1\u52FE\u5B8C\uFF0C\u4E0D\u80FD\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\uFF1A${unchecked.map((item) => item.label).join(" / ")}`);
     }
+  }
+  if (to === "completed" && from === "verifying") {
+    const verification = await repository.getVerification(found.workflowId, found.nodeId);
+    const summary = summarizeVerification(verification);
+    if (!summary.complete) {
+      throw new Error(
+        `\u9A8C\u6536\u8FD8\u6709 ${summary.pending} \u9879\u6CA1\u5904\u7406\uFF08${describePendingItems(verification)}\uFF09\uFF1A\u9010\u9879\u7528 workflow_verify_report \u62A5\u5907\uFF08pass \u8BB0 \u2713\uFF0Cdeferred \u8BB0 \uFF1F\uFF09\uFF0C\u5168\u90E8\u5904\u7406\u5B8C\u624D\u80FD\u8FDB\u300C\u5DF2\u5B8C\u7ED3\u300D\u3002`
+      );
+    }
+  }
+}
+
+// src/host/session-claim.ts
+function resolveSessionWorkingDirectory(ctx, sessionId) {
+  if (typeof sessionId !== "string" || sessionId === "") return "";
+  try {
+    const session = ctx.get("sessions")?.get?.(sessionId);
+    if (session === void 0 || session === null) return "";
+    const fromService = ctx.get("workingDirectory")?.get?.(session);
+    if (typeof fromService === "string" && fromService.trim() !== "") return fromService.trim();
+    const fromHeader = session?.header?.cwd;
+    return typeof fromHeader === "string" ? fromHeader.trim() : "";
+  } catch {
+    return "";
+  }
+}
+async function ensureClaimedSessionNode(deps, sessionId, trigger) {
+  const workingDirectory = deps.resolveWorkingDirectory(sessionId);
+  if (workingDirectory === "") {
+    deps.log("warn", `[workflow] auto-claim skipped (session=${sessionId}, trigger=${trigger}, reason=no-working-directory)`);
+    return null;
+  }
+  const startedAt = Date.now();
+  try {
+    const node = await deps.repository.ensureNode({ sessionId, workingDirectory });
+    const state = String(node.current_state);
+    deps.setState(sessionId, state);
+    deps.log(
+      "info",
+      `[workflow] auto-claim ok (session=${sessionId}, node=${node.nodeId}, state=${state}, trigger=${trigger}, ${Date.now() - startedAt}ms)`
+    );
+    return state;
+  } catch (error) {
+    deps.log(
+      "warn",
+      `[workflow] auto-claim failed (session=${sessionId}, trigger=${trigger}, ${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`
+    );
+    return null;
   }
 }
 
@@ -2426,7 +2938,7 @@ function sendJson(res, status, value) {
   }
 }
 function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
@@ -2440,7 +2952,7 @@ function readJsonBody(req) {
     });
     req.on("end", () => {
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+        resolve2(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
         reject(new Error("JSON \u89E3\u6790\u5931\u8D25"));
       }
@@ -2482,6 +2994,35 @@ function makeHandler(ctx, repository, method, run) {
 }
 function apply(ctx) {
   const repository = new WorkflowRepository(resolveDataDir());
+  const streamClients = /* @__PURE__ */ new Set();
+  const CLIENT_LOG_LIMIT = 30;
+  const CLIENT_LOG_WINDOW_MS = 6e4;
+  const clientLogWindow = { startedAt: 0, count: 0 };
+  const clientLogAccepted = (now) => {
+    if (now - clientLogWindow.startedAt >= CLIENT_LOG_WINDOW_MS) {
+      clientLogWindow.startedAt = now;
+      clientLogWindow.count = 0;
+    }
+    if (clientLogWindow.count >= CLIENT_LOG_LIMIT) return false;
+    clientLogWindow.count += 1;
+    return true;
+  };
+  const broadcast = (sessionId, reason, state) => {
+    if (typeof sessionId !== "string" || sessionId === "") return;
+    if (streamClients.size === 0) return;
+    const payload = { sessionId, reason };
+    if (typeof state === "string" && state !== "") payload.state = state;
+    const frame = `data: ${JSON.stringify(payload)}
+
+`;
+    for (const client of streamClients) {
+      try {
+        client.write(frame);
+      } catch {
+        streamClients.delete(client);
+      }
+    }
+  };
   const WORKFLOW_PRESET_ID = "workflow";
   const presetSessions = /* @__PURE__ */ new Set();
   const presetIdOf = (agentCtx) => {
@@ -2497,10 +3038,15 @@ function apply(ctx) {
   const claim = (agent) => {
     const sessionId = agent?.session?.id;
     if (typeof sessionId !== "string" || sessionId === "") return;
+    const preset = presetIdOf(agent?.ctx);
+    if (preset !== WORKFLOW_PRESET_ID) {
+      if (typeof preset === "string") releaseClaim(sessionId, `preset=${preset}`);
+      return;
+    }
     if (presetSessions.has(sessionId)) return;
-    if (presetIdOf(agent?.ctx) !== WORKFLOW_PRESET_ID) return;
     presetSessions.add(sessionId);
     void refreshSessionState(sessionId);
+    void ensureNodeAndPublish(sessionId, "claim");
   };
   ctx.on("agent/created", (payload) => claim(payload?.agent));
   ctx.on("agent/pre-step", (payload, next) => {
@@ -2515,24 +3061,48 @@ function apply(ctx) {
     } catch {
     }
   }
+  const releaseClaim = (sessionId, reason) => {
+    if (!presetSessions.delete(sessionId)) return;
+    sessionState.delete(sessionId);
+    logEvent(ctx.logger, "info", `[workflow] released (session=${sessionId}, reason=${reason})`);
+    broadcast(sessionId, "released");
+  };
+  const claimNodeDeps = {
+    repository,
+    resolveWorkingDirectory: (id) => resolveSessionWorkingDirectory(ctx, id),
+    setState: (id, state) => sessionState.set(id, state),
+    log: (level, message) => logEvent(ctx.logger, level, message)
+  };
+  const ensureNodeAndPublish = async (sessionId, trigger) => {
+    const state = await ensureClaimedSessionNode(claimNodeDeps, sessionId, trigger);
+    if (state !== null) broadcast(sessionId, "created", state);
+    return state;
+  };
+  const SELF_HEAL_COOLDOWN_MS = 30 * 1e3;
+  const selfHealAttemptAt = /* @__PURE__ */ new Map();
   const claimBySession = (sessionId) => {
-    if (presetSessions.has(sessionId)) {
-      if (!sessionState.has(sessionId)) void refreshSessionState(sessionId);
-      return true;
-    }
+    let currentPreset = null;
     try {
       const registry = ctx.get("agentPresets");
       const session = ctx.get("sessions")?.get?.(sessionId);
       if (registry !== void 0 && session !== void 0) {
-        const preset = registry.presetForSession(session);
-        if (preset === WORKFLOW_PRESET_ID) {
-          presetSessions.add(sessionId);
-          void refreshSessionState(sessionId);
-          return true;
-        }
-        if (preset !== null && preset !== void 0) return false;
+        currentPreset = registry.presetForSession(session) ?? null;
       }
     } catch {
+    }
+    if (typeof currentPreset === "string" && currentPreset !== WORKFLOW_PRESET_ID) {
+      releaseClaim(sessionId, `preset=${currentPreset}`);
+      return false;
+    }
+    if (presetSessions.has(sessionId)) {
+      if (!sessionState.has(sessionId)) void refreshSessionState(sessionId);
+      return true;
+    }
+    if (currentPreset === WORKFLOW_PRESET_ID) {
+      presetSessions.add(sessionId);
+      void refreshSessionState(sessionId);
+      void ensureNodeAndPublish(sessionId, "preset-projection");
+      return true;
     }
     try {
       const agent = ctx.get("agents")?.get?.(sessionId);
@@ -2542,6 +3112,40 @@ function apply(ctx) {
     return presetSessions.has(sessionId);
   };
   const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession);
+  const workflowPresetNow = (sessionId) => {
+    try {
+      const registry = ctx.get("agentPresets");
+      const session = ctx.get("sessions")?.get?.(sessionId);
+      if (registry === void 0 || session === void 0) return null;
+      const preset = registry.presetForSession(session);
+      if (typeof preset !== "string" || preset === "") return null;
+      return preset === WORKFLOW_PRESET_ID;
+    } catch {
+      return null;
+    }
+  };
+  const sessionHasMessages = (sessionId) => {
+    try {
+      const session = ctx.get("sessions")?.get?.(sessionId);
+      const events2 = session?.snapshotEvents?.();
+      if (!Array.isArray(events2)) return false;
+      return events2.some((event) => event?.type === "user/message" || event?.type === "assistant/message");
+    } catch {
+      return false;
+    }
+  };
+  const rawPresetOf = (sessionId) => {
+    try {
+      const registry = ctx.get("agentPresets");
+      const session = ctx.get("sessions")?.get?.(sessionId);
+      if (registry === void 0) return "(no-registry)";
+      if (session === void 0) return "(no-session)";
+      const preset = registry.presetForSession(session);
+      return typeof preset === "string" && preset !== "" ? preset : "(empty)";
+    } catch {
+      return "(error)";
+    }
+  };
   const PENDING_ADVANCE_TTL_MS = 5 * 60 * 1e3;
   const pendingAdvances = /* @__PURE__ */ new Map();
   const readPendingAdvance = (sessionId) => {
@@ -2568,10 +3172,12 @@ function apply(ctx) {
         ...typeof input.reason === "string" && input.reason !== "" ? { reason: input.reason } : {},
         at: Date.now()
       });
+      broadcast(input.sessionId, "pending");
     },
     pendingAdvanceOf: (sessionId) => readPendingAdvance(sessionId),
     clearPendingAdvance: (sessionId) => {
       pendingAdvances.delete(sessionId);
+      broadcast(sessionId, "pending-cleared");
     }
   };
   registerWorkflowGuard(ctx, toolsDeps);
@@ -2580,6 +3186,40 @@ function apply(ctx) {
     sessionState.set(sessionId, state);
   };
   ctx.inject(["webServer"], (webCtx) => {
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/stream",
+      handler: (req, res) => {
+        if (!isLoopbackRequest(req)) return denyRequest(res);
+        try {
+          res.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            // 有些反代会攒包，显式关掉缓冲；本机访问通常用不到，但写了不亏。
+            "x-accel-buffering": "no"
+          });
+          res.write(": connected\n\n");
+        } catch {
+          return;
+        }
+        streamClients.add(res);
+        logEvent(ctx.logger, "info", `[workflow] stream connected (clients=${streamClients.size})`);
+        const heartbeat = setInterval(() => {
+          try {
+            res.write(": ping\n\n");
+          } catch {
+          }
+        }, 2e4);
+        const cleanup = () => {
+          clearInterval(heartbeat);
+          streamClients.delete(res);
+        };
+        req.on?.("close", cleanup);
+        res.on?.("close", cleanup);
+        res.on?.("error", cleanup);
+      }
+    }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
       path: "/dsh-agent-workflow/list",
@@ -2764,12 +3404,18 @@ function apply(ctx) {
       handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
         const sessionId = query.get("sessionId");
         if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
-        if (!claimBySession(sessionId)) return { node: null, enabled: false };
+        const hasMessages = sessionHasMessages(sessionId);
+        if (!claimBySession(sessionId)) return { node: null, enabled: false, hasMessages };
         const startedAt = Date.now();
-        const node = await repository.findBySession(sessionId);
+        let node = await repository.findBySession(sessionId);
+        if (node === null && Date.now() - (selfHealAttemptAt.get(sessionId) ?? 0) >= SELF_HEAL_COOLDOWN_MS) {
+          selfHealAttemptAt.set(sessionId, Date.now());
+          const healedState = await ensureNodeAndPublish(sessionId, "node-by-session");
+          if (healedState !== null) node = await repository.findBySession(sessionId);
+        }
         if (node === null) {
           logEvent(ctx.logger, "info", `[workflow] node-by-session none (session=${sessionId}, ${Date.now() - startedAt}ms)`, traceId);
-          return { node: null };
+          return { node: null, hasMessages };
         }
         const snapshot = await repository.get(node.workflowId);
         const found = snapshot?.nodes.find((candidate) => candidate.node_id === node.nodeId);
@@ -2780,7 +3426,7 @@ function apply(ctx) {
           enterTrigger = typeof effective.enter_trigger === "string" ? effective.enter_trigger : "";
         }
         logEvent(ctx.logger, "info", `[workflow] node-by-session ok (node=${node.nodeId}, state=${node.current_state}, ${Date.now() - startedAt}ms)`, traceId);
-        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId) };
+        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), hasMessages };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -2793,8 +3439,16 @@ function apply(ctx) {
           logEvent(ctx.logger, "warn", `[workflow] sidebar-nodes skipped broken snapshot (file=${fileName}): ${String(error?.message ?? error)}`);
         };
         const nodes = await readSidebarNodes(repository, path2, onBroken);
+        let hiddenByPreset = 0;
+        for (const sessionId of Object.keys(nodes)) {
+          if (workflowPresetNow(sessionId) === false) {
+            delete nodes[sessionId];
+            hiddenByPreset += 1;
+          }
+        }
         const mode = typeof path2 === "string" && path2.trim() !== "" ? "directory" : "all";
-        logEvent(ctx.logger, "info", `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}, ${Date.now() - startedAt}ms)`);
+        const hiddenNote = hiddenByPreset === 0 ? "" : `, hidden=${hiddenByPreset}`;
+        logEvent(ctx.logger, "info", `[workflow] sidebar-nodes ok (mode=${mode}, nodes=${Object.keys(nodes).length}${hiddenNote}, ${Date.now() - startedAt}ms)`);
         return { nodes };
       })
     }));
@@ -2804,6 +3458,20 @@ function apply(ctx) {
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const rawLimit = Number(query.get("limit") ?? "100");
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/client-log",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        const level = body?.level === "warn" ? "warn" : "info";
+        const message = typeof body?.message === "string" ? body.message.trim() : "";
+        if (message === "") throw new Error("\u7F3A\u5C11 message");
+        if (!clientLogAccepted(Date.now())) {
+          return { accepted: false };
+        }
+        logEvent(ctx.logger, level, `[workflow] client ${message.slice(0, 200)}`, traceId);
+        return { accepted: true };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -2831,6 +3499,7 @@ function apply(ctx) {
         if (body.accept !== true) {
           pendingAdvances.delete(body.sessionId);
           logEvent(ctx.logger, "info", `[workflow] advance rejected by user (session=${body.sessionId}, to=${pending.to})`);
+          broadcast(body.sessionId, "pending-cleared");
           return { accepted: false, requested: pending.to };
         }
         const found = await repository.findBySession(body.sessionId);
@@ -2842,6 +3511,7 @@ function apply(ctx) {
         markState(body.sessionId, pending.to);
         await stateContext.refreshNow(body.sessionId);
         logEvent(ctx.logger, "info", `[workflow] advance accepted by user (session=${body.sessionId}, ${from}\u2192${pending.to})`);
+        broadcast(body.sessionId, "state", pending.to);
         return { accepted: true, snapshot };
       })
     }));
@@ -2885,7 +3555,8 @@ function apply(ctx) {
       path: "/dsh-agent-workflow/ensure-node",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.sessionId !== "string" || body.sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
-        if (typeof body?.workingDirectory !== "string" || body.workingDirectory === "") throw new Error("\u7F3A\u5C11 workingDirectory");
+        const workingDirectory = typeof body?.workingDirectory === "string" && body.workingDirectory.trim() !== "" ? body.workingDirectory.trim() : resolveSessionWorkingDirectory(ctx, body.sessionId);
+        if (workingDirectory === "") throw new Error("\u7F3A\u5C11 workingDirectory\uFF08\u5BBF\u4E3B\u4E5F\u89E3\u6790\u4E0D\u5230\u8BE5\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u76EE\u5F55\uFF09");
         if (!claimBySession(body.sessionId)) {
           const knownSession = (() => {
             try {
@@ -2895,16 +3566,21 @@ function apply(ctx) {
             }
           })();
           if (knownSession !== void 0) {
-            logEvent(ctx.logger, "info", `[workflow] ensure-node skipped (session=${body.sessionId}, not a workflow session)`);
+            logEvent(ctx.logger, "info", `[workflow] ensure-node skipped (session=${body.sessionId}, preset=${rawPresetOf(body.sessionId)})`);
+            return { node: null, enabled: false };
+          }
+          if (body.test !== true) {
+            logEvent(ctx.logger, "warn", `[workflow] ensure-node refused (session=${body.sessionId}, reason=unknown-session-without-test-flag)`);
             return { node: null, enabled: false };
           }
           presetSessions.add(body.sessionId);
-          logEvent(ctx.logger, "info", `[workflow] ensure-node for unknown session (session=${body.sessionId}, treated as test)`);
+          logEvent(ctx.logger, "info", `[workflow] ensure-node for test session (session=${body.sessionId})`);
         }
         const startedAt = Date.now();
         try {
-          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory: body.workingDirectory });
+          const node = await repository.ensureNode({ sessionId: body.sessionId, workingDirectory });
           logEvent(ctx.logger, "info", `[workflow] ensure-node ok (node=${node.nodeId}, ${Date.now() - startedAt}ms)`);
+          broadcast(body.sessionId, "created", String(node.current_state));
           return { node };
         } catch (error) {
           logEvent(ctx.logger, "warn", `[workflow] ensure-node failed (${Date.now() - startedAt}ms): ${String(error?.message ?? error)}`);
@@ -2937,11 +3613,20 @@ function apply(ctx) {
         if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         const startedAt = Date.now();
         const meta = await repository.getManualMeta(id, nodeId);
-        logEvent(ctx.logger, "info", `[workflow] node-checklist (node=${nodeId}, exists=${String(meta !== null)}, items=${meta?.checklist.length ?? 0}, ${Date.now() - startedAt}ms)`, traceId);
+        const verification = await repository.getVerification(id, nodeId);
+        const verificationView = verification.items.map((item) => ({
+          id: item.id,
+          name: VERIFY_CHECKS.find((check) => check.id === item.id)?.name ?? "",
+          mark: item.mark,
+          summary: item.report?.summary ?? ""
+        }));
+        logEvent(ctx.logger, "info", `[workflow] node-checklist (node=${nodeId}, exists=${String(meta !== null)}, items=${meta?.checklist.length ?? 0}, verify=${verificationView.filter((item) => item.mark !== "pending").length}/7, ${Date.now() - startedAt}ms)`, traceId);
         return {
           exists: meta !== null,
           checklist: meta?.checklist ?? [],
-          hasPlan: meta?.hasPlan ?? false
+          hasPlan: meta?.hasPlan ?? false,
+          verification: verificationView,
+          verificationRound: verification.round
         };
       })
     }));
@@ -2980,6 +3665,7 @@ function apply(ctx) {
             pendingAdvances.delete(moved.session_id);
             markState(moved.session_id, body.to);
             await stateContext.refreshNow(moved.session_id);
+            broadcast(moved.session_id, "state", body.to);
           }
           const lastEntry = moved?.history?.[moved.history.length - 1];
           logEvent(ctx.logger, "info", `[workflow] transition ok (node=${body.nodeId}, from=${lastEntry?.from ?? "?"}, to=${body.to}, ${Date.now() - startedAt}ms)`, traceId);

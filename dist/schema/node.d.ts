@@ -107,6 +107,170 @@ export declare const AgentNode: z.ZodObject<{
         global?: string | undefined;
     }>>;
     /**
+     * 验收七项的报备与标记（「验收中」专用）。
+     *
+     * 可选：旧快照没有这个字段 = 七项都没处理；读侧用 pickVerification 收口，不做数据迁移。
+     * 标记只能由报备落（pass → ✓，deferred → ？），取消勾会把条目清回 pending。
+     */
+    verification: z.ZodOptional<z.ZodObject<{
+        round: z.ZodNumber;
+        items: z.ZodArray<z.ZodObject<{
+            id: z.ZodNumber;
+            mark: z.ZodEnum<["pending", "pass", "deferred"]>;
+            report: z.ZodNullable<z.ZodObject<{
+                round: z.ZodNumber;
+                result: z.ZodEnum<["pass", "deferred"]>;
+                summary: z.ZodString;
+                anchors: z.ZodArray<z.ZodObject<{
+                    file: z.ZodString;
+                    line: z.ZodOptional<z.ZodNumber>;
+                }, "strip", z.ZodTypeAny, {
+                    file: string;
+                    line?: number | undefined;
+                }, {
+                    file: string;
+                    line?: number | undefined;
+                }>, "many">;
+                command: z.ZodOptional<z.ZodString>;
+                findings: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    location: z.ZodString;
+                    problem: z.ZodString;
+                    why_not_fixed: z.ZodString;
+                    impact: z.ZodString;
+                }, "strip", z.ZodTypeAny, {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }, {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }>, "many">>;
+                at: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            }, {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            }>>;
+        }, "strip", z.ZodTypeAny, {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }, {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }>, "many">;
+    }, "strip", z.ZodTypeAny, {
+        round: number;
+        items: {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }[];
+    }, {
+        round: number;
+        items: {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }[];
+    }>>;
+    /**
      * 状态迁移时间线：每次推进追加一条 { at, from, to }。
      * 可选，旧快照没有。
      */
@@ -165,6 +329,30 @@ export declare const AgentNode: z.ZodObject<{
         verifying?: string | undefined;
         global?: string | undefined;
     } | undefined;
+    verification?: {
+        round: number;
+        items: {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }[];
+    } | undefined;
     history?: {
         at: string;
         from: string;
@@ -204,6 +392,30 @@ export declare const AgentNode: z.ZodObject<{
         implementing?: string | undefined;
         verifying?: string | undefined;
         global?: string | undefined;
+    } | undefined;
+    verification?: {
+        round: number;
+        items: {
+            id: number;
+            mark: "pending" | "pass" | "deferred";
+            report: {
+                at: string;
+                round: number;
+                result: "pass" | "deferred";
+                summary: string;
+                anchors: {
+                    file: string;
+                    line?: number | undefined;
+                }[];
+                command?: string | undefined;
+                findings?: {
+                    location: string;
+                    problem: string;
+                    why_not_fixed: string;
+                    impact: string;
+                }[] | undefined;
+            } | null;
+        }[];
     } | undefined;
     history?: {
         at: string;

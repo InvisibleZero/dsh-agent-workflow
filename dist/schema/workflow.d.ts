@@ -480,6 +480,164 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         }>>;
+        verification: z.ZodOptional<z.ZodObject<{
+            round: z.ZodNumber;
+            items: z.ZodArray<z.ZodObject<{
+                id: z.ZodNumber;
+                mark: z.ZodEnum<["pending", "pass", "deferred"]>;
+                report: z.ZodNullable<z.ZodObject<{
+                    round: z.ZodNumber;
+                    result: z.ZodEnum<["pass", "deferred"]>;
+                    summary: z.ZodString;
+                    anchors: z.ZodArray<z.ZodObject<{
+                        file: z.ZodString;
+                        line: z.ZodOptional<z.ZodNumber>;
+                    }, "strip", z.ZodTypeAny, {
+                        file: string;
+                        line?: number | undefined;
+                    }, {
+                        file: string;
+                        line?: number | undefined;
+                    }>, "many">;
+                    command: z.ZodOptional<z.ZodString>;
+                    findings: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                        location: z.ZodString;
+                        problem: z.ZodString;
+                        why_not_fixed: z.ZodString;
+                        impact: z.ZodString;
+                    }, "strip", z.ZodTypeAny, {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }, {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }>, "many">>;
+                    at: z.ZodString;
+                }, "strip", z.ZodTypeAny, {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                }, {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                }>>;
+            }, "strip", z.ZodTypeAny, {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }, {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }>, "many">;
+        }, "strip", z.ZodTypeAny, {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
+        }, {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
+        }>>;
         history: z.ZodOptional<z.ZodArray<z.ZodObject<{
             at: z.ZodString;
             from: z.ZodString;
@@ -534,6 +692,30 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             verifying?: string | undefined;
             global?: string | undefined;
         } | undefined;
+        verification?: {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
+        } | undefined;
         history?: {
             at: string;
             from: string;
@@ -573,6 +755,30 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             implementing?: string | undefined;
             verifying?: string | undefined;
             global?: string | undefined;
+        } | undefined;
+        verification?: {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
         } | undefined;
         history?: {
             at: string;
@@ -643,6 +849,30 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             implementing?: string | undefined;
             verifying?: string | undefined;
             global?: string | undefined;
+        } | undefined;
+        verification?: {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
         } | undefined;
         history?: {
             at: string;
@@ -716,6 +946,30 @@ export declare const WorkflowSnapshot: z.ZodObject<{
             implementing?: string | undefined;
             verifying?: string | undefined;
             global?: string | undefined;
+        } | undefined;
+        verification?: {
+            round: number;
+            items: {
+                id: number;
+                mark: "pending" | "pass" | "deferred";
+                report: {
+                    at: string;
+                    round: number;
+                    result: "pass" | "deferred";
+                    summary: string;
+                    anchors: {
+                        file: string;
+                        line?: number | undefined;
+                    }[];
+                    command?: string | undefined;
+                    findings?: {
+                        location: string;
+                        problem: string;
+                        why_not_fixed: string;
+                        impact: string;
+                    }[] | undefined;
+                } | null;
+            }[];
         } | undefined;
         history?: {
             at: string;

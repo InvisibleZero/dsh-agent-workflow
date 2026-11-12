@@ -65,10 +65,13 @@ window.__ModuleLoader__.load({
     const react_1 = require("react");
     const react_dom_1 = require("react-dom");
     const node_state_label_1 = __req("schema/node-state-label.js");
+    const verify_checks_1 = __req("schema/verify-checks.js");
     const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
     const menu_anchor_1 = __req("client/menu-anchor.js");
     const node_state_color_1 = __req("client/node-state-color.js");
     const session_state_store_1 = __req("client/session-state-store.js");
+    const workflow_stream_1 = __req("client/workflow-stream.js");
+    const client_log_1 = __req("client/client-log.js");
     const dsh_client_ui_primitives_1 = require("@deepseek-ai/dsh-client-ui-primitives");
     /** 四态单向推进表。 */
     const NEXT_NODE_STATE = {
@@ -77,6 +80,14 @@ window.__ModuleLoader__.load({
         verifying: 'completed',
         completed: null,
     };
+    /**
+     * 空会话（还没对话过）的轮询间隔。
+     *
+     * 为什么只对空会话轮询：新建会话可以在任何时候被切成「工作流模式」，而这次切换
+     * 宿主不会发任何事件——只有主动问才能知道。会话一旦聊过，就完全交给 SSE 推送，
+     * 恢复零轮询；这样「每个会话每 3 秒问一次」不会回来。
+     */
+    const EMPTY_SESSION_POLL_INTERVAL_MS = 3_000;
     /** 返工（后退）转移表：当前态 → 可退回的态。已完结允许退回验收中或讨论中。 */
     const BACKWARD_STATES = {
         implementing: ['discussing'],
@@ -88,6 +99,7 @@ window.__ModuleLoader__.load({
         const [nodeInfo, setNodeInfo] = (0, react_1.useState)(null);
         const [advancing, setAdvancing] = (0, react_1.useState)(false);
         const [checklist, setChecklist] = (0, react_1.useState)([]);
+        const [verification, setVerification] = (0, react_1.useState)([]);
         const [hasPlan, setHasPlan] = (0, react_1.useState)(true);
         const [checklistMenu, setChecklistMenu] = (0, react_1.useState)(null);
         const [backwardMenu, setBackwardMenu] = (0, react_1.useState)(null);
@@ -95,7 +107,25 @@ window.__ModuleLoader__.load({
         const [settingsOpen, setSettingsOpen] = (0, react_1.useState)(false);
         const [returnToDetail, setReturnToDetail] = (0, react_1.useState)(false);
         const [confirmOpen, setConfirmOpen] = (0, react_1.useState)(false);
-        const claimedRef = (0, react_1.useRef)(false);
+        /** 这个会话有没有对话过：没有就轮询（预设随时可能被切过来），有就完全靠推送。 */
+        const hasMessagesRef = (0, react_1.useRef)(false);
+        /** 上一次上报给宿主的节点 id：只上报「拿到/丢掉节点」这两个跳，不逐帧刷。 */
+        const reportedNodeRef = (0, react_1.useRef)('');
+        /**
+         * 浏览器侧埋点：把「拿到节点 / 节点消失」这条跳发回宿主。
+         *
+         * 宿主日志能证明「服务端给了节点」，证明不了「页面拿到之后有没有画出来」；
+         * 这次排查就卡在这一点上，所以这里只在变化时补一条。
+         */
+        const reportNodeChange = (info) => {
+            const nextId = info === null ? '' : info.nodeId;
+            if (nextId === reportedNodeRef.current)
+                return;
+            reportedNodeRef.current = nextId;
+            void (0, client_log_1.reportClientEvent)('info', info === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${info.nodeId}, state=${info.state})`);
+        };
+        /** 防止一轮还没回来又叠一轮（3 秒定时器 + 推送事件可能撞在一起）。 */
+        const inFlightRef = (0, react_1.useRef)(false);
         // 自动认领需要会话的工作目录：useSessions 是带选择器的钩子，直接取当前会话的 cwd。
         const sessionCwd = typeof props?.useSessions === 'function'
             ? props.useSessions((s) => (s?.byId?.[sessionId]?.cwd ?? ''))
@@ -127,8 +157,10 @@ window.__ModuleLoader__.load({
                 if (responseBody?.ok === true) {
                     const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
                     const plan = responseBody.hasPlan !== false;
+                    const verifyItems = Array.isArray(responseBody.verification) ? responseBody.verification : [];
                     setChecklist(items);
                     setHasPlan(plan);
+                    setVerification(verifyItems);
                     return { checklist: items, hasPlan: plan };
                 }
             }
@@ -136,6 +168,7 @@ window.__ModuleLoader__.load({
                 // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
                 console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
                 setChecklist([]);
+                setVerification([]);
             }
             return { checklist: [], hasPlan: true };
         };
@@ -143,8 +176,11 @@ window.__ModuleLoader__.load({
             try {
                 const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
                 const responseBody = await response.json().catch(() => null);
+                // 宿主顺带告诉「这个会话有没有对话过」：空会话要轮询，聊过的靠推送。
+                hasMessagesRef.current = responseBody?.hasMessages === true;
                 const node = responseBody?.ok === true ? responseBody.node : null;
                 if (node === null || node === undefined) {
+                    reportNodeChange(null);
                     setNodeInfo(null);
                     return null;
                 }
@@ -157,10 +193,13 @@ window.__ModuleLoader__.load({
                         ? null
                         : { to: String(responseBody.pendingAdvance.to) },
                 };
+                reportNodeChange(info);
                 setNodeInfo(info);
                 return info;
             }
             catch {
+                // 读失败也按「这一刻没有节点」上报：否则界面上「没有胶囊」分不清是没数据还是请求失败。
+                reportNodeChange(null);
                 setNodeInfo(null);
                 return null;
             }
@@ -242,28 +281,53 @@ window.__ModuleLoader__.load({
             }
             let cancelled = false;
             const tick = async () => {
-                if (cancelled)
+                if (cancelled || inFlightRef.current)
                     return;
-                let info = await readNode();
-                // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
-                if (info === null && !claimedRef.current && sessionCwd !== '') {
-                    claimedRef.current = true;
-                    const ensuredState = await ensureNode(sessionCwd);
-                    if (ensuredState !== null) {
-                        // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
-                        notifyStateChanged(ensuredState);
-                        info = await readNode();
+                inFlightRef.current = true;
+                try {
+                    let info = await readNode();
+                    // 自动认领只对「还没聊过」的会话做：新会话可能刚被切成工作流，而宿主不会为
+                    // 这次切换发任何事件；聊过的会话迟早会走到 agent/pre-step，由宿主自己认领。
+                    if (info === null && !hasMessagesRef.current) {
+                        const ensuredState = await ensureNode(sessionCwd);
+                        if (ensuredState !== null) {
+                            // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
+                            notifyStateChanged(ensuredState);
+                            info = await readNode();
+                        }
+                    }
+                    if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
+                        void readChecklist(info.workflowId, info.nodeId);
+                    }
+                    else {
+                        setChecklist([]);
+                        setVerification([]);
                     }
                 }
-                if (info !== null && info.state === 'implementing')
-                    void readChecklist(info.workflowId, info.nodeId);
-                else
-                    setChecklist([]);
+                finally {
+                    inFlightRef.current = false;
+                }
             };
             void tick();
-            const timer = window.setInterval(tick, 3000);
+            // 宿主会把「这个会话变了」（状态切换 / 节点补建 / 预设释放 / 待确认推进）推过来，
+            // 收到就重取一次。
+            const stream = (0, workflow_stream_1.workflowStream)();
+            const unsubscribe = stream.subscribe((event) => {
+                if (event.sessionId !== sessionId)
+                    return;
+                if (event.state !== null)
+                    notifyStateChanged(event.state);
+                void tick();
+            });
+            // 轮询只服务「还没对话过」的会话（新建 = 空会话，数量小、生命周期短）；
+            // 一旦聊过，就完全交给推送，恢复零轮询。
+            const timer = window.setInterval(() => {
+                if (!hasMessagesRef.current)
+                    void tick();
+            }, EMPTY_SESSION_POLL_INTERVAL_MS);
             return () => {
                 cancelled = true;
+                unsubscribe();
                 window.clearInterval(timer);
             };
         }, [sessionId, sessionCwd]);
@@ -295,10 +359,13 @@ window.__ModuleLoader__.load({
                 const info = await readNode();
                 if (info !== null)
                     await applyEnterTrigger(info.enterTrigger);
-                if (info !== null && info.state === 'implementing')
+                if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
                     void readChecklist(info.workflowId, info.nodeId);
-                else
+                }
+                else {
                     setChecklist([]);
+                    setVerification([]);
+                }
                 console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
             }
             catch (error) {
@@ -348,10 +415,13 @@ window.__ModuleLoader__.load({
                     notifyStateChanged(info.state);
                     if (accept)
                         await applyEnterTrigger(info.enterTrigger);
-                    if (info.state === 'implementing')
+                    if (info.state === 'implementing' || info.state === 'verifying') {
                         void readChecklist(info.workflowId, info.nodeId);
-                    else
+                    }
+                    else {
                         setChecklist([]);
+                        setVerification([]);
+                    }
                 }
             }
             catch (error) {
@@ -359,6 +429,9 @@ window.__ModuleLoader__.load({
             }
         };
         const doneCount = checklist.filter((item) => item.done).length;
+        const verifyPassCount = verification.filter((item) => item.mark === 'pass').length;
+        const verifyDeferredCount = verification.filter((item) => item.mark === 'deferred').length;
+        const verifyDoneCount = verifyPassCount + verifyDeferredCount;
         const backwardStates = BACKWARD_STATES[nodeInfo.state] ?? [];
         return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("span", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u67E5\u770B\u672C\u8282\u70B9\u7684\u64CD\u4F5C\u7EC6\u8282 / \u5DE5\u4F5C\u624B\u518C", onClick: () => setDetailOpen(true), style: {
                                 display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px',
@@ -384,7 +457,16 @@ window.__ModuleLoader__.load({
                                         borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
                                         color: doneCount === checklist.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))',
                                         fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
-                                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
+                                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u5B9E\u65BD ", doneCount, "/", checklist.length] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(checklistMenu), items: checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, nodeInfo.state === 'verifying' && verification.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", title: "\u9A8C\u6536\u8FDB\u5EA6\uFF08AI \u62A5\u5907\u540E\u81EA\u52A8\u6807\u8BB0\uFF0C\u53EA\u8BFB\uFF09", onClick: (event) => {
+                                        event.currentTarget.focus({ preventScroll: true });
+                                        const point = (0, menu_anchor_1.menuPointFromEvent)(event);
+                                        setChecklistMenu((current) => (current === null ? point : null));
+                                    }, style: {
+                                        display: 'inline-flex', alignItems: 'center', height: 22, padding: '0 8px',
+                                        borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
+                                        color: verifyDoneCount === verification.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))',
+                                        fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
+                                    }, onMouseEnter: (event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }, onMouseLeave: (event) => { event.currentTarget.style.borderColor = 'transparent'; }, children: ["\u9A8C\u6536 ", verifyPassCount, "/", verification.length, verifyDeferredCount > 0 ? `（${verifyDeferredCount} 问询）` : ''] }), checklistMenu !== null ? ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: true, anchor: null, portal: true, align: "end", getAnchorRect: () => (0, menu_anchor_1.menuAnchorRect)(checklistMenu), items: verification.map((item) => ({ id: String(item.id), label: `${(0, verify_checks_1.verifyMarkSymbol)(item.mark)}  ${item.id} ${item.name}` })), onClose: () => setChecklistMenu(null), onSelect: () => setChecklistMenu(null) })) : null] })) : null, backwardStates.length > 0 ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09", side: "top", delayMs: 400, portal: true, children: (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u8FD4\u5DE5", disabled: advancing, onClick: (event) => {
                                             event.currentTarget.focus({ preventScroll: true });
                                             const point = (0, menu_anchor_1.menuPointFromEvent)(event);
                                             setBackwardMenu((current) => (current === null ? point : null));
@@ -445,6 +527,47 @@ window.__ModuleLoader__.load({
         completed: '已完结',
     };
     //# sourceMappingURL=node-state-label.js.map
+    },
+    "schema/verify-checks.js": function(__req, module, exports) {
+    "use strict";
+    /**
+     * 验收七项：固定条目（对应全局「七项体检」）。
+     *
+     * 只放常量与类型，**不引 zod**：客户端徽标要读条目名，客户端包里不能出现 zod
+     * （client-bundle-purity 会拦）。
+     *
+     * 七项的顺序与名称是协议的一部分：报备按 id 落标记，不按文本匹配——
+     * 文本是人写的，改一个字就再也勾不上（和手册「实施顺序」按文本匹配相反）。
+     */
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.VERIFY_CHECKS = void 0;
+    exports.verifyMarkSymbol = verifyMarkSymbol;
+    exports.createVerification = createVerification;
+    exports.VERIFY_CHECKS = [
+        { id: 1, name: '契约测试', needs_command: true, judge: '对外行为与原实现一致或按新契约验证，要有可复现对照' },
+        { id: 2, name: '依赖检查', needs_command: false, judge: '无反向依赖、无循环依赖、无跨层引用' },
+        { id: 3, name: '死代码扫描', needs_command: false, judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）' },
+        { id: 4, name: '边界测试', needs_command: true, judge: '外部依赖可 mock，模块能独立测试' },
+        { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项' },
+        { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区' },
+        { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）' },
+    ];
+    /** 标记的显示符号：徽标、菜单、注入文本共用一套，避免三处各写一份。 */
+    function verifyMarkSymbol(mark) {
+        if (mark === 'pass')
+            return '✓';
+        if (mark === 'deferred')
+            return '？';
+        return '○';
+    }
+    /** 按当前轮次造一份全空清单（七项固定顺序）。 */
+    function createVerification(round) {
+        return {
+            round,
+            items: exports.VERIFY_CHECKS.map((check) => ({ id: check.id, mark: 'pending', report: null })),
+        };
+    }
+    //# sourceMappingURL=verify-checks.js.map
     },
     "client/workflow-dialogs.js": function(__req, module, exports) {
     "use strict";
@@ -561,7 +684,7 @@ window.__ModuleLoader__.load({
                 borderRadius: 8,
                 padding: '5px 8px',
                 background: 'var(--dsw-alias-bg-base)',
-            }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: ["\u672C\u9636\u6BB5\u786C\u89C4\u5219\uFF08\u63D2\u4EF6\u5C42\uFF0C\u53EA\u8BFB\uFF09\u00B7 ", label] }), (0, jsx_runtime_1.jsxs)("span", { style: { display: 'flex', gap: 10, flexShrink: 0 }, children: [props.overridden ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: props.onReset, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: "\u6062\u590D\u9ED8\u8BA4" })) : null, (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setExpanded((value) => !value), style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: showBody ? '收起' : '展开' }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { setUnlocked((value) => !value); setExpanded(true); }, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }, children: unlocked ? '完成改写' : '改写硬规则' })] })] }), showBody ? ((0, jsx_runtime_1.jsx)("div", { style: { marginTop: 5 }, children: unlocked ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5, marginBottom: 4 }, children: "\u26A0 \u786C\u89C4\u5219\u7528\u4E8E\u9636\u6BB5\u63A8\u8FDB\u6821\u9A8C\uFF08\u65B9\u6848\u662F\u5426\u5199\u8FDB\u624B\u518C\u3001\u6E05\u5355\u662F\u5426\u5168\u52FE\uFF09\u3002\u6539\u4E86\u53EF\u80FD\u5BFC\u81F4\u6821\u9A8C\u4E0E\u4F60\u7684\u9884\u671F\u4E0D\u7B26\uFF0C\u786E\u8BA4\u540E\u518D\u6539\u3002" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 80 }, value: props.value, onChange: (event) => props.onChange(event.target.value) })] })) : ((0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary)', maxHeight: 96, overflow: 'auto' }, children: props.value })) })) : null] }));
+            }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: ["\u672C\u9636\u6BB5\u786C\u89C4\u5219\uFF08\u63D2\u4EF6\u5C42\uFF0C\u53EA\u8BFB\uFF09\u00B7 ", label] }), (0, jsx_runtime_1.jsxs)("span", { style: { display: 'flex', gap: 10, flexShrink: 0 }, children: [props.overridden && props.readOnly !== true ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: props.onReset, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: "\u6062\u590D\u9ED8\u8BA4" })) : null, (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setExpanded((value) => !value), style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', textDecoration: 'underline' }, children: showBody ? '收起' : '展开' }), props.readOnly === true ? null : ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { setUnlocked((value) => !value); setExpanded(true); }, style: { border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'var(--dsw-alias-brand-primary)', textDecoration: 'underline' }, children: unlocked ? '完成改写' : '改写硬规则' }))] })] }), showBody ? ((0, jsx_runtime_1.jsx)("div", { style: { marginTop: 5 }, children: unlocked ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5, marginBottom: 4 }, children: "\u26A0 \u786C\u89C4\u5219\u7528\u4E8E\u9636\u6BB5\u63A8\u8FDB\u6821\u9A8C\uFF08\u65B9\u6848\u662F\u5426\u5199\u8FDB\u624B\u518C\u3001\u6E05\u5355\u662F\u5426\u5168\u52FE\uFF09\u3002\u6539\u4E86\u53EF\u80FD\u5BFC\u81F4\u6821\u9A8C\u4E0E\u4F60\u7684\u9884\u671F\u4E0D\u7B26\uFF0C\u786E\u8BA4\u540E\u518D\u6539\u3002" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 80 }, value: props.value, onChange: (event) => props.onChange(event.target.value) })] })) : ((0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', fontSize: 11.5, lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary)', maxHeight: 96, overflow: 'auto' }, children: props.value })) })) : null] }));
     }
     /** 设置页顶部那排小按钮：统一尺寸，避免每处手写 style。 */
     function ProfileToolButton(props) {
@@ -912,23 +1035,23 @@ window.__ModuleLoader__.load({
                         display: 'flex',
                         flexDirection: 'column',
                         height: 380,
-                        // 内置存档只读：整块禁用交互（含改写硬规则），要改先「另存为」
-                        opacity: readOnlyProfile ? 0.55 : 1,
-                        pointerEvents: readOnlyProfile ? 'none' : 'auto',
-                    }, children: activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
+                        // 内置存档只读：输入框用 readOnly（仍能滚动、选中、复制），
+                        // 不能用 pointer-events:none 整块禁用——那样滚轮和文本选择都会一起失效。
+                    }, children: activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, readOnly: readOnlyProfile, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, readOnly: readOnlyProfile, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, readOnly: readOnlyProfile, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, readOnly: readOnlyProfile, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
                                     const next = { ...(detail.hard_rules ?? {}) };
                                     delete next[activeTab];
                                     update({ ...detail, hard_rules: next });
                                 } })) : null] })) }), (0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }, children: [(0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: status === 'pending' ? '待保存…'
                                 : status === 'saving' ? '保存中…'
                                     : status === 'saved' ? '已自动保存'
-                                        : status === 'error' ? '' : '改动会自动保存' }), error !== null ? (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 'auto' }, children: (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: restoreFactoryDefaults, disabled: defaults === null, style: {
+                                        : status === 'error' ? '' : '改动会自动保存' }), error !== null ? (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' }, children: error }) : null, (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 'auto' }, children: (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: restoreFactoryDefaults, disabled: defaults === null || readOnlyProfile, style: {
                                     padding: '4px 10px',
                                     borderRadius: 6,
                                     border: '1px solid var(--dsw-alias-border-l1)',
                                     background: 'transparent',
                                     color: 'var(--dsw-alias-label-secondary)',
-                                    cursor: defaults === null ? 'not-allowed' : 'pointer',
+                                    cursor: defaults === null || readOnlyProfile ? 'not-allowed' : 'pointer',
+                                    opacity: defaults === null || readOnlyProfile ? 0.6 : 1,
                                     fontSize: 12,
                                 }, children: "\u6062\u590D\u51FA\u5382\u9ED8\u8BA4" }) })] })] }));
     }
@@ -1379,6 +1502,154 @@ window.__ModuleLoader__.load({
         return { sessionId: detail.sessionId, state: detail.state };
     }
     //# sourceMappingURL=session-state-store.js.map
+    },
+    "client/workflow-stream.js": function(__req, module, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.parseWorkflowStreamFrame = parseWorkflowStreamFrame;
+    exports.createWorkflowStream = createWorkflowStream;
+    exports.workflowStream = workflowStream;
+    /**
+     * 工作流推送通道（客户端单例）。
+     *
+     * 为什么要有：宿主改状态、会话被释放、模型请求推进，这些都发生在服务端；
+     * 浏览器半拿不到宿主事件，只能轮询。这里订阅宿主的一条 SSE 流，把
+     * 「每 3 秒问一次」换成「有事推一次」。
+     *
+     * 只做三件事：开连接、分发帧、没人订阅就关连接；不碰 DOM、不发业务请求，
+     * 方便在 node 里用假 Source 测。
+     */
+    const client_log_1 = __req("client/client-log.js");
+    /** 解析一帧；坏帧返回 null（不要因为一条脏数据把整个通道关掉）。 */
+    function parseWorkflowStreamFrame(data) {
+        try {
+            const parsed = JSON.parse(String(data ?? ''));
+            if (typeof parsed?.sessionId !== 'string' || parsed.sessionId === '')
+                return null;
+            return {
+                sessionId: parsed.sessionId,
+                reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+                state: typeof parsed.state === 'string' && parsed.state !== '' ? parsed.state : null,
+            };
+        }
+        catch {
+            return null;
+        }
+    }
+    /**
+     * @param openSource 真正打开连接；返回 null 表示环境不支持（浏览器没有 EventSource）。
+     * @param onStatus 连接状态变化回调：用来在浏览器侧留一条埋点，区分「没收到推送」和「收到了没渲染」。
+     */
+    function createWorkflowStream(openSource, onStatus) {
+        const listeners = new Set();
+        let source = null;
+        const notifyStatus = (open) => {
+            try {
+                onStatus?.(open);
+            }
+            catch {
+                // 状态回调只是埋点，失败不影响通道。
+            }
+        };
+        const close = () => {
+            try {
+                source?.close();
+            }
+            catch {
+                // 关连接失败没有补救动作，忽略。
+            }
+            source = null;
+        };
+        const open = () => {
+            if (source !== null)
+                return;
+            let opened = null;
+            try {
+                opened = openSource();
+            }
+            catch {
+                opened = null;
+            }
+            if (opened === null)
+                return;
+            opened.onopen = () => {
+                notifyStatus(true);
+            };
+            // EventSource 会自己重连；这里只把「断过」报出去，便于排查「界面没更新」。
+            opened.onerror = () => {
+                notifyStatus(false);
+            };
+            opened.onmessage = (message) => {
+                const event = parseWorkflowStreamFrame(message.data);
+                if (event === null)
+                    return;
+                for (const listener of listeners) {
+                    try {
+                        listener(event);
+                    }
+                    catch {
+                        // 单个订阅者抛错不能拖垮其他订阅者。
+                    }
+                }
+            };
+            source = opened;
+        };
+        return {
+            subscribe(listener) {
+                listeners.add(listener);
+                open();
+                return () => {
+                    listeners.delete(listener);
+                    if (listeners.size === 0)
+                        close();
+                };
+            },
+        };
+    }
+    let singleton = null;
+    /** 页面级单例：所有会话的徽标共用一条连接。 */
+    function workflowStream() {
+        if (singleton === null) {
+            singleton = createWorkflowStream(() => {
+                if (typeof EventSource === 'undefined')
+                    return null;
+                return new EventSource('/dsh-agent-workflow/stream');
+            }, (open) => {
+                // 连接状态是「界面为什么不更新」这条链路上的第一跳，必须能观测到。
+                void (0, client_log_1.reportClientEvent)(open ? 'info' : 'warn', open ? 'stream open' : 'stream error');
+            });
+        }
+        return singleton;
+    }
+    //# sourceMappingURL=workflow-stream.js.map
+    },
+    "client/client-log.js": function(__req, module, exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.reportClientEvent = reportClientEvent;
+    /**
+     * 浏览器半的埋点出口。
+     *
+     * 为什么要这条通道：宿主的事件环只能证明「服务端做了/没做」，证明不了
+     * 「页面拿到节点之后有没有渲染」。这次排查「切到工作流没 UI」时，就卡在
+     * 这一跳分不清——是没收到、还是收到了没画出来。所以把浏览器侧的关键跳
+     * 发回宿主，和宿主事件落进同一个环，两边能对上时间。
+     *
+     * 只报「状态变化」，不报每一帧；宿主侧还有速率上限兜底。
+     */
+    async function reportClientEvent(level, message) {
+        try {
+            await fetch('/dsh-agent-workflow/client-log', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ level, message }),
+            });
+        }
+        catch {
+            // 打点失败不能影响功能：静默丢弃。
+        }
+    }
+    //# sourceMappingURL=client-log.js.map
     },
     "client/session-row-dot.js": function(__req, module, exports) {
     "use strict";

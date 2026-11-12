@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
@@ -12,6 +12,8 @@ import {
   type ManualLimits,
 } from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
+import { VERIFY_CHECKS, createVerification, type VerificationState, type VerifyItem, type VerifyMark, type VerifyReport } from '../schema/verify-checks';
+import { pickVerification, type VerifyReportInput } from '../engine/verify-rules';
 import { headingText, parseChecklist, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
 import {
   TAG_TABLE_MAX,
@@ -757,6 +759,10 @@ export class WorkflowRepository {
       const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
       if (node === undefined) throw new Error('找不到节点');
       const from = node.current_state;
+      // 每次进「验收中」都开新一轮：七项清空，旧报备凭轮次失效（重复验收必须重新打勾）。
+      const nextVerification = input.to === 'verifying'
+        ? createVerification((node.verification?.round ?? 0) + 1)
+        : undefined;
       // 切回讨论中：上一轮的「实施顺序」作废。先清手册再落快照——清失败就不切换状态，
       // 避免出现「已在讨论中、清单还是上一轮的」这种半截状态。
       if (input.to === 'discussing' && from !== 'discussing') {
@@ -769,6 +775,7 @@ export class WorkflowRepository {
             ? {
                 ...candidate,
                 current_state: input.to as AgentNode['current_state'],
+                ...(nextVerification === undefined ? {} : { verification: nextVerification }),
                 history: [...(candidate.history ?? []), {
                   at: new Date().toISOString(),
                   from,
@@ -1399,6 +1406,116 @@ export class WorkflowRepository {
     await writeTextAtomic(file, next);
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
     return parseChecklist(next);
+  }
+
+  /**
+   * 读某个节点的验收清单。
+   * 旧快照没有 verification 字段时回落到「七项全空」，不做数据迁移。
+   */
+  async getVerification(workflowId: string, nodeId: string): Promise<VerificationState> {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) throw new Error('找不到该 workflow');
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === undefined) throw new Error('找不到节点');
+    return pickVerification(node.verification);
+  }
+
+  /**
+   * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
+   *
+   * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。
+   */
+  async submitVerifyReport(input: {
+    workflowId: string;
+    nodeId: string;
+    itemId: number;
+    report: VerifyReportInput;
+  }): Promise<{ state: VerificationState; item: VerifyItem }> {
+    return this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error('找不到该 workflow');
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === undefined) throw new Error('找不到节点');
+      if (!VERIFY_CHECKS.some((check) => check.id === input.itemId)) throw new Error(`没有 ${input.itemId} 号验收项`);
+      const workingDir = snapshot.working_directory;
+      if (typeof workingDir !== 'string' || workingDir === '') {
+        throw new Error('该 workflow 没有工作目录，无法校验证据锚点；先给它指定工作目录');
+      }
+      await this.assertVerifyAnchors(workingDir, input.report.anchors);
+
+      const current = pickVerification(node.verification);
+      const report: VerifyReport = { ...input.report, round: current.round, at: new Date().toISOString() };
+      const mark: VerifyMark = input.report.result === 'pass' ? 'pass' : 'deferred';
+      const nextState: VerificationState = {
+        round: current.round,
+        items: current.items.map((entry) => (entry.id === input.itemId ? { id: entry.id, mark, report } : entry)),
+      };
+      const updated: WorkflowSnapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => (
+          candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate
+        )),
+      };
+      await this.storage.save(updated);
+      const item = nextState.items.find((entry) => entry.id === input.itemId);
+      if (item === undefined) throw new Error(`没能写回 ${input.itemId} 号验收项`);
+      return { state: nextState, item };
+    });
+  }
+
+  /** 取消一项验收标记：回到 ○，报备一起作废（想再标就得重新报备）。 */
+  async cancelVerifyMark(input: {
+    workflowId: string;
+    nodeId: string;
+    itemId: number;
+  }): Promise<{ state: VerificationState; item: VerifyItem }> {
+    return this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error('找不到该 workflow');
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === undefined) throw new Error('找不到节点');
+      const current = pickVerification(node.verification);
+      if (!current.items.some((entry) => entry.id === input.itemId)) throw new Error(`没有 ${input.itemId} 号验收项`);
+      const nextState: VerificationState = {
+        round: current.round,
+        items: current.items.map((entry) => (
+          entry.id === input.itemId ? { id: entry.id, mark: 'pending' as VerifyMark, report: null } : entry
+        )),
+      };
+      const updated: WorkflowSnapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => (
+          candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate
+        )),
+      };
+      await this.storage.save(updated);
+      const item = nextState.items.find((entry) => entry.id === input.itemId);
+      if (item === undefined) throw new Error(`没能写回 ${input.itemId} 号验收项`);
+      return { state: nextState, item };
+    });
+  }
+
+  /** 锚点校验：文件必须真实存在于工作目录内；给了行号就核对行数。 */
+  private async assertVerifyAnchors(workingDirectory: string, anchors: Array<{ file: string; line?: number }>): Promise<void> {
+    const root = resolve(workingDirectory);
+    for (const anchor of anchors) {
+      const target = resolve(root, anchor.file);
+      if (target !== root && !target.startsWith(`${root}${sep}`)) {
+        throw new Error(`证据路径必须在本工作目录内：${anchor.file}`);
+      }
+      let content: string;
+      try {
+        content = await fs.readFile(target, 'utf8');
+      } catch {
+        throw new Error(`证据文件不存在：${anchor.file}`);
+      }
+      if (anchor.line !== undefined) {
+        const lineCount = content.split(/\r?\n/).length;
+        if (anchor.line > lineCount) {
+          throw new Error(`证据行号超出文件范围：${anchor.file}:${anchor.line}（文件共 ${lineCount} 行）`);
+        }
+      }
+    }
   }
 
   /** 会话/项目手册的绝对路径与"是不是会话手册"。 */

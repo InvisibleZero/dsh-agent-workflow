@@ -105,6 +105,12 @@ async function json(port, path, opts) {
   return r.json().catch(() => null);
 }
 
+/**
+ * 回归脚本用的都是合成 sessionId，宿主的会话服务里没有它们。
+ * ensure-node 现在要求显式标记「测试会话」（默认预设的新会话不再被兜底认领），所以统一补 test: true。
+ */
+const ensureTestNode = (port, body) => json(port, 'ensure-node', { method: 'POST', body: { ...body, test: true } });
+
 const time = (label, fn) => {
   const t0 = Date.now();
   return fn().then((v) => ({ label, ms: Date.now() - t0, v }));
@@ -131,17 +137,17 @@ async function main() {
   const sidB = 'reg-b-' + Date.now();
 
   // 1. 自动认领
-  const e1 = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: sidA, workingDirectory: dir } });
+  const e1 = await ensureTestNode(port, { sessionId: sidA, workingDirectory: dir });
   report('ensure-node 认领新会话', e1?.ok === true && e1?.node?.current_state === 'discussing', `node=${e1?.node?.nodeId?.slice(0, 8)}`);
   const wfId = e1?.node?.workflowId;
   const nodeA = e1?.node?.nodeId;
 
   // 2. 幂等
-  const e2 = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: sidA, workingDirectory: dir } });
+  const e2 = await ensureTestNode(port, { sessionId: sidA, workingDirectory: dir });
   report('ensure-node 幂等（同会话返回同节点）', e2?.node?.nodeId === nodeA);
 
   // 3. 第二个会话
-  const e3 = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: sidB, workingDirectory: dir } });
+  const e3 = await ensureTestNode(port, { sessionId: sidB, workingDirectory: dir });
   report('第二个会话认领', e3?.ok === true && e3?.node?.current_state === 'discussing');
 
   // 4. 推进前置：方案没写不能进实现中
@@ -248,7 +254,7 @@ async function main() {
   const ids = [];
   for (let i = 0; i < N; i++) ids.push('stress-' + i + '-' + Date.now());
   for (let i = 0; i < N; i++) {
-    await json(port, 'ensure-node', { method: 'POST', body: { sessionId: ids[i], workingDirectory: big } });
+    await ensureTestNode(port, { sessionId: ids[i], workingDirectory: big });
   }
   const bigMs = Date.now() - bigStart;
   const bigSide = await json(port, `sidebar-nodes?path=${encodeURIComponent(big)}`);
@@ -273,10 +279,10 @@ async function main() {
   // C. 20 节点并发推进
   const transNodes = [];
   for (let i = 0; i < 20; i++) {
-    const e = await json(port, 'ensure-node', { method: 'POST', body: { sessionId: 'trans-' + i + '-' + Date.now(), workingDirectory: big } });
+    const e = await ensureTestNode(port, { sessionId: 'trans-' + i + '-' + Date.now(), workingDirectory: big });
     transNodes.push(e.node);
   }
-  const wfBig = (await json(port, 'ensure-node', { method: 'POST', body: { sessionId: ids[0], workingDirectory: big } })).node.workflowId;
+  const wfBig = (await ensureTestNode(port, { sessionId: ids[0], workingDirectory: big })).node.workflowId;
   const transResults = await Promise.all(transNodes.map((n) =>
     json(port, 'transition', { method: 'POST', body: { id: wfBig, nodeId: n.nodeId, to: 'discussing' } })
   ));

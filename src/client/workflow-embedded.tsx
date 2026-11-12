@@ -12,10 +12,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { verifyMarkSymbol } from '../schema/verify-checks';
 import { WorkflowNodeDetailDialog, WorkflowSettingsDialog, WorkflowConfirmDialog } from './workflow-dialogs';
 import { menuPointFromEvent, menuAnchorRect } from './menu-anchor';
 import { NODE_STATE_COLOR } from './node-state-color';
 import { WORKFLOW_STATE_CHANGED_EVENT } from './session-state-store';
+import { workflowStream } from './workflow-stream';
+import { reportClientEvent } from './client-log';
 import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
 /** 四态单向推进表。 */
@@ -25,6 +28,15 @@ const NEXT_NODE_STATE: Record<string, string | null> = {
   verifying: 'completed',
   completed: null,
 };
+
+/**
+ * 空会话（还没对话过）的轮询间隔。
+ *
+ * 为什么只对空会话轮询：新建会话可以在任何时候被切成「工作流模式」，而这次切换
+ * 宿主不会发任何事件——只有主动问才能知道。会话一旦聊过，就完全交给 SSE 推送，
+ * 恢复零轮询；这样「每个会话每 3 秒问一次」不会回来。
+ */
+const EMPTY_SESSION_POLL_INTERVAL_MS = 3_000;
 
 interface NodeInfo {
   state: string;
@@ -40,6 +52,14 @@ interface ChecklistItem {
   done: boolean;
 }
 
+/** 验收七项的一行：标记由报备落，客户端只读。 */
+interface VerifyItemView {
+  id: number;
+  name: string;
+  mark: string;
+  summary: string;
+}
+
 /** 返工（后退）转移表：当前态 → 可退回的态。已完结允许退回验收中或讨论中。 */
 const BACKWARD_STATES: Record<string, string[]> = {
   implementing: ['discussing'],
@@ -52,6 +72,7 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [verification, setVerification] = useState<VerifyItemView[]>([]);
   const [hasPlan, setHasPlan] = useState(true);
   const [checklistMenu, setChecklistMenu] = useState<{ x: number; y: number } | null>(null);
   const [backwardMenu, setBackwardMenu] = useState<{ x: number; y: number } | null>(null);
@@ -59,7 +80,28 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [returnToDetail, setReturnToDetail] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const claimedRef = useRef(false);
+  /** 这个会话有没有对话过：没有就轮询（预设随时可能被切过来），有就完全靠推送。 */
+  const hasMessagesRef = useRef(false);
+  /** 上一次上报给宿主的节点 id：只上报「拿到/丢掉节点」这两个跳，不逐帧刷。 */
+  const reportedNodeRef = useRef('');
+
+  /**
+   * 浏览器侧埋点：把「拿到节点 / 节点消失」这条跳发回宿主。
+   *
+   * 宿主日志能证明「服务端给了节点」，证明不了「页面拿到之后有没有画出来」；
+   * 这次排查就卡在这一点上，所以这里只在变化时补一条。
+   */
+  const reportNodeChange = (info: { nodeId: string; state: string } | null): void => {
+    const nextId = info === null ? '' : info.nodeId;
+    if (nextId === reportedNodeRef.current) return;
+    reportedNodeRef.current = nextId;
+    void reportClientEvent(
+      'info',
+      info === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${info.nodeId}, state=${info.state})`,
+    );
+  };
+  /** 防止一轮还没回来又叠一轮（3 秒定时器 + 推送事件可能撞在一起）。 */
+  const inFlightRef = useRef(false);
 
   // 自动认领需要会话的工作目录：useSessions 是带选择器的钩子，直接取当前会话的 cwd。
   const sessionCwd = typeof props?.useSessions === 'function'
@@ -94,14 +136,17 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       if (responseBody?.ok === true) {
         const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
         const plan = responseBody.hasPlan !== false;
+        const verifyItems = Array.isArray(responseBody.verification) ? responseBody.verification : [];
         setChecklist(items);
         setHasPlan(plan);
+        setVerification(verifyItems);
         return { checklist: items, hasPlan: plan };
       }
     } catch (error) {
       // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
       console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
       setChecklist([]);
+      setVerification([]);
     }
     return { checklist: [], hasPlan: true };
   };
@@ -110,8 +155,11 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     try {
       const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
       const responseBody = await response.json().catch(() => null);
+      // 宿主顺带告诉「这个会话有没有对话过」：空会话要轮询，聊过的靠推送。
+      hasMessagesRef.current = responseBody?.hasMessages === true;
       const node = responseBody?.ok === true ? responseBody.node : null;
       if (node === null || node === undefined) {
+        reportNodeChange(null);
         setNodeInfo(null);
         return null;
       }
@@ -124,9 +172,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
           ? null
           : { to: String(responseBody.pendingAdvance.to) },
       };
+      reportNodeChange(info);
       setNodeInfo(info);
       return info;
     } catch {
+      // 读失败也按「这一刻没有节点」上报：否则界面上「没有胶囊」分不清是没数据还是请求失败。
+      reportNodeChange(null);
       setNodeInfo(null);
       return null;
     }
@@ -204,25 +255,47 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     }
     let cancelled = false;
     const tick = async () => {
-      if (cancelled) return;
-      let info = await readNode();
-      // 自动认领：会话还没节点时，用它的工作目录补建一个（只试一次）。
-      if (info === null && !claimedRef.current && sessionCwd !== '') {
-        claimedRef.current = true;
-        const ensuredState = await ensureNode(sessionCwd);
-        if (ensuredState !== null) {
-          // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
-          notifyStateChanged(ensuredState);
-          info = await readNode();
+      if (cancelled || inFlightRef.current) return;
+      inFlightRef.current = true;
+      try {
+        let info = await readNode();
+        // 自动认领只对「还没聊过」的会话做：新会话可能刚被切成工作流，而宿主不会为
+        // 这次切换发任何事件；聊过的会话迟早会走到 agent/pre-step，由宿主自己认领。
+        if (info === null && !hasMessagesRef.current) {
+          const ensuredState = await ensureNode(sessionCwd);
+          if (ensuredState !== null) {
+            // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
+            notifyStateChanged(ensuredState);
+            info = await readNode();
+          }
         }
+        if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
+          void readChecklist(info.workflowId, info.nodeId);
+        } else {
+          setChecklist([]);
+          setVerification([]);
+        }
+      } finally {
+        inFlightRef.current = false;
       }
-      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
-      else setChecklist([]);
     };
     void tick();
-    const timer = window.setInterval(tick, 3000);
+    // 宿主会把「这个会话变了」（状态切换 / 节点补建 / 预设释放 / 待确认推进）推过来，
+    // 收到就重取一次。
+    const stream = workflowStream();
+    const unsubscribe = stream.subscribe((event) => {
+      if (event.sessionId !== sessionId) return;
+      if (event.state !== null) notifyStateChanged(event.state);
+      void tick();
+    });
+    // 轮询只服务「还没对话过」的会话（新建 = 空会话，数量小、生命周期短）；
+    // 一旦聊过，就完全交给推送，恢复零轮询。
+    const timer = window.setInterval(() => {
+      if (!hasMessagesRef.current) void tick();
+    }, EMPTY_SESSION_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
+      unsubscribe();
       window.clearInterval(timer);
     };
   }, [sessionId, sessionCwd]);
@@ -253,8 +326,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       notifyStateChanged(to);
       const info = await readNode();
       if (info !== null) await applyEnterTrigger(info.enterTrigger);
-      if (info !== null && info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
-      else setChecklist([]);
+      if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
+        void readChecklist(info.workflowId, info.nodeId);
+      } else {
+        setChecklist([]);
+        setVerification([]);
+      }
       console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
     } catch (error) {
       console.error('[dsh-agent-workflow] 推进状态失败：', error);
@@ -302,8 +379,12 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         // 同意 / 拒绝之后都可能改变节点状态：按服务端读回的状态更新这一行。
         notifyStateChanged(info.state);
         if (accept) await applyEnterTrigger(info.enterTrigger);
-        if (info.state === 'implementing') void readChecklist(info.workflowId, info.nodeId);
-        else setChecklist([]);
+        if (info.state === 'implementing' || info.state === 'verifying') {
+          void readChecklist(info.workflowId, info.nodeId);
+        } else {
+          setChecklist([]);
+          setVerification([]);
+        }
       }
     } catch (error) {
       console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
@@ -311,6 +392,9 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   };
 
   const doneCount = checklist.filter((item) => item.done).length;
+  const verifyPassCount = verification.filter((item) => item.mark === 'pass').length;
+  const verifyDeferredCount = verification.filter((item) => item.mark === 'deferred').length;
+  const verifyDoneCount = verifyPassCount + verifyDeferredCount;
   const backwardStates = BACKWARD_STATES[nodeInfo.state] ?? [];
 
   return (
@@ -394,6 +478,41 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
                 align="end"
                 getAnchorRect={() => menuAnchorRect(checklistMenu)}
                 items={checklist.map((item) => ({ id: item.label, label: `${item.done ? '✓' : '○'}  ${item.label}` }))}
+                onClose={() => setChecklistMenu(null)}
+                onSelect={() => setChecklistMenu(null)}
+              />
+            ) : null}
+          </>
+        ) : null}
+        {nodeInfo.state === 'verifying' && verification.length > 0 ? (
+          <>
+            <button
+              type="button"
+              title="验收进度（AI 报备后自动标记，只读）"
+              onClick={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
+                const point = menuPointFromEvent(event);
+                setChecklistMenu((current) => (current === null ? point : null));
+              }}
+              style={{
+                display: 'inline-flex', alignItems: 'center', height: 22, padding: '0 8px',
+                borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
+                color: verifyDoneCount === verification.length ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-brand-primary, var(--dsw-alias-label-primary))',
+                fontSize: 11, lineHeight: '22px', whiteSpace: 'nowrap', cursor: 'pointer',
+              }}
+              onMouseEnter={(event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
+              onMouseLeave={(event) => { event.currentTarget.style.borderColor = 'transparent'; }}
+            >
+              验收 {verifyPassCount}/{verification.length}{verifyDeferredCount > 0 ? `（${verifyDeferredCount} 问询）` : ''}
+            </button>
+            {checklistMenu !== null ? (
+              <Menu
+                open
+                anchor={null}
+                portal
+                align="end"
+                getAnchorRect={() => menuAnchorRect(checklistMenu)}
+                items={verification.map((item) => ({ id: String(item.id), label: `${verifyMarkSymbol(item.mark)}  ${item.id} ${item.name}` }))}
                 onClose={() => setChecklistMenu(null)}
                 onSelect={() => setChecklistMenu(null)}
               />

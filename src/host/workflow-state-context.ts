@@ -14,6 +14,8 @@
 import { effectiveDetailParts } from '../engine/state-machine';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
+import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
+import { summarizeVerification } from '../engine/verify-rules';
 import { logEvent } from './event-log';
 import { join } from 'node:path';
 import {
@@ -168,6 +170,23 @@ export function registerWorkflowStateContext(
       logEvent(ctx.logger, 'warn', `[workflow] tag layer truncated (session=${sessionId}, tags=${projectSections.tags.length}, bytes=${countUtf8Bytes(tagsText)})`);
     }
 
+    // 验收七项：只在「验收中」注入（其它状态没有这块清单，别占预算）。
+    let verifyProgress = '';
+    if (node.current_state === 'verifying') {
+      const verification = await repository.getVerification(found.workflowId, found.nodeId);
+      const progress = summarizeVerification(verification);
+      const lines = [
+        `【验收七项】通过 ${progress.pass} / 问询 ${progress.deferred} / 待处理 ${progress.pending}（共 ${progress.total}）`,
+        ...verification.items.map((item) => {
+          const definition = VERIFY_CHECKS.find((check) => check.id === item.id);
+          const tail = item.mark === 'deferred' && item.report !== null ? `：${item.report.summary}` : '';
+          return `${verifyMarkSymbol(item.mark)} ${item.id} ${definition?.name ?? ''}${tail}`.trim();
+        }),
+        '（✓ = 已报备通过；？ = 查出问题本轮不修；○ = 还没报备。报备用 workflow_verify_report，七项全非 ○ 才能进「已完结」。）',
+      ];
+      verifyProgress = lines.join('\n');
+    }
+
     // 会话手册：方案全文 + 未勾清单（不再取"尾部 2000 字"）。
     const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
     let sessionManual = '';
@@ -192,6 +211,7 @@ export function registerWorkflowStateContext(
       { name: 'shared-detail', text: detail.shared_detail },
       { name: 'state-detail', text: detail.state_detail },
       { name: 'node-addition', text: additionParts.join('\n\n') },
+      { name: 'verify-progress', text: verifyProgress },
       { name: 'constraints', text: constraints.text.trim() === '' ? '' : `【约束 / 红线】（本项目绝不能做）\n${constraints.text.trim()}` },
       { name: 'manual-tags', text: tagsText },
       { name: 'manual-cue', text: cue },
