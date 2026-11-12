@@ -2,6 +2,8 @@ export interface WorkflowToolsDeps {
     repository: any;
     isPresetSession: (sessionId: unknown) => boolean;
     getState: (sessionId: string) => string | undefined;
+    /** 状态表缺条时补一次（异步、可读盘）；门禁与工具都靠它自愈。 */
+    refreshState?: (sessionId: string) => Promise<void>;
     setState: (sessionId: string, state: string) => void;
     logger: any;
     /** 记一条"等待用户同意"的推进请求；真正切换状态由用户的点击完成。 */

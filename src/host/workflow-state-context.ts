@@ -1,86 +1,128 @@
 // @ts-nocheck
 /**
- * 把 workflow 节点的「操作细节」按当前状态注入会话上下文。
+ * 把 workflow 节点的上下文按层注入会话（系统提示里的动态上下文段，不写会话记录）。
  *
- * 通道选择：`systemPrompt.context()`（系统提示里的动态上下文段），不是往会话里塞用户消息。
- * 理由：
- *   1) 每次装配重新求值 —— 状态一变文本自然跟着变，不需要"替换/作废旧消息"的记账；
- *   2) 不写进会话日志，不污染聊天记录，也没有消息 source 判别联合的兼容风险。
+ * 通道选择：`systemPrompt.context()`。理由：每次装配重新求值，状态一变文本自然跟着变，
+ * 不用"替换/作废旧消息"的记账，也不污染聊天记录。
+ *
+ * 分层：每层一个 context 槽位（各自 order + 各自预算），由 `assemblePromptLayers` 统一装配。
+ * 之前是拼成一整块 8000 字节再截尾——谁写在后面谁先死，跟重要程度无关。
  *
  * 约束：context 的 text() 是同步求值，不能读盘，所以真实文本在 `agent/pre-step`
  * （异步）里算好放进缓存，text() 只读缓存。
  */
-import { effectiveDetail } from '../engine/state-machine';
+import { effectiveDetailParts } from '../engine/state-machine';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { logEvent } from './event-log';
 import { join } from 'node:path';
+import {
+  PROMPT_LAYER_SPECS,
+  SESSION_MANUAL_BUDGET_BYTES,
+  TAG_LAYER_BUDGET_BYTES,
+  assemblePromptLayers,
+  pickSessionManualParts,
+} from '../engine/prompt-layers';
+import { countUtf8Bytes, truncateToBytes } from '../engine/text-budget';
+import type { ManualLimits } from '../schema/manual-limits';
 
-/** 单块上下文上限（字节）：超了截断并标注，避免把系统提示撑爆。 */
-const MAX_TEXT_BYTES = 8000;
-/** 注入用的工作手册「最近内容」长度（全文不常驻，靠文件工具取更早部分）。 */
-const MANUAL_RECENT_CHARS = 2000;
+export { truncateToBytes };
+
+/** 整块注入的预算（字节）：维持原来的 8000，靠"分层 + 按重要度丢"解决挤占，不靠加预算。 */
+const TOTAL_BUDGET_BYTES = 8000;
+
+interface BuiltContext {
+  /** 层名 → 本轮该层文本（被丢的层是空串，槽位仍然挂着只是不出内容）。 */
+  layers: Map<string, string>;
+  layerBytes: Map<string, number>;
+  state: string;
+  nodeId: string;
+  bytes: number;
+  dropped: Array<{ name: string; bytes: number; reason: string }>;
+  /** 层文本指纹：变了才打日志，避免每轮刷 8 行。 */
+  signature: string;
+}
 
 /**
- * 按**字节**截断，且不切坏多字节字符。
- *
- * 之前是「按字节判断、按字符切」：中文一个字 3 字节，字节超了 8000、字符没超 8000 时
- * 内容一个字都没切却照样追加「（已截断）」，等于骗模型；真到 8000 字符时又切出 24KB。
+ * 按字符截断（码点安全）。
+ * 用于「约束 / 红线」这类有字数上限的小节：老手册可能超，超了要标出来而不是静默丢字。
  */
-export function truncateToBytes(text: string, maxBytes: number): string {
-  const buffer = Buffer.from(text, 'utf8');
-  if (buffer.length <= maxBytes) return text;
-  let end = maxBytes;
-  // 回退到 UTF-8 字符边界：续字节形如 10xxxxxx。
-  while (end > 0 && (buffer[end] & 0xc0) === 0x80) end -= 1;
-  return `${buffer.subarray(0, end).toString('utf8')}…（已截断）`;
+function clipChars(text: string, limit: number): { text: string; clipped: boolean } {
+  const chars = Array.from(text);
+  if (chars.length <= limit) return { text, clipped: false };
+  return { text: `${chars.slice(0, limit).join('')}…（已截断，全文见项目手册文件）`, clipped: true };
+}
+
+/**
+ * 渲染「会话手册」这一层：方案全文 + 未勾清单。
+ *
+ * 自带降级：清单短、方案长，所以先保证清单装得下，剩下预算给方案；
+ * 方案再超就按字节截断并标注（不重演"尾部 2000 字"那种反向取舍）。
+ */
+function renderSessionManual(input: {
+  path: string;
+  plan: string;
+  unchecked: string[];
+  checkedCount: number;
+  totalItems: number;
+}): { text: string; planTruncated: boolean } {
+  const head = `本会话手册（唯一真源）：${input.path}`;
+  const listLines = input.totalItems === 0
+    ? ['实施顺序：（还没写）']
+    : [
+      `实施顺序：未勾 ${input.unchecked.length} 条 / 共 ${input.totalItems} 条（已勾 ${input.checkedCount} 条不再重复注入）`,
+      ...input.unchecked.map((label: string, index: number) => `${index + 1}. ${label}`),
+    ];
+  const listText = listLines.join('\n');
+  const overhead = countUtf8Bytes(`${head}\n\n方案：\n\n\n${listText}`);
+  const planBudget = Math.max(300, SESSION_MANUAL_BUDGET_BYTES - overhead);
+  const rawPlan = input.plan.trim();
+  const planText = rawPlan === '' ? '（还没写）' : truncateToBytes(rawPlan, planBudget);
+  return {
+    text: `${head}\n\n方案：\n${planText}\n\n${listText}`,
+    planTruncated: rawPlan !== '' && planText !== rawPlan,
+  };
 }
 
 /**
  * 注册 workflow 状态上下文。
- * @returns 调试用的 peek(sessionId)：强制算一次并返回将要注入的文本。
+ * @returns 调试用的 peek(sessionId)：强制算一次并返回合并后的文本。
  */
 export function registerWorkflowStateContext(
   ctx: any,
   repository: any,
   /** 只有返回 true 的会话才注入；由宿主半按"这个会话是不是工作流预设"判定。 */
   isWorkflowSession: (sessionId: string) => boolean = () => true,
-): { peek: (sessionId: string) => Promise<string> } {
-  /** sessionId -> 算好的文本（同步可读，供 systemPrompt.context 使用）。 */
-  const cache = new Map<string, { text: string; nodeId: string; state: string }>();
+): { peek: (sessionId: string) => Promise<string>; refreshNow: (sessionId: string) => Promise<string> } {
+  /** sessionId -> 本轮各层文本（同步可读，供 systemPrompt.context 使用）。 */
+  const cache = new Map<string, BuiltContext>();
   const pending = new Set<string>();
 
-  const buildText = async (sessionId: string): Promise<string> => {
+  const clear = (sessionId: string, reason: string): null => {
+    cache.delete(sessionId);
+    logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=${reason})`);
+    return null;
+  };
+
+  const buildText = async (sessionId: string): Promise<BuiltContext | null> => {
     const found = await repository.findBySession(sessionId);
-    if (found === null || found === undefined) {
-      cache.delete(sessionId);
-      logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-node)`);
-      return '';
-    }
+    if (found === null || found === undefined) return clear(sessionId, 'no-node');
     const snapshot = await repository.get(found.workflowId);
-    if (snapshot === null) {
-      cache.delete(sessionId);
-      logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-workflow)`);
-      return '';
-    }
+    if (snapshot === null) return clear(sessionId, 'no-workflow');
     const node = snapshot.nodes.find((candidate: any) => candidate.node_id === found.nodeId);
-    if (node === undefined) {
-      cache.delete(sessionId);
-      logEvent(ctx.logger, 'info', `[workflow] context cleared (session=${sessionId}, reason=no-node-in-snapshot)`);
-      return '';
-    }
+    if (node === undefined) return clear(sessionId, 'no-node-in-snapshot');
+
     const global = await repository.getAppGlobalOperationDetail();
-    const effective = effectiveDetail(node.current_state, node, global);
+    // A（三态通用）与 B/C/D（本状态专属）分开取：两层各自挂载、各自预算。
+    const detail = effectiveDetailParts(node.current_state, node, global);
     const label = NODE_STATE_LABEL[node.current_state] ?? node.current_state;
-    const parts: string[] = [
-      '<workflow-state>',
+
+    const header = [
       `节点：${node.title || '(未命名)'}　workflow：${snapshot.title}`,
       `当前状态：${label}`,
       '（阶段边界：只有「讨论中」会拦写操作；「验收中」「已完结」不拦写文件。改代码仍按阶段规则走，工具会返回该阶段的完整规则。）',
-    ];
-    if (typeof effective.full_detail === 'string' && effective.full_detail.trim() !== '') {
-      parts.push('', effective.full_detail.trim());
-    }
+    ].join('\n');
+
     // 插件层硬规则：不随用户「操作细节」编辑，按当前状态追加（覆盖值优先，缺省用常量）。
     const hardOverride = (global && typeof global === 'object' ? global.hard_rules : undefined) ?? {};
     const hardRule = node.current_state === 'discussing'
@@ -90,48 +132,129 @@ export function registerWorkflowStateContext(
         : node.current_state === 'verifying'
           ? (hardOverride.verifying ?? DEFAULT_HARD_RULES.verifying)
           : '';
-    if (typeof hardRule === 'string' && hardRule.trim() !== '') {
-      parts.push('', `【本阶段硬规则】\n${hardRule.trim()}`);
-    }
-    // 节点级「全局附加」：不管当前什么状态都追加。
+
+    // 节点级「附加说明」：全局附加 + 当前状态附加，合成一层（都属于"本节点特别要求"）。
     const nodeAdditional = typeof node.additional_detail === 'object' && node.additional_detail !== null
       ? node.additional_detail.global
       : undefined;
-    if (typeof nodeAdditional === 'string' && nodeAdditional.trim() !== '') {
-      parts.push('', nodeAdditional.trim());
-    }
-    // 节点级附加说明：只作用于当前状态，接在最后。
-    const addition = typeof node.additional_detail === 'object' && node.additional_detail !== null
+    const stateAddition = typeof node.additional_detail === 'object' && node.additional_detail !== null
       ? node.additional_detail[node.current_state]
       : undefined;
-    if (typeof addition === 'string' && addition.trim() !== '') {
-      parts.push('', `本节点补充要求：${addition.trim()}`);
-    }
-    // —— 会话手册（方案 + 实施顺序） + 项目手册（总览/决策/要点）——
-    const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
-    if (manualData !== null) {
-      const manual = manualData.manual;
-      const recent = manual.length > MANUAL_RECENT_CHARS
-        ? `${manual.slice(-MANUAL_RECENT_CHARS)}\n…（更早内容见文件）`
-        : manual;
-      parts.push('', `本会话手册：${join(manualData.notesDir, `会话手册-${found.nodeId}.md`)}`);
-      if (recent.trim() !== '') parts.push(recent);
-    }
-    // —— 项目手册按优先级注入：约束与坑永远在最前，总览/决策只给摘要 ——
+    const additionParts: string[] = [];
+    if (typeof nodeAdditional === 'string' && nodeAdditional.trim() !== '') additionParts.push(nodeAdditional.trim());
+    if (typeof stateAddition === 'string' && stateAddition.trim() !== '') additionParts.push(`本节点补充要求：${stateAddition.trim()}`);
+
+    // 项目手册：只有「约束 / 红线」常驻；其余三节不注入，靠一句引导让模型自己去读文件。
+    const limits: ManualLimits = (await repository.getAppSettings()).manualLimits;
     const projectSections = await repository.readGlobalManualSections(found.workflowId);
-    const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
-    const projectBlocks: string[] = [];
-    if (projectSections.constraints.trim() !== '') projectBlocks.push(`【约束 / 红线】\n${clip(projectSections.constraints, 300)}`);
-    if (projectSections.pitfalls.trim() !== '') projectBlocks.push(`【坑与防线】\n${clip(projectSections.pitfalls, 400)}`);
-    if (projectSections.overview.trim() !== '') projectBlocks.push(`【项目总览】\n${clip(projectSections.overview, 120)}`);
-    if (projectSections.decisions.trim() !== '') projectBlocks.push(`【决策记录】\n${clip(projectSections.decisions, 160)}`);
-    if (projectBlocks.length > 0) parts.push('', '项目手册：', projectBlocks.join('\n\n'));
-    // 常驻 + 状态推进后的落笔提示：推进会刷新本块，这里天然是"刚推进"那一刻。
-    parts.push('', '收尾时回答四问并写进项目手册：① 本次新增或推翻了什么决策（写「决策记录」）；② 踩到或复现了什么坑（写「坑与防线」，按「现象 → 根因 → 防线 → 自查」）；③ 两样都没有就写「无」；④ 手册/文档描述与实现是否一致，不一致改了什么。同时同步本会话手册的「方案」与「实施顺序」。');
-    parts.push('</workflow-state>');
-    const text = truncateToBytes(parts.join('\n'), MAX_TEXT_BYTES);
-    cache.set(sessionId, { text, nodeId: node.node_id, state: node.current_state });
-    return text;
+    const constraints = clipChars(projectSections.constraints.trim(), limits.constraints_chars);
+    if (constraints.clipped) {
+      logEvent(ctx.logger, 'warn', `[workflow] constraints clipped (session=${sessionId}, limit=${limits.constraints_chars}字)`);
+    }
+    const projectManualPath = await repository.globalManualPath(found.workflowId);
+    const cue = projectManualPath === null
+      ? ''
+      : [
+        `项目手册：${projectManualPath}`,
+        '（项目总览 / 决策记录 / 坑与防线不常驻系统提示：需要项目背景——为什么这么设计、踩过什么坑——时用文件读取工具读它，不要猜。）',
+      ].join('\n');
+    // 标签表：写项目手册条目时只能从这里选；空表不占预算。
+    const rawTagsText = projectSections.tags.length === 0
+      ? ''
+      : `标签表（写项目手册条目时只能从这里选，也可以填项目里真实存在的文件名）：\n${projectSections.tags.join(' / ')}`;
+    const tagsText = rawTagsText === '' ? '' : truncateToBytes(rawTagsText, TAG_LAYER_BUDGET_BYTES);
+    if (tagsText !== rawTagsText) {
+      // 截断后模型只看到半个词表，可能选不到该选的标签：必须留痕，不然排查时以为表里没有。
+      logEvent(ctx.logger, 'warn', `[workflow] tag layer truncated (session=${sessionId}, tags=${projectSections.tags.length}, bytes=${countUtf8Bytes(tagsText)})`);
+    }
+
+    // 会话手册：方案全文 + 未勾清单（不再取"尾部 2000 字"）。
+    const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
+    let sessionManual = '';
+    if (manualData !== null) {
+      const parts = pickSessionManualParts(manualData.manual);
+      const rendered = renderSessionManual({
+        path: join(manualData.notesDir, `会话手册-${found.nodeId}.md`),
+        plan: parts.plan,
+        unchecked: parts.unchecked,
+        checkedCount: parts.checkedCount,
+        totalItems: parts.totalItems,
+      });
+      if (rendered.planTruncated) {
+        logEvent(ctx.logger, 'warn', `[workflow] session plan truncated (session=${sessionId}, bytes>${SESSION_MANUAL_BUDGET_BYTES})`);
+      }
+      sessionManual = rendered.text;
+    }
+
+    const assembly = assemblePromptLayers([
+      { name: 'header', text: header },
+      { name: 'hard-rules', text: typeof hardRule === 'string' && hardRule.trim() !== '' ? `【本阶段硬规则】\n${hardRule.trim()}` : '' },
+      { name: 'shared-detail', text: detail.shared_detail },
+      { name: 'state-detail', text: detail.state_detail },
+      { name: 'node-addition', text: additionParts.join('\n\n') },
+      { name: 'constraints', text: constraints.text.trim() === '' ? '' : `【约束 / 红线】（本项目绝不能做）\n${constraints.text.trim()}` },
+      { name: 'manual-tags', text: tagsText },
+      { name: 'manual-cue', text: cue },
+      { name: 'session-manual', text: sessionManual },
+    ], TOTAL_BUDGET_BYTES);
+
+    const layers = new Map<string, string>();
+    const layerBytes = new Map<string, number>();
+    for (const layer of assembly.layers) {
+      layers.set(layer.name, layer.text);
+      layerBytes.set(layer.name, layer.bytes);
+    }
+    const signature = assembly.layers.map((layer) => `${layer.name}:${layer.text.length}`).join('|')
+      + `|dropped:${assembly.dropped.map((item) => item.name).join(',')}`;
+    const built: BuiltContext = {
+      layers,
+      layerBytes,
+      state: node.current_state,
+      nodeId: node.node_id,
+      bytes: assembly.keptBytes,
+      dropped: assembly.dropped,
+      signature,
+    };
+    cache.set(sessionId, built);
+    return built;
+  };
+
+  /** 只在内容变化时打日志：每轮都刷 8 行会把事件环冲掉。 */
+  const logLayers = (sessionId: string, next: BuiltContext, previous: BuiltContext | undefined): void => {
+    for (const spec of PROMPT_LAYER_SPECS) {
+      const text = next.layers.get(spec.name) ?? '';
+      if (text === '') continue;
+      const bytes = next.layerBytes.get(spec.name) ?? 0;
+      const before = previous?.layers.get(spec.name) ?? '';
+      if (before === text) continue;
+      logEvent(ctx.logger, 'info', `[workflow] layer ${spec.name} (session=${sessionId}, order=${spec.order}, bytes=${bytes})`);
+    }
+    for (const item of next.dropped) {
+      const wasDropped = (previous?.dropped ?? []).some((old) => old.name === item.name);
+      if (wasDropped) continue;
+      logEvent(
+        ctx.logger,
+        'warn',
+        `[workflow] layer dropped (session=${sessionId}, name=${item.name}, bytes=${item.bytes}, reason=${item.reason})`,
+      );
+    }
+  };
+
+  /** 算一次 + 打日志（刷新与 refreshNow 共用，保证两条路径的埋点一致）。 */
+  const buildAndLog = async (sessionId: string): Promise<BuiltContext | null> => {
+    // 旧值必须在 buildText 之前取：buildText 自己会覆盖缓存。
+    const previous = cache.get(sessionId);
+    const startedAt = Date.now();
+    const built = await buildText(sessionId);
+    if (built === null) return null;
+    logLayers(sessionId, built, previous);
+    // 汇总行每轮都打一条：这轮的层数、总量、被丢了几层一眼可见。
+    logEvent(
+      ctx.logger,
+      'info',
+      `[workflow] state-context ok (session=${sessionId}, bytes=${built.bytes}, budget=${TOTAL_BUDGET_BYTES}, headroom=${TOTAL_BUDGET_BYTES - built.bytes}, layers=${built.layers.size}, dropped=${built.dropped.length}, ${Date.now() - startedAt}ms)`,
+    );
+    return built;
   };
 
   /** 异步刷新，同一个会话串行去重。 */
@@ -139,7 +262,7 @@ export function registerWorkflowStateContext(
     if (typeof sessionId !== 'string' || sessionId === '' || pending.has(sessionId)) return;
     if (!isWorkflowSession(sessionId)) return;
     pending.add(sessionId);
-    void buildText(sessionId)
+    void buildAndLog(sessionId)
       .catch((error: unknown) => {
         logEvent(ctx.logger, 'warn', `workflow state context refresh failed (session=${sessionId}): %o ${String(error)}`);
       })
@@ -147,16 +270,22 @@ export function registerWorkflowStateContext(
   };
 
   /** 同步读缓存；未命中时排一次刷新，本次先返回空（下一步起有内容）。 */
-  const readText = (sessionId: string): string => {
+  const readLayer = (sessionId: string, name: string): string => {
     if (typeof sessionId !== 'string' || sessionId === '') return '';
     if (!isWorkflowSession(sessionId)) return '';
     const entry = cache.get(sessionId);
-    if (entry !== undefined) return entry.text;
+    if (entry !== undefined) return entry.layers.get(name) ?? '';
     // 冷缓存：记一条，用来区分"这一轮没注入"是首次装配还是缓存被清了。
     logEvent(ctx.logger, 'info', `[workflow] context cold (session=${sessionId})`);
     refresh(sessionId);
     return '';
   };
+
+  /** 合并全部保留层（调试接口 /state-context 用）。 */
+  const joinLayers = (entry: BuiltContext): string => PROMPT_LAYER_SPECS
+    .map((spec) => entry.layers.get(spec.name) ?? '')
+    .filter((text) => text !== '')
+    .join('\n\n');
 
   // 每一步前刷新当前会话的缓存（异步钩子，可以读盘）。
   ctx.on('agent/pre-step', async (_payload: any, next: any) => {
@@ -166,7 +295,7 @@ export function registerWorkflowStateContext(
     return next();
   });
 
-  // 主通道：给每个 agent 注册一份**作用域内**的动态上下文（同名会覆盖全局那份）。
+  // 主通道：给每个 agent 注册**作用域内**的动态上下文（同名会覆盖全局那份）。
   ctx.on('agent/created', function (this: any, payload: any) {
     const sessionId = payload?.agent?.session?.id;
     if (typeof sessionId !== 'string' || sessionId === '') return;
@@ -176,31 +305,44 @@ export function registerWorkflowStateContext(
     logEvent(ctx.logger, 'info', `[workflow] context registered (session=${sessionId})`);
     refresh(sessionId);
     if (typeof this?.systemPrompt?.context !== 'function') return;
-    this.systemPrompt.context({
-      name: 'workflow:state',
-      order: 150,
-      text: () => readText(sessionId),
-    });
+    for (const spec of PROMPT_LAYER_SPECS) {
+      this.systemPrompt.context({
+        name: `workflow:${spec.name}`,
+        order: spec.order,
+        text: () => readLayer(sessionId, spec.name),
+      });
+    }
   });
 
   // 兜底通道：全局注册一份，能从装配上下文里解析出会话就用（同名被作用域那份覆盖）。
   ctx.inject(['systemPrompt'], (scoped: any) => {
-    scoped.effect(() => scoped.systemPrompt.context({
-      name: 'workflow:state',
-      order: 150,
-      text: (assemblyContext: any) => readText(pickSessionId(assemblyContext)),
-    }));
+    scoped.effect(() => {
+      const disposers: unknown[] = [];
+      for (const spec of PROMPT_LAYER_SPECS) {
+        disposers.push(scoped.systemPrompt.context({
+          name: `workflow:${spec.name}`,
+          order: spec.order,
+          text: (assemblyContext: any) => readLayer(pickSessionId(assemblyContext), spec.name),
+        }));
+      }
+      return () => {
+        for (const dispose of disposers) {
+          if (typeof dispose === 'function') (dispose as () => void)();
+        }
+      };
+    });
   });
 
   return {
-    /** 强制算一次并返回（调试/预览用）。 */
-    peek: async (sessionId: string) => buildText(sessionId),
+    /** 强制算一次并返回合并文本（调试/预览用）。 */
+    peek: async (sessionId: string) => {
+      const built = await buildText(sessionId);
+      return built === null ? '' : joinLayers(built);
+    },
     /** 立刻重算并等它完成：状态推进后调用，保证下一轮模型请求看到的就是新状态。 */
     refreshNow: async (sessionId: string) => {
-      const startedAt = Date.now();
-      const text = await buildText(sessionId);
-      logEvent(ctx.logger, 'info', `[workflow] state-context ok (session=${sessionId}, bytes=${Buffer.byteLength(text, 'utf8')}, ${Date.now() - startedAt}ms)`);
-      return text;
+      const built = await buildAndLog(sessionId);
+      return built === null ? '' : joinLayers(built);
     },
   };
 }

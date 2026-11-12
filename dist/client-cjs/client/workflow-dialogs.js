@@ -16,6 +16,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
 const react_1 = require("react");
 const node_state_label_1 = require("../schema/node-state-label");
 const hard_rules_1 = require("../schema/hard-rules");
+const manual_limits_1 = require("../schema/manual-limits");
 const node_state_color_1 = require("./node-state-color");
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
 /**
@@ -131,6 +132,8 @@ function WorkflowGlobalSettingsSection() {
     const [detail, setDetail] = (0, react_1.useState)(null);
     const [defaults, setDefaults] = (0, react_1.useState)(null);
     const [autoSend, setAutoSend] = (0, react_1.useState)(false);
+    /** 手册字数上限（字符数）：应用级，写进 app-settings.json，写手册时按它拒写。 */
+    const [limits, setLimits] = (0, react_1.useState)({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS });
     const [activeTab, setActiveTab] = (0, react_1.useState)('shared');
     const [status, setStatus] = (0, react_1.useState)('idle');
     const [error, setError] = (0, react_1.useState)(null);
@@ -206,8 +209,12 @@ function WorkflowGlobalSettingsSection() {
             try {
                 const response = await fetch('/dsh-agent-workflow/app-settings');
                 const responseBody = await response.json().catch(() => null);
-                if (!cancelled && responseBody?.ok === true)
+                if (!cancelled && responseBody?.ok === true) {
                     setAutoSend(responseBody.autoSendEnterTrigger === true);
+                    if (responseBody.manualLimits !== undefined && responseBody.manualLimits !== null) {
+                        setLimits({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS, ...responseBody.manualLimits });
+                    }
+                }
             }
             catch {
                 // 读不到就按默认（关闭）。
@@ -226,6 +233,28 @@ function WorkflowGlobalSettingsSection() {
         }
         catch (reason) {
             console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+        }
+    };
+    /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
+    const saveLimit = async (field, raw) => {
+        const parsed = Number(raw);
+        const value = Number.isFinite(parsed) ? Math.round(parsed) : manual_limits_1.DEFAULT_MANUAL_LIMITS[field];
+        const next = { ...limits, [field]: value };
+        setLimits(next);
+        try {
+            const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ manualLimits: next }),
+            });
+            const body = await response.json().catch(() => null);
+            if (body?.ok === true && body.manualLimits !== undefined)
+                setLimits({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS, ...body.manualLimits });
+            else if (body?.ok !== true)
+                window.alert(String(body?.error ?? '保存手册上限失败'));
+        }
+        catch (reason) {
+            window.alert(String(reason));
         }
     };
     /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
@@ -365,7 +394,28 @@ function WorkflowGlobalSettingsSection() {
                             color: 'var(--dsw-alias-label-primary)',
                             fontSize: 12,
                             padding: '0 6px',
-                        }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { importFileRef.current?.click(); }, children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), saveAsOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
+                        }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { importFileRef.current?.click(); }, children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), (0, jsx_runtime_1.jsxs)("div", { style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    marginBottom: 12,
+                    fontSize: 12,
+                    color: 'var(--dsw-alias-label-secondary)',
+                }, children: [(0, jsx_runtime_1.jsx)("span", { children: "\u624B\u518C\u5B57\u6570\u4E0A\u9650" }), [
+                        { field: 'constraints_chars', label: '约束 / 红线' },
+                        { field: 'plan_chars', label: '方案' },
+                        { field: 'session_total_chars', label: '会话手册整本' },
+                    ].map((item) => ((0, jsx_runtime_1.jsxs)("label", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsx)("span", { children: item.label }), (0, jsx_runtime_1.jsx)("input", { type: "number", min: manual_limits_1.MANUAL_LIMIT_MIN_CHARS, max: manual_limits_1.MANUAL_LIMIT_MAX_CHARS, value: limits[item.field], onChange: (event) => setLimits({ ...limits, [item.field]: Number(event.target.value) }), onBlur: (event) => { void saveLimit(item.field, event.target.value); }, style: {
+                                    width: 72,
+                                    height: 24,
+                                    borderRadius: 6,
+                                    border: '1px solid var(--dsw-alias-border-l1)',
+                                    background: 'var(--dsw-alias-bg-base)',
+                                    color: 'var(--dsw-alias-label-primary)',
+                                    fontSize: 12,
+                                    padding: '0 6px',
+                                } })] }, item.field))), (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 11 }, children: "\u5B57\uFF08\u6309\u5B57\u4E0D\u6309\u5B57\u8282\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\uFF09" })] }), saveAsOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
                     border: '1px solid var(--dsw-alias-border-l1)',
                     borderRadius: 8,
                     padding: 10,

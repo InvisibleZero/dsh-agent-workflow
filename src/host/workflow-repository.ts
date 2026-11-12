@@ -3,7 +3,27 @@ import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
+import {
+  CHECK_EVIDENCE_MARK,
+  DEFAULT_MANUAL_LIMITS,
+  assertSectionLimit,
+  assertSessionManualTotal,
+  sanitizeManualLimits,
+  type ManualLimits,
+} from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
+import { headingText, parseChecklist, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
+import {
+  TAG_TABLE_MAX,
+  TAG_TABLE_SECTION,
+  dedupeTags,
+  findEntryLineIndexes,
+  normalizeTag,
+  parseTagTable,
+  renderEntryLine,
+  renderTagTable,
+  rewriteEntryTag,
+} from '../engine/manual-tags';
 
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
 export const BUILTIN_PROFILE_NAME = '默认存档';
@@ -108,57 +128,12 @@ const GLOBAL_MANUAL_TEMPLATE = [
   '## 坑与防线',
   '<!-- 现象 → 根因 → 防线 → 自查；每条不超过 3 行 -->',
   '',
+  '## 标签表',
+  '<!-- 写条目时只能从这里选（或填项目里真实存在的文件名）；一行一个，最多 30 条 -->',
+  '',
 ].join('\n');
 
-/** 清单行里「自检证据」的分隔标记：- [x] 条目 ｜ 自检：<证据> */
-const CHECK_EVIDENCE_MARK = ' ｜ 自检：';
-
-/** 从会话手册里解析「实施顺序」小节的勾选清单；解析不到返回空数组。证据只从 label 里剥掉，不返回。 */
-function parseChecklist(manual: string): Array<{ label: string; done: boolean }> {
-  const lines = manual.split(/\r?\n/);
-  let inSection = false;
-  const items: Array<{ label: string; done: boolean }> = [];
-  for (const line of lines) {
-    if (line.trim() === '## 实施顺序') {
-      inSection = true;
-      continue;
-    }
-    if (inSection && line.startsWith('## ')) break;
-    if (!inSection) continue;
-    const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
-    if (match !== null) {
-      const raw = (match[2] ?? '').trim();
-      const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
-      items.push({ label: cut === -1 ? raw : raw.slice(0, cut).trim(), done: match[1] !== ' ' });
-    }
-  }
-  return items;
-}
-
-/** 判断「方案」小节是否已经写了实质内容（非标题、非注释、非空行）。 */
-function parseHasPlan(manual: string): boolean {
-  const lines = manual.split(/\r?\n/);
-  let inPlan = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('## 方案')) {
-      inPlan = true;
-      continue;
-    }
-    if (inPlan && trimmed.startsWith('## ')) break;
-    if (!inPlan) continue;
-    if (trimmed === '' || trimmed.startsWith('### ') || trimmed.startsWith('<!--')) continue;
-    return true;
-  }
-  return false;
-}
-
 // —— 手册编辑（AI 专用工具的实现）——
-
-/** 去掉 `##` 前缀后的标题文字。 */
-function headingText(line: string): string {
-  return line.replace(/^#+\s*/, '').trim();
-}
 
 /** 手册里现有的一级小节名（给"小节不存在"的报错用）。 */
 function availableSections(manual: string): string[] {
@@ -202,22 +177,6 @@ function replaceSectionBody(manual: string, section: string, content: string, al
 const MANUAL_SECTION_ALIASES: Record<string, string[]> = {
   '坑与防线': ['要点'],
 };
-
-/** 按 `## 标题` 切分手册，返回有序的 { 标题, 正文 } 列表。 */
-function splitManualSections(manual: string): Array<{ title: string; body: string }> {
-  const sections: Array<{ title: string; body: string }> = [];
-  let current: { title: string; lines: string[] } | null = null;
-  for (const line of manual.split(/\r?\n/)) {
-    if (line.startsWith('## ')) {
-      if (current !== null) sections.push({ title: current.title, body: current.lines.join('\n').trim() });
-      current = { title: headingText(line), lines: [] };
-      continue;
-    }
-    if (current !== null) current.lines.push(line);
-  }
-  if (current !== null) sections.push({ title: current.title, body: current.lines.join('\n').trim() });
-  return sections;
-}
 
 /** 追加一个不存在的小节（用于旧手册缺新小节时的迁移：只追加，不改动已有内容）。 */
 function appendSection(manual: string, section: string, content: string): string {
@@ -973,6 +932,14 @@ export class WorkflowRepository {
     return readTextCapped(join(workingDir, WORKFLOW_SUBDIR, globalManualFileName()), GLOBAL_MANUAL_MAX_BYTES);
   }
 
+  /** 项目手册的绝对路径（只读用途：注入里那句「去哪查」要用它，不能只给相对名）。 */
+  async globalManualPath(workflowId: string): Promise<string | null> {
+    const snapshot = await this.storage.load(workflowId);
+    const workingDir = snapshot?.working_directory;
+    if (typeof workingDir !== 'string' || workingDir === '') return null;
+    return join(workingDir, WORKFLOW_SUBDIR, globalManualFileName());
+  }
+
   /**
    * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
    * 文件没变就不重新读盘/解析。
@@ -1002,27 +969,40 @@ export class WorkflowRepository {
     return { checklist: meta.checklist, hasPlan: meta.hasPlan };
   }
 
-  /** 应用级设置（目前只有"切换状态时是否自动发送默认输入"）。存在 <baseDir>/app-settings.json。 */
+  /**
+   * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
+   * 存在 <baseDir>/app-settings.json。
+   */
   private appSettingsPath(): string {
     return join(this.baseDir, 'app-settings.json');
   }
 
-  async getAppSettings(): Promise<{ autoSendEnterTrigger: boolean }> {
+  async getAppSettings(): Promise<{ autoSendEnterTrigger: boolean; manualLimits: ManualLimits }> {
     try {
       const raw = JSON.parse(await fs.readFile(this.appSettingsPath(), 'utf8'));
-      return { autoSendEnterTrigger: raw?.autoSendEnterTrigger === true };
+      // 缺字段 / 脏数据都收成合法值：上限被写成 0 会把所有写入卡死，不能信落盘内容。
+      return {
+        autoSendEnterTrigger: raw?.autoSendEnterTrigger === true,
+        manualLimits: sanitizeManualLimits(raw?.manualLimits),
+      };
     } catch {
-      // 文件不存在或损坏：退回默认（不自动发送）。
-      return { autoSendEnterTrigger: false };
+      // 文件不存在或损坏：退回默认（不自动发送、默认上限）。
+      return { autoSendEnterTrigger: false, manualLimits: DEFAULT_MANUAL_LIMITS };
     }
   }
 
-  async updateAppSettings(patch: { autoSendEnterTrigger?: boolean }): Promise<{ autoSendEnterTrigger: boolean }> {
+  async updateAppSettings(patch: {
+    autoSendEnterTrigger?: boolean;
+    manualLimits?: unknown;
+  }): Promise<{ autoSendEnterTrigger: boolean; manualLimits: ManualLimits }> {
     const current = await this.getAppSettings();
     const next = {
       autoSendEnterTrigger: patch.autoSendEnterTrigger === undefined
         ? current.autoSendEnterTrigger
         : patch.autoSendEnterTrigger === true,
+      manualLimits: patch.manualLimits === undefined
+        ? current.manualLimits
+        : sanitizeManualLimits(patch.manualLimits),
     };
     await fs.mkdir(this.baseDir, { recursive: true });
     const target = this.appSettingsPath();
@@ -1041,18 +1021,227 @@ export class WorkflowRepository {
     decisions: string;
     constraints: string;
     pitfalls: string;
+    tags: string[];
   }> {
     const manual = await this.readGlobalManual(workflowId);
     const sections = splitManualSections(manual);
-    const pick = (prefixes: string[]): string => sections
+    const pick = (prefixes: string[]): string => stripHtmlComments(sections
       .find((section) => prefixes.some((prefix) => section.title.startsWith(prefix)))
-      ?.body ?? '';
+      ?.body ?? '');
     return {
       overview: pick(['项目总览']),
       decisions: pick(['决策记录']),
       constraints: pick(['约束']),
       pitfalls: pick(['坑与防线', '要点']),
+      tags: parseTagTable(pick([TAG_TABLE_SECTION])),
     };
+  }
+
+  // —— 项目手册条目：按条写（每条必须带标签），标签表自动登记 ——
+
+  /** 项目手册四节（标签表不算条目节，它由工具维护）。 */
+  private projectEntrySections(): string[] {
+    return ['项目总览', '决策记录', '约束', '坑与防线'];
+  }
+
+  /** 读项目手册全文（不存在时用模板）。 */
+  private async readProjectManual(workflowId: string): Promise<{ file: string; manual: string }> {
+    const { file } = await this.resolveManualFile(workflowId, null);
+    return { file, manual: await this.readFileOrTemplate(file, false) };
+  }
+
+  /** 写回项目手册：先过「约束」一节的字数闸门与整本字节上限，再原子写。 */
+  private async writeProjectManual(file: string, manual: string): Promise<void> {
+    const limits = (await this.getAppSettings()).manualLimits;
+    assertSectionLimit('约束', pickSectionBody(manual, ['约束']), limits);
+    const bytes = Buffer.byteLength(manual, 'utf8');
+    if (bytes > GLOBAL_MANUAL_MAX_BYTES) {
+      throw new Error(`写入后项目手册会变成 ${bytes} 字节，超过上限 ${GLOBAL_MANUAL_MAX_BYTES} 字节；请精简内容`);
+    }
+    await writeTextAtomic(file, manual);
+  }
+
+  /** 按小节替换，小节不存在就追加（旧手册没有「标签表」时走这条）。 */
+  private upsertSection(manual: string, section: string, body: string, aliases: string[] = []): string {
+    try {
+      return replaceSectionBody(manual, section, body, aliases);
+    } catch {
+      return appendSection(manual, section, body);
+    }
+  }
+
+  /** 当前标签表。 */
+  async listProjectTags(workflowId: string): Promise<string[]> {
+    const { manual } = await this.readProjectManual(workflowId);
+    return parseTagTable(pickSectionBody(manual, [TAG_TABLE_SECTION]));
+  }
+
+  /**
+   * 追加一条带标签的条目。标签不在表里就自动登记；表满 30 条时拒写，逼用 rename_tag 合并。
+   * @returns 登记后的完整标签表 + 这次新登记的标签 + 实际写入的行
+   */
+  async appendProjectEntry(input: {
+    workflowId: string;
+    section: string;
+    tags: string[];
+    content: string;
+  }): Promise<{ tags: string[]; registered: string[]; entry: string }> {
+    this.assertEntrySection(input.section);
+    const normalized = this.normalizeEntryTags(input.tags, input.section);
+    const text = input.content.trim();
+    if (text === '') throw new Error('条目正文不能为空');
+
+    const { file, manual } = await this.readProjectManual(input.workflowId);
+    const table = parseTagTable(pickSectionBody(manual, [TAG_TABLE_SECTION]));
+    const missing = normalized.filter((tag) => !table.includes(tag));
+    if (table.length + missing.length > TAG_TABLE_MAX) {
+      throw new Error(
+        `标签表已经 ${table.length} 条，上限 ${TAG_TABLE_MAX} 条：不能再新增「${missing.join(' / ')}」。`
+        + '先用 workflow_manual({ action: "rename_tag", from: "旧标签", to: "要保留的标签" } 合并同义标签；合并不占额度。',
+      );
+    }
+
+    const aliases = MANUAL_SECTION_ALIASES[input.section] ?? [];
+    const body = stripHtmlComments(pickSectionBody(manual, [input.section, ...aliases]));
+    const entry = renderEntryLine(normalized, text);
+    const nextBody = body.trim() === '' ? entry : `${body.trimEnd()}\n${entry}`;
+    let next = replaceSectionBody(manual, input.section, nextBody, aliases);
+    if (missing.length > 0) {
+      next = this.upsertSection(next, TAG_TABLE_SECTION, renderTagTable([...table, ...missing]));
+    }
+    await this.writeProjectManual(file, next);
+    return { tags: [...table, ...missing], registered: missing, entry };
+  }
+
+  /** 改写一条条目（按正文精确匹配；匹配到多条就报错，猜错比报错更糟）。 */
+  async updateProjectEntry(input: {
+    workflowId: string;
+    section: string;
+    entry: string;
+    tags: string[];
+    content: string;
+  }): Promise<{ tags: string[]; entry: string }> {
+    this.assertEntrySection(input.section);
+    const normalized = this.normalizeEntryTags(input.tags, input.section);
+    const text = input.content.trim();
+    if (text === '') throw new Error('条目正文不能为空');
+
+    const { file, manual } = await this.readProjectManual(input.workflowId);
+    const aliases = MANUAL_SECTION_ALIASES[input.section] ?? [];
+    const body = pickSectionBody(manual, [input.section, ...aliases]);
+    const lines = body.split(/\r?\n/);
+    const hits = findEntryLineIndexes(body, input.entry);
+
+    const table = parseTagTable(pickSectionBody(manual, [TAG_TABLE_SECTION]));
+    const missing = normalized.filter((tag) => !table.includes(tag));
+    if (table.length + missing.length > TAG_TABLE_MAX) {
+      throw new Error(`标签表已经 ${table.length} 条，上限 ${TAG_TABLE_MAX} 条：先合并再改。`);
+    }
+    if (hits.length === 0) {
+      throw new Error(`「${input.section}」里没有正文为「${input.entry.trim()}」的条目；先用 read 动作看一遍。`);
+    }
+    if (hits.length > 1) {
+      throw new Error(`「${input.section}」里有 ${hits.length} 条同样的条目，无法确定改哪条；先合并重复条目。`);
+    }
+    const entry = renderEntryLine(normalized, text);
+    lines[hits[0] as number] = entry;
+    let next = this.upsertSection(manual, input.section, lines.join('\n'), aliases);
+    if (missing.length > 0) {
+      next = this.upsertSection(next, TAG_TABLE_SECTION, renderTagTable([...table, ...missing]));
+    }
+    await this.writeProjectManual(file, next);
+    return { tags: [...table, ...missing], entry };
+  }
+
+  /** 删掉一条条目（按正文精确匹配）。 */
+  async removeProjectEntry(input: {
+    workflowId: string;
+    section: string;
+    entry: string;
+  }): Promise<{ removed: string }> {
+    this.assertEntrySection(input.section);
+    const { file, manual } = await this.readProjectManual(input.workflowId);
+    const aliases = MANUAL_SECTION_ALIASES[input.section] ?? [];
+    const body = pickSectionBody(manual, [input.section, ...aliases]);
+    const lines = body.split(/\r?\n/);
+    const hits = findEntryLineIndexes(body, input.entry);
+    if (hits.length === 0) {
+      throw new Error(`「${input.section}」里没有正文为「${input.entry.trim()}」的条目。`);
+    }
+    if (hits.length > 1) {
+      throw new Error(`「${input.section}」里有 ${hits.length} 条同样的条目，无法确定删哪条。`);
+    }
+    const removed = (lines[hits[0] as number] ?? '').trim();
+    lines.splice(hits[0] as number, 1);
+    const next = this.upsertSection(manual, input.section, lines.join('\n'), aliases);
+    await this.writeProjectManual(file, next);
+    return { removed };
+  }
+
+  /**
+   * 合并 / 重命名标签：级联改写所有条目行里的 from → to，再从标签表删 from。
+   * 这条通道不占 30 条额度（只会让表变小或不变），是"表满了还能收拾"的唯一出口。
+   */
+  async renameProjectTag(input: {
+    workflowId: string;
+    from: string;
+    to: string;
+  }): Promise<{ tags: string[]; rewritten: number }> {
+    const from = normalizeTag(input.from);
+    const to = normalizeTag(input.to);
+    if (from === null) throw new Error(`「${input.from}」不是合法标签（≤12 字、不含方括号或竖线）`);
+    if (to === null) throw new Error(`「${input.to}」不是合法标签（≤12 字、不含方括号或竖线）`);
+    if (from === to) throw new Error('from 和 to 是同一个标签');
+
+    const { file, manual } = await this.readProjectManual(input.workflowId);
+    const table = parseTagTable(pickSectionBody(manual, [TAG_TABLE_SECTION]));
+    if (!table.includes(from)) {
+      throw new Error(`标签表里没有「${from}」；现有：${table.length === 0 ? '（空）' : table.join(' / ')}`);
+    }
+
+    let next = manual;
+    let rewritten = 0;
+    for (const section of this.projectEntrySections()) {
+      const aliases = MANUAL_SECTION_ALIASES[section] ?? [];
+      const body = pickSectionBody(next, [section, ...aliases]);
+      if (body.trim() === '') continue;
+      const lines = body.split(/\r?\n/).map((line) => {
+        const changed = rewriteEntryTag(line, from, to);
+        if (changed !== line) rewritten += 1;
+        return changed;
+      });
+      next = replaceSectionBody(next, section, lines.join('\n'), aliases);
+    }
+
+    const nextTable = dedupeTags(table.map((tag) => (tag === from ? to : tag)));
+    next = this.upsertSection(next, TAG_TABLE_SECTION, renderTagTable(nextTable));
+    await this.writeProjectManual(file, next);
+    return { tags: nextTable, rewritten };
+  }
+
+  /** 条目只能写进四节；标签表由工具自动维护，不许当条目节用。 */
+  private assertEntrySection(section: string): void {
+    if (!this.projectEntrySections().includes(section)) {
+      throw new Error(`条目只能写进这些小节：${this.projectEntrySections().join(' / ')}；标签表由工具自动维护`);
+    }
+  }
+
+  /** 归一化标签数组：过滤非法、去重；一个都不剩就拒写并列出可用标签。 */
+  private normalizeEntryTags(tags: unknown, section: string): string[] {
+    const raw = Array.isArray(tags) ? tags : [];
+    const normalized: string[] = [];
+    for (const item of raw) {
+      const tag = normalizeTag(item);
+      if (tag === null) {
+        throw new Error(`标签「${String(item)}」不合法：≤12 个字，不能含方括号或竖线`);
+      }
+      normalized.push(tag);
+    }
+    const unique = dedupeTags(normalized);
+    if (unique.length === 0) {
+      throw new Error(`往「${section}」写条目必须带至少一个标签（tags 数组）；标签要是 grep 能命中的词`);
+    }
+    return unique;
   }
 
   /**
@@ -1074,9 +1263,12 @@ export class WorkflowRepository {
     nodeId: string | null;
     section: string;
     content: string;
-  }): Promise<{ bytes: number; section: string }> {
+  }): Promise<{ bytes: number; section: string; chars: number }> {
     const { file, isSession } = await this.resolveManualFile(input.workflowId, input.nodeId);
     const maxBytes = isSession ? MANUAL_MAX_BYTES : GLOBAL_MANUAL_MAX_BYTES;
+    // 小节级字数闸门：按字符判（证据不计入），超了直接拒写，报错带「现在 / 上限 / 超了」三数与删法。
+    const limits = (await this.getAppSettings()).manualLimits;
+    const chars = assertSectionLimit(input.section, input.content, limits);
     const current = await this.readFileOrTemplate(file, isSession);
     let next: string;
     try {
@@ -1087,12 +1279,14 @@ export class WorkflowRepository {
       next = appendSection(current, input.section, input.content);
     }
     const bytes = Buffer.byteLength(next, 'utf8');
+    // 整本级闸门只对会话手册生效：项目手册按小节卡，不必再卡一整本。
+    if (isSession) assertSessionManualTotal(next, limits);
     if (bytes > maxBytes) {
       throw new Error(`写入后手册会变成 ${bytes} 字节，超过上限 ${maxBytes} 字节；请精简内容`);
     }
     await writeTextAtomic(file, next);
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId ?? ''}`);
-    return { bytes, section: input.section };
+    return { bytes, section: input.section, chars };
   }
 
   /**

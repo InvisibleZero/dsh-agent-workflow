@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
+import { DEFAULT_MANUAL_LIMITS, MANUAL_LIMIT_MAX_CHARS, MANUAL_LIMIT_MIN_CHARS } from '../schema/manual-limits';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' } as const;
@@ -215,6 +216,8 @@ function WorkflowGlobalSettingsSection() {
   const [detail, setDetail] = useState<any>(null);
   const [defaults, setDefaults] = useState<any>(null);
   const [autoSend, setAutoSend] = useState(false);
+  /** 手册字数上限（字符数）：应用级，写进 app-settings.json，写手册时按它拒写。 */
+  const [limits, setLimits] = useState({ ...DEFAULT_MANUAL_LIMITS });
   const [activeTab, setActiveTab] = useState('shared');
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -283,7 +286,12 @@ function WorkflowGlobalSettingsSection() {
       try {
         const response = await fetch('/dsh-agent-workflow/app-settings');
         const responseBody = await response.json().catch(() => null);
-        if (!cancelled && responseBody?.ok === true) setAutoSend(responseBody.autoSendEnterTrigger === true);
+        if (!cancelled && responseBody?.ok === true) {
+          setAutoSend(responseBody.autoSendEnterTrigger === true);
+          if (responseBody.manualLimits !== undefined && responseBody.manualLimits !== null) {
+            setLimits({ ...DEFAULT_MANUAL_LIMITS, ...responseBody.manualLimits });
+          }
+        }
       } catch {
         // 读不到就按默认（关闭）。
       }
@@ -301,6 +309,26 @@ function WorkflowGlobalSettingsSection() {
       });
     } catch (reason) {
       console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+    }
+  };
+
+  /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
+  const saveLimit = async (field: 'constraints_chars' | 'plan_chars' | 'session_total_chars', raw: string) => {
+    const parsed = Number(raw);
+    const value = Number.isFinite(parsed) ? Math.round(parsed) : DEFAULT_MANUAL_LIMITS[field];
+    const next = { ...limits, [field]: value };
+    setLimits(next);
+    try {
+      const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ manualLimits: next }),
+      });
+      const body = await response.json().catch(() => null);
+      if (body?.ok === true && body.manualLimits !== undefined) setLimits({ ...DEFAULT_MANUAL_LIMITS, ...body.manualLimits });
+      else if (body?.ok !== true) window.alert(String(body?.error ?? '保存手册上限失败'));
+    } catch (reason) {
+      window.alert(String(reason));
     }
   };
 
@@ -464,6 +492,47 @@ function WorkflowGlobalSettingsSection() {
             「{BUILTIN_PROFILE_NAME}」随插件提供、不可修改；要改先「另存为」
           </span>
         ) : null}
+      </div>
+
+      {/* 手册字数上限：写手册时按这里的数字拒写（按字判，勾选证据不计入）。 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 10,
+        marginBottom: 12,
+        fontSize: 12,
+        color: 'var(--dsw-alias-label-secondary)',
+      }}>
+        <span>手册字数上限</span>
+        {([
+          { field: 'constraints_chars', label: '约束 / 红线' },
+          { field: 'plan_chars', label: '方案' },
+          { field: 'session_total_chars', label: '会话手册整本' },
+        ] as const).map((item) => (
+          <label key={item.field} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span>{item.label}</span>
+            <input
+              type="number"
+              min={MANUAL_LIMIT_MIN_CHARS}
+              max={MANUAL_LIMIT_MAX_CHARS}
+              value={limits[item.field]}
+              onChange={(event) => setLimits({ ...limits, [item.field]: Number(event.target.value) })}
+              onBlur={(event) => { void saveLimit(item.field, event.target.value); }}
+              style={{
+                width: 72,
+                height: 24,
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-border-l1)',
+                background: 'var(--dsw-alias-bg-base)',
+                color: 'var(--dsw-alias-label-primary)',
+                fontSize: 12,
+                padding: '0 6px',
+              }}
+            />
+          </label>
+        ))}
+        <span style={{ fontSize: 11 }}>字（按字不按字节；勾选证据不计入）</span>
       </div>
 
       {saveAsOpen ? (

@@ -26,7 +26,7 @@ const STATE_ORDER = ['discussing', 'implementing', 'verifying', 'completed'];
 /** 允许 AI 通过 workflow_manual 改的小节；「实施顺序」只在讨论中可定义，之后只能勾选。 */
 const WRITABLE_SECTIONS = {
     session: ['方案', '实施顺序'],
-    project: ['项目总览', '决策记录', '约束', '坑与防线'],
+    project: ['项目总览', '决策记录', '约束', '坑与防线', '标签表'],
 };
 function labelOf(state) {
     return NODE_STATE_LABEL[state] ?? state;
@@ -49,8 +49,11 @@ export function registerWorkflowGuard(ctx, deps) {
                 return undefined;
             const state = deps.getState(sessionId);
             if (state === undefined) {
-                logEvent(ctx.logger, 'info', `[workflow] guard skipped (session=${sessionId}, tool=${toolName}, reason=unknown-state)`);
-                return undefined;
+                // 状态表缺这一条（认领发生在节点绑定之前 / 宿主刚重启）时**默认拦住**：
+                // 放行等于"讨论中也能改代码"，漏拦比误拦危险。同时排一次回填，重试即可恢复。
+                void deps.refreshState?.(sessionId);
+                logEvent(ctx.logger, 'warn', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=unknown)`);
+                return `当前会话的工作流状态还没同步好（状态表缺这一条），为防绕过阶段限制，先拦住这次写操作。已触发同步，请重试一次；若反复出现，说明这个会话还没绑定 workflow 节点。`;
             }
             const reason = denialFor(state, toolName);
             if (reason !== undefined) {
@@ -81,7 +84,7 @@ export function registerWorkflowTools(ctx, deps) {
         // —— 1. 推进状态 ——
         toolCtx.effect(() => toolCtx.tools.register({
             name: 'workflow_advance',
-            description: 'Request a stage change for this workflow session. This tool does NOT change the stage: it validates the preconditions and leaves a request the user must approve in the session UI (a 同意 / 拒绝 control appears next to the state badge). Call it when the user agrees to move on: 讨论中→实现中 before writing any code (the session manual must contain a plan), 实现中→验收中 when every checklist item is checked. Only available in sessions using the workflow preset.',
+            description: 'Request a stage change for this workflow session. This tool does NOT change the stage: it validates the preconditions and leaves a request the user must approve in the session UI (a 同意 / 拒绝 control appears next to the state badge). Call it when the user agrees to move on: 讨论中→实现中 before writing any code (the session manual must contain a plan), 实现中→验收中 when every checklist item is checked. Only available in sessions using the workflow preset. When wrapping up (reaching 已完结 or ending a session), write the four takeaways into 项目手册 via workflow_manual: ① new or overturned decisions (决策记录) ② pitfalls as 现象 → 根因 → 防线 → 自查 (坑与防线) ③ write 「无」 if neither ④ whether the docs still match the implementation, and what you changed if not; then sync 会话手册 (方案 / 实施顺序).',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
@@ -144,16 +147,28 @@ export function registerWorkflowTools(ctx, deps) {
         // —— 2. 读写手册（会话手册 / 项目手册）——
         toolCtx.effect(() => toolCtx.tools.register({
             name: 'workflow_manual',
-            description: 'Read or update this workflow session\'s manual. target=session edits 会话手册 (writable section: 方案); target=project edits 项目手册 (writable sections: 项目总览 / 决策记录 / 要点). Replaces one section body only — headings and other sections are preserved, and the 实施顺序 checklist cannot be edited here (use workflow_check). Allowed in every stage.',
+            description: 'Read or update this workflow session\'s manual. target=session edits 会话手册 (writable section: 方案); target=project edits 项目手册 (writable sections: 项目总览 / 决策记录 / 约束 / 坑与防线). Replaces one section body only — headings and other sections are preserved, and the 实施顺序 checklist cannot be edited here (use workflow_check). Section bodies are capped by character count (约束 300, 方案 1200, 会话手册整本 2000; checklist evidence 「｜ 自检：」 is not counted) — over-limit writes are rejected with current / limit / over numbers, so trim before retrying. Allowed in every stage.',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
                 required: ['target', 'action'],
                 properties: {
                     target: { type: 'string', enum: ['session', 'project'], description: 'Which manual to touch.' },
-                    action: { type: 'string', enum: ['read', 'replace_section'], description: 'read returns the text; replace_section rewrites one section body.' },
-                    section: { type: 'string', description: 'Section name for replace_section (e.g. 方案 / 项目总览 / 决策记录 / 要点).' },
-                    content: { type: 'string', description: 'New body for that section (markdown, without the heading).' },
+                    action: {
+                        type: 'string',
+                        enum: ['read', 'replace_section', 'append_entry', 'update_entry', 'remove_entry', 'rename_tag'],
+                        description: 'read returns text; replace_section rewrites a whole section (session 方案 / project 标签表); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it.',
+                    },
+                    section: { type: 'string', description: 'Section name (e.g. 方案 / 项目总览 / 决策记录 / 约束 / 坑与防线 / 标签表).' },
+                    content: { type: 'string', description: 'Entry text (append_entry / update_entry) or new section body (replace_section).' },
+                    tags: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Required for append_entry / update_entry: 1+ tags, each ≤12 chars, no brackets or ｜. Pick from the injected 标签表 (or a real file name in this project); unknown tags get registered automatically until the table is full.',
+                    },
+                    entry: { type: 'string', description: 'update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix).' },
+                    from: { type: 'string', description: 'rename_tag: the tag to replace.' },
+                    to: { type: 'string', description: 'rename_tag: the tag to keep. Use this to merge synonyms when 标签表 is full.' },
                 },
             },
             output: {
@@ -166,11 +181,28 @@ export function registerWorkflowTools(ctx, deps) {
                         text: { type: 'string' },
                         bytes: { type: 'integer' },
                         section: { type: 'string' },
+                        tags: { type: 'array', items: { type: 'string' } },
+                        registered: { type: 'array', items: { type: 'string' } },
+                        entry: { type: 'string' },
+                        rewritten: { type: 'integer' },
+                        removed: { type: 'string' },
                     },
                 },
-                render: (args, value) => [
-                    { type: 'text', text: args?.action === 'read' ? `手册共 ${value.text?.length ?? 0} 字` : `已更新「${value.section}」小节（${value.bytes} 字节）` },
-                ],
+                render: (args, value) => {
+                    if (args?.action === 'read')
+                        return [{ type: 'text', text: `手册共 ${value.text?.length ?? 0} 字` }];
+                    if (args?.action === 'rename_tag')
+                        return [{ type: 'text', text: `已合并标签，改写 ${value.rewritten ?? 0} 条` }];
+                    if (args?.action === 'remove_entry')
+                        return [{ type: 'text', text: '已删除一条' }];
+                    if (args?.action === 'append_entry' || args?.action === 'update_entry') {
+                        const registered = Array.isArray(value.registered) && value.registered.length > 0
+                            ? `，新登记标签：${value.registered.join(' / ')}`
+                            : '';
+                        return [{ type: 'text', text: `已写入「${value.section}」一条${registered}` }];
+                    }
+                    return [{ type: 'text', text: `已更新「${value.section}」小节（${value.bytes} 字节）` }];
+                },
             },
             execute: async (args, exec) => {
                 const sessionId = requireSession(deps, exec);
@@ -187,8 +219,49 @@ export function registerWorkflowTools(ctx, deps) {
                         const text = await deps.repository.readManual(found.workflowId, nodeId);
                         return { ok: true, text };
                     }
-                    if (action !== 'replace_section')
-                        throw new Error('action 只能是 read 或 replace_section');
+                    // —— 项目手册的条目级写口：一条一写，必须带标签 ——
+                    if (action === 'append_entry' || action === 'update_entry' || action === 'remove_entry' || action === 'rename_tag') {
+                        if (target !== 'project') {
+                            throw new Error('条目级写入只对项目手册（target=project）可用；会话手册用 replace_section 写方案');
+                        }
+                        const section = String(args?.section ?? '').trim();
+                        const tags = Array.isArray(args?.tags) ? args.tags.map((tag) => String(tag)) : [];
+                        const entry = String(args?.entry ?? '').trim();
+                        try {
+                            if (action === 'append_entry') {
+                                const written = await deps.repository.appendProjectEntry({
+                                    workflowId: found.workflowId, section, tags, content: String(args?.content ?? ''),
+                                });
+                                logEvent(ctx.logger, 'info', `[workflow] manual entry appended (session=${sessionId}, section=${section}, table=${written.tags.length}, registered=${written.registered.length})`);
+                                return { ok: true, section, entry: written.entry, tags: written.tags, registered: written.registered };
+                            }
+                            if (action === 'update_entry') {
+                                const written = await deps.repository.updateProjectEntry({
+                                    workflowId: found.workflowId, section, entry, tags, content: String(args?.content ?? ''),
+                                });
+                                logEvent(ctx.logger, 'info', `[workflow] manual entry updated (session=${sessionId}, section=${section}, tags=${written.tags.length})`);
+                                return { ok: true, section, entry: written.entry, tags: written.tags };
+                            }
+                            if (action === 'remove_entry') {
+                                const removed = await deps.repository.removeProjectEntry({ workflowId: found.workflowId, section, entry });
+                                logEvent(ctx.logger, 'info', `[workflow] manual entry removed (session=${sessionId}, section=${section})`);
+                                return { ok: true, section, removed: removed.removed };
+                            }
+                            const from = String(args?.from ?? '');
+                            const to = String(args?.to ?? '');
+                            const renamed = await deps.repository.renameProjectTag({ workflowId: found.workflowId, from, to });
+                            logEvent(ctx.logger, 'info', `[workflow] manual tag renamed (session=${sessionId}, from=${from}, to=${to}, rewritten=${renamed.rewritten}, table=${renamed.tags.length})`);
+                            return { ok: true, tags: renamed.tags, rewritten: renamed.rewritten };
+                        }
+                        catch (error) {
+                            // 被标签规则拒（缺标签 / 表满 / 匹配不到）也是"正常拒绝"：单独记一条，别和程序错混在一起。
+                            logEvent(ctx.logger, 'warn', `[workflow] manual entry rejected (session=${sessionId}, action=${action}, section=${section}): ${String(error?.message ?? error)}`);
+                            throw error;
+                        }
+                    }
+                    if (action !== 'replace_section') {
+                        throw new Error('action 只能是 read / replace_section / append_entry / update_entry / remove_entry / rename_tag');
+                    }
                     const section = String(args?.section ?? '').trim();
                     const writable = WRITABLE_SECTIONS[target];
                     if (!writable.includes(section)) {
@@ -198,13 +271,29 @@ export function registerWorkflowTools(ctx, deps) {
                         throw new Error('content 不能为空');
                     // 「实施顺序」只在讨论中定义；进入实现中之后只能勾选，不能重排或改写条目。
                     if (target === 'session' && section === '实施顺序') {
+                        // 状态表可能还没回填（认领早于绑节点）：先补一次，否则"讨论中"会被误判。
+                        if (deps.getState(sessionId) === undefined)
+                            await deps.refreshState?.(sessionId);
                         const state = deps.getState(sessionId);
+                        if (state === undefined) {
+                            throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）：先让宿主完成认领，再定义实施顺序。');
+                        }
                         if (state !== 'discussing') {
                             throw new Error('「实施顺序」只能在「讨论中」定义；进入实现中之后请用 workflow_check 逐条勾选，不要改写条目。');
                         }
                     }
-                    const result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
-                    logEvent(ctx.logger, 'info', `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes})`);
+                    let result;
+                    try {
+                        result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
+                    }
+                    catch (error) {
+                        // 被字数闸门拒是一种"正常的拒绝"，不是程序错：单独记一条，排查时不必去猜参数错还是超限。
+                        if (error?.code === 'manual-limit') {
+                            logEvent(ctx.logger, 'warn', `[workflow] manual gate rejected (session=${sessionId}, target=${target}, section=${section}): ${String(error?.message ?? error)}`);
+                        }
+                        throw error;
+                    }
+                    logEvent(ctx.logger, 'info', `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
                     return { ok: true, bytes: result.bytes, section };
                 });
             },
@@ -251,7 +340,10 @@ export function registerWorkflowTools(ctx, deps) {
                 const sessionId = requireSession(deps, exec);
                 return instrument('workflow_check', sessionId, async () => {
                     const state = deps.getState(sessionId);
-                    if (state === 'discussing')
+                    if (state === undefined)
+                        await deps.refreshState?.(sessionId);
+                    const stateNow = deps.getState(sessionId);
+                    if (stateNow === 'discussing')
                         throw new Error('「讨论中」还不勾清单：先把方案写进会话手册，推进到「实现中」再勾。');
                     const found = await deps.repository.findBySession(sessionId);
                     if (found === null)

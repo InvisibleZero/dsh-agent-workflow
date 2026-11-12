@@ -89,7 +89,9 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
         setHasPlan(plan);
         return { checklist: items, hasPlan: plan };
       }
-    } catch {
+    } catch (error) {
+      // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
+      console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
       setChecklist([]);
     }
     return { checklist: [], hasPlan: true };
@@ -248,12 +250,20 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
     }
   };
 
-  /** 推进：进入实现中前若方案没写，先弹确认。 */
+  /**
+   * 推进：进入实现中前若方案没写，只弹说明、不发请求。
+   *
+   * 「方案非空」是服务端的硬前置，`/transition` 一定会拒绝；这里如果还发请求，
+   * 用户会看到一个「仍进入」按钮点完必失败——所以这里根本不再调 `transitionTo`。
+   */
   const advance = async () => {
     if (nextState === null || advancing) return;
     if (nextState === 'implementing') {
+      // readChecklist 内部吞异常并返回 hasPlan=true：读不到就不拦，交给服务端前置校验裁决。
       const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
       if (!meta.hasPlan) {
+        // 埋点：本地拦下要留痕，否则日志里只有「点了没反应」，排查时这一跳答不上来。
+        console.info(`[dsh-agent-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
         setConfirmOpen(true);
         return;
       }
@@ -465,14 +475,11 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
           ) : null}
           {confirmOpen ? (
             <WorkflowConfirmDialog
-              title="进入实现中"
-              message={'这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案。'}
-              confirmLabel="仍进入"
+              title="还不能进入「实现中」"
+              message={'这个节点的会话手册里「方案」还是空的。\n\n「方案非空」是推进到实现中的硬条件，服务端会直接拒绝，所以这里只做提示、不会强行进入。\n\n先把方案写进手册：让 AI 用 workflow_manual 写，或直接编辑 .workflow/会话手册-' + nodeInfo.nodeId + '.md 的「方案」小节。'}
+              confirmLabel="知道了"
               onClose={() => setConfirmOpen(false)}
-              onConfirm={() => {
-                setConfirmOpen(false);
-                void transitionTo(nextState);
-              }}
+              onConfirm={() => setConfirmOpen(false)}
             />
           ) : null}
         </>,

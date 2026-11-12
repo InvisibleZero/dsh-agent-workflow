@@ -124,7 +124,9 @@ window.__ModuleLoader__.load({
                     return { checklist: items, hasPlan: plan };
                 }
             }
-            catch {
+            catch (error) {
+                // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
+                console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
                 setChecklist([]);
             }
             return { checklist: [], hasPlan: true };
@@ -295,13 +297,21 @@ window.__ModuleLoader__.load({
                 setAdvancing(false);
             }
         };
-        /** 推进：进入实现中前若方案没写，先弹确认。 */
+        /**
+         * 推进：进入实现中前若方案没写，只弹说明、不发请求。
+         *
+         * 「方案非空」是服务端的硬前置，`/transition` 一定会拒绝；这里如果还发请求，
+         * 用户会看到一个「仍进入」按钮点完必失败——所以这里根本不再调 `transitionTo`。
+         */
         const advance = async () => {
             if (nextState === null || advancing)
                 return;
             if (nextState === 'implementing') {
+                // readChecklist 内部吞异常并返回 hasPlan=true：读不到就不拦，交给服务端前置校验裁决。
                 const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
                 if (!meta.hasPlan) {
+                    // 埋点：本地拦下要留痕，否则日志里只有「点了没反应」，排查时这一跳答不上来。
+                    console.info(`[dsh-agent-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
                     setConfirmOpen(true);
                     return;
                 }
@@ -388,10 +398,7 @@ window.__ModuleLoader__.load({
                                     setReturnToDetail(false);
                                     setDetailOpen(true);
                                 }
-                            } })) : null, confirmOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowConfirmDialog, { title: "\u8FDB\u5165\u5B9E\u73B0\u4E2D", message: '这个节点的工作手册里还没写「方案」小节，直接进入实现中可能没有执行依据。\n\n· 点「仍进入」直接推进\n· 点「取消」回讨论中继续完善方案。', confirmLabel: "\u4ECD\u8FDB\u5165", onClose: () => setConfirmOpen(false), onConfirm: () => {
-                                setConfirmOpen(false);
-                                void transitionTo(nextState);
-                            } })) : null] }), document.body)] }));
+                            } })) : null, confirmOpen ? ((0, jsx_runtime_1.jsx)(workflow_dialogs_1.WorkflowConfirmDialog, { title: "\u8FD8\u4E0D\u80FD\u8FDB\u5165\u300C\u5B9E\u73B0\u4E2D\u300D", message: '这个节点的会话手册里「方案」还是空的。\n\n「方案非空」是推进到实现中的硬条件，服务端会直接拒绝，所以这里只做提示、不会强行进入。\n\n先把方案写进手册：让 AI 用 workflow_manual 写，或直接编辑 .workflow/会话手册-' + nodeInfo.nodeId + '.md 的「方案」小节。', confirmLabel: "\u77E5\u9053\u4E86", onClose: () => setConfirmOpen(false), onConfirm: () => setConfirmOpen(false) })) : null] }), document.body)] }));
     }
     /** 把状态徽标挂到输入框工具条的左侧控件区（权限控件的右边）。 */
     function applyWorkflowComposerBadge(ctx) {
@@ -442,6 +449,7 @@ window.__ModuleLoader__.load({
     const react_1 = require("react");
     const node_state_label_1 = __req("schema/node-state-label.js");
     const hard_rules_1 = __req("schema/hard-rules.js");
+    const manual_limits_1 = __req("schema/manual-limits.js");
     const node_state_color_1 = __req("client/node-state-color.js");
     const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
     /**
@@ -557,6 +565,8 @@ window.__ModuleLoader__.load({
         const [detail, setDetail] = (0, react_1.useState)(null);
         const [defaults, setDefaults] = (0, react_1.useState)(null);
         const [autoSend, setAutoSend] = (0, react_1.useState)(false);
+        /** 手册字数上限（字符数）：应用级，写进 app-settings.json，写手册时按它拒写。 */
+        const [limits, setLimits] = (0, react_1.useState)({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS });
         const [activeTab, setActiveTab] = (0, react_1.useState)('shared');
         const [status, setStatus] = (0, react_1.useState)('idle');
         const [error, setError] = (0, react_1.useState)(null);
@@ -632,8 +642,12 @@ window.__ModuleLoader__.load({
                 try {
                     const response = await fetch('/dsh-agent-workflow/app-settings');
                     const responseBody = await response.json().catch(() => null);
-                    if (!cancelled && responseBody?.ok === true)
+                    if (!cancelled && responseBody?.ok === true) {
                         setAutoSend(responseBody.autoSendEnterTrigger === true);
+                        if (responseBody.manualLimits !== undefined && responseBody.manualLimits !== null) {
+                            setLimits({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS, ...responseBody.manualLimits });
+                        }
+                    }
                 }
                 catch {
                     // 读不到就按默认（关闭）。
@@ -652,6 +666,28 @@ window.__ModuleLoader__.load({
             }
             catch (reason) {
                 console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+            }
+        };
+        /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
+        const saveLimit = async (field, raw) => {
+            const parsed = Number(raw);
+            const value = Number.isFinite(parsed) ? Math.round(parsed) : manual_limits_1.DEFAULT_MANUAL_LIMITS[field];
+            const next = { ...limits, [field]: value };
+            setLimits(next);
+            try {
+                const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ manualLimits: next }),
+                });
+                const body = await response.json().catch(() => null);
+                if (body?.ok === true && body.manualLimits !== undefined)
+                    setLimits({ ...manual_limits_1.DEFAULT_MANUAL_LIMITS, ...body.manualLimits });
+                else if (body?.ok !== true)
+                    window.alert(String(body?.error ?? '保存手册上限失败'));
+            }
+            catch (reason) {
+                window.alert(String(reason));
             }
         };
         /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
@@ -791,7 +827,28 @@ window.__ModuleLoader__.load({
                                 color: 'var(--dsw-alias-label-primary)',
                                 fontSize: 12,
                                 padding: '0 6px',
-                            }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { importFileRef.current?.click(); }, children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), saveAsOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
+                            }, children: profiles.map((name) => (0, jsx_runtime_1.jsx)("option", { value: name, children: name }, name)) }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), (0, jsx_runtime_1.jsx)(ProfileToolButton, { onClick: () => { importFileRef.current?.click(); }, children: "\u5BFC\u5165" }), readOnlyProfile ? ((0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), (0, jsx_runtime_1.jsxs)("div", { style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                        marginBottom: 12,
+                        fontSize: 12,
+                        color: 'var(--dsw-alias-label-secondary)',
+                    }, children: [(0, jsx_runtime_1.jsx)("span", { children: "\u624B\u518C\u5B57\u6570\u4E0A\u9650" }), [
+                            { field: 'constraints_chars', label: '约束 / 红线' },
+                            { field: 'plan_chars', label: '方案' },
+                            { field: 'session_total_chars', label: '会话手册整本' },
+                        ].map((item) => ((0, jsx_runtime_1.jsxs)("label", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsx)("span", { children: item.label }), (0, jsx_runtime_1.jsx)("input", { type: "number", min: manual_limits_1.MANUAL_LIMIT_MIN_CHARS, max: manual_limits_1.MANUAL_LIMIT_MAX_CHARS, value: limits[item.field], onChange: (event) => setLimits({ ...limits, [item.field]: Number(event.target.value) }), onBlur: (event) => { void saveLimit(item.field, event.target.value); }, style: {
+                                        width: 72,
+                                        height: 24,
+                                        borderRadius: 6,
+                                        border: '1px solid var(--dsw-alias-border-l1)',
+                                        background: 'var(--dsw-alias-bg-base)',
+                                        color: 'var(--dsw-alias-label-primary)',
+                                        fontSize: 12,
+                                        padding: '0 6px',
+                                    } })] }, item.field))), (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 11 }, children: "\u5B57\uFF08\u6309\u5B57\u4E0D\u6309\u5B57\u8282\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\uFF09" })] }), saveAsOpen ? ((0, jsx_runtime_1.jsxs)("div", { style: {
                         border: '1px solid var(--dsw-alias-border-l1)',
                         borderRadius: 8,
                         padding: 10,
@@ -1056,6 +1113,119 @@ window.__ModuleLoader__.load({
         verifying: `（纪律）验收必须给可复跑的证据：每一项「通过」都要附命令 + 输出，或指向具体测试文件（路径 + 跑法）；没有可复跑证据的项标「未验证」，不算通过。`,
     };
     //# sourceMappingURL=hard-rules.js.map
+    },
+    "schema/manual-limits.js": function(__req, module, exports) {
+    "use strict";
+    /**
+     * 手册写入的字数上限。
+     *
+     * 口径是**字符数**，不是字节：人和 AI 数得清的是字，而注入预算算的是字节。
+     * 两个口径分开，报错时两个数都给，才不会被"工具说没超、注入却截了"糊弄。
+     *
+     * 单独一个无依赖模块：数据层（仓储写入口）要判、接口层（工具报错）要引、
+     * 客户端设置页还要显示默认值；不能把 zod 或仓储实现带进客户端包。
+     */
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.ManualLimitError = exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
+    exports.countManualChars = countManualChars;
+    exports.stripManualEvidence = stripManualEvidence;
+    exports.sanitizeManualLimits = sanitizeManualLimits;
+    exports.assertSectionLimit = assertSectionLimit;
+    exports.assertSessionManualTotal = assertSessionManualTotal;
+    exports.DEFAULT_MANUAL_LIMITS = {
+        constraints_chars: 300,
+        plan_chars: 1200,
+        session_total_chars: 2000,
+    };
+    /** 合法区间：太小会把模板本身卡死，太大会把系统提示撑爆。 */
+    exports.MANUAL_LIMIT_MIN_CHARS = 20;
+    exports.MANUAL_LIMIT_MAX_CHARS = 20000;
+    /** 清单行里「自检证据」的分隔标记：- [x] 条目 ｜ 自检：<证据> */
+    exports.CHECK_EVIDENCE_MARK = ' ｜ 自检：';
+    /**
+     * 按字符（码点）计数。
+     *
+     * 不用 `text.length`：那是 UTF-16 代码单元数，一个 emoji 会算成 2 个字，
+     * 和用户/AI 数出来的字数对不上，报错就会显得在瞎说。
+     */
+    function countManualChars(text) {
+        return Array.from(text).length;
+    }
+    /** 剥掉每行「｜ 自检：」之后的证据：证据是执行记录，不该占手册字数配额。 */
+    function stripManualEvidence(text) {
+        return text
+            .split(/\r?\n/)
+            .map((line) => {
+            const cut = line.indexOf(exports.CHECK_EVIDENCE_MARK);
+            return cut === -1 ? line : line.slice(0, cut);
+        })
+            .join('\n');
+    }
+    /** 把外部传入的上限收成合法值：缺省用默认、非整数四舍五入、越界夹到区间内。 */
+    function sanitizeManualLimits(raw) {
+        const source = (raw ?? {});
+        const read = (value, fallback) => {
+            const number = typeof value === 'number' ? value : Number(value);
+            if (!Number.isFinite(number))
+                return fallback;
+            const rounded = Math.round(number);
+            return Math.min(exports.MANUAL_LIMIT_MAX_CHARS, Math.max(exports.MANUAL_LIMIT_MIN_CHARS, rounded));
+        };
+        return {
+            constraints_chars: read(source.constraints_chars, exports.DEFAULT_MANUAL_LIMITS.constraints_chars),
+            plan_chars: read(source.plan_chars, exports.DEFAULT_MANUAL_LIMITS.plan_chars),
+            session_total_chars: read(source.session_total_chars, exports.DEFAULT_MANUAL_LIMITS.session_total_chars),
+        };
+    }
+    /** 有独立字数上限的小节 → 上限字段。没有映射的小节只受整本上限约束。 */
+    const SECTION_LIMIT_FIELD = {
+        约束: 'constraints_chars',
+        方案: 'plan_chars',
+    };
+    /** 超限时给的具体删法：报错要能照着改，不能只说"请精简"。 */
+    const SECTION_TRIM_HINTS = {
+        约束: '删掉已被测试或代码固化验证过的条目、只对某个分支成立的临时约定；同类禁令合并成一条。',
+        方案: '把已落地的实现细节挪回代码，方案里只留目标、分层和层间契约；长篇论证换成一句"不这么做会怎样"。',
+    };
+    /** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */
+    class ManualLimitError extends Error {
+        code = 'manual-limit';
+        constructor(message) {
+            super(message);
+            this.name = 'ManualLimitError';
+        }
+    }
+    exports.ManualLimitError = ManualLimitError;
+    /**
+     * 写入前的硬校验：超了直接抛错。
+     * @returns 实际计入的字数（已剥离勾选证据）。
+     */
+    function assertSectionLimit(section, content, limits) {
+        const chars = countManualChars(stripManualEvidence(content));
+        const field = SECTION_LIMIT_FIELD[section];
+        if (field === undefined)
+            return chars;
+        const limit = limits[field];
+        if (chars > limit) {
+            const hint = SECTION_TRIM_HINTS[section] ?? '';
+            throw new ManualLimitError(`「${section}」现在 ${chars} 字，上限 ${limit} 字，超 ${chars - limit} 字。${hint}（强制上限，先精简再写）`);
+        }
+        return chars;
+    }
+    /**
+     * 整本会话手册的字数校验（勾选证据不计入）。
+     * @returns 实际计入的字数。
+     */
+    function assertSessionManualTotal(manual, limits) {
+        const chars = countManualChars(stripManualEvidence(manual));
+        const limit = limits.session_total_chars;
+        if (chars > limit) {
+            throw new ManualLimitError(`会话手册整本现在 ${chars} 字，上限 ${limit} 字，超 ${chars - limit} 字。`
+                + '先合并同类条目、删掉已被新决策推翻的旧内容；勾选证据（｜ 自检：…）不计入字数，不用为了字数删证据。');
+        }
+        return chars;
+    }
+    //# sourceMappingURL=manual-limits.js.map
     },
     "client/node-state-color.js": function(__req, module, exports) {
     "use strict";

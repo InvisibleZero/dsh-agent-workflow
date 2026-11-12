@@ -1,4 +1,5 @@
 import { GlobalOperationDetail, type WorkflowSnapshot } from '../schema/workflow';
+import { type ManualLimits } from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
 export declare const BUILTIN_PROFILE_NAME = "\u9ED8\u8BA4\u5B58\u6863";
@@ -200,6 +201,8 @@ export declare class WorkflowRepository {
     } | null>;
     /** 读工作区项目手册（项目总览 / 决策 / 要点）。 */
     readGlobalManual(workflowId: string): Promise<string>;
+    /** 项目手册的绝对路径（只读用途：注入里那句「去哪查」要用它，不能只给相对名）。 */
+    globalManualPath(workflowId: string): Promise<string | null>;
     /**
      * 轻量取「实施清单 + 方案是否已写」：会话输入区每 3s 轮询用，带 mtime 缓存，
      * 文件没变就不重新读盘/解析。
@@ -211,15 +214,21 @@ export declare class WorkflowRepository {
         }>;
         hasPlan: boolean;
     } | null>;
-    /** 应用级设置（目前只有"切换状态时是否自动发送默认输入"）。存在 <baseDir>/app-settings.json。 */
+    /**
+     * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
+     * 存在 <baseDir>/app-settings.json。
+     */
     private appSettingsPath;
     getAppSettings(): Promise<{
         autoSendEnterTrigger: boolean;
+        manualLimits: ManualLimits;
     }>;
     updateAppSettings(patch: {
         autoSendEnterTrigger?: boolean;
+        manualLimits?: unknown;
     }): Promise<{
         autoSendEnterTrigger: boolean;
+        manualLimits: ManualLimits;
     }>;
     /**
      * 读项目手册并按四类内容拆开，供注入按优先级取用。
@@ -230,7 +239,67 @@ export declare class WorkflowRepository {
         decisions: string;
         constraints: string;
         pitfalls: string;
+        tags: string[];
     }>;
+    /** 项目手册四节（标签表不算条目节，它由工具维护）。 */
+    private projectEntrySections;
+    /** 读项目手册全文（不存在时用模板）。 */
+    private readProjectManual;
+    /** 写回项目手册：先过「约束」一节的字数闸门与整本字节上限，再原子写。 */
+    private writeProjectManual;
+    /** 按小节替换，小节不存在就追加（旧手册没有「标签表」时走这条）。 */
+    private upsertSection;
+    /** 当前标签表。 */
+    listProjectTags(workflowId: string): Promise<string[]>;
+    /**
+     * 追加一条带标签的条目。标签不在表里就自动登记；表满 30 条时拒写，逼用 rename_tag 合并。
+     * @returns 登记后的完整标签表 + 这次新登记的标签 + 实际写入的行
+     */
+    appendProjectEntry(input: {
+        workflowId: string;
+        section: string;
+        tags: string[];
+        content: string;
+    }): Promise<{
+        tags: string[];
+        registered: string[];
+        entry: string;
+    }>;
+    /** 改写一条条目（按正文精确匹配；匹配到多条就报错，猜错比报错更糟）。 */
+    updateProjectEntry(input: {
+        workflowId: string;
+        section: string;
+        entry: string;
+        tags: string[];
+        content: string;
+    }): Promise<{
+        tags: string[];
+        entry: string;
+    }>;
+    /** 删掉一条条目（按正文精确匹配）。 */
+    removeProjectEntry(input: {
+        workflowId: string;
+        section: string;
+        entry: string;
+    }): Promise<{
+        removed: string;
+    }>;
+    /**
+     * 合并 / 重命名标签：级联改写所有条目行里的 from → to，再从标签表删 from。
+     * 这条通道不占 30 条额度（只会让表变小或不变），是"表满了还能收拾"的唯一出口。
+     */
+    renameProjectTag(input: {
+        workflowId: string;
+        from: string;
+        to: string;
+    }): Promise<{
+        tags: string[];
+        rewritten: number;
+    }>;
+    /** 条目只能写进四节；标签表由工具自动维护，不许当条目节用。 */
+    private assertEntrySection;
+    /** 归一化标签数组：过滤非法、去重；一个都不剩就拒写并列出可用标签。 */
+    private normalizeEntryTags;
     /**
      * 读手册全文（AI 专用工具的 read 动作）。
      * nodeId 为 null 时读项目手册；否则读该会话的会话手册。
@@ -248,6 +317,7 @@ export declare class WorkflowRepository {
     }): Promise<{
         bytes: number;
         section: string;
+        chars: number;
     }>;
     /**
      * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。

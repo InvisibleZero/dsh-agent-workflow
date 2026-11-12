@@ -10,6 +10,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
+import { DEFAULT_MANUAL_LIMITS, MANUAL_LIMIT_MAX_CHARS, MANUAL_LIMIT_MIN_CHARS } from '../schema/manual-limits';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
 /**
@@ -125,6 +126,8 @@ function WorkflowGlobalSettingsSection() {
     const [detail, setDetail] = useState(null);
     const [defaults, setDefaults] = useState(null);
     const [autoSend, setAutoSend] = useState(false);
+    /** 手册字数上限（字符数）：应用级，写进 app-settings.json，写手册时按它拒写。 */
+    const [limits, setLimits] = useState({ ...DEFAULT_MANUAL_LIMITS });
     const [activeTab, setActiveTab] = useState('shared');
     const [status, setStatus] = useState('idle');
     const [error, setError] = useState(null);
@@ -135,6 +138,7 @@ function WorkflowGlobalSettingsSection() {
     const [importName, setImportName] = useState('');
     const [saveAsOpen, setSaveAsOpen] = useState(false);
     const [saveAsName, setSaveAsName] = useState('');
+    const importFileRef = useRef(null);
     const timerRef = useRef(null);
     const latestRef = useRef(null);
     useEffect(() => {
@@ -199,8 +203,12 @@ function WorkflowGlobalSettingsSection() {
             try {
                 const response = await fetch('/dsh-agent-workflow/app-settings');
                 const responseBody = await response.json().catch(() => null);
-                if (!cancelled && responseBody?.ok === true)
+                if (!cancelled && responseBody?.ok === true) {
                     setAutoSend(responseBody.autoSendEnterTrigger === true);
+                    if (responseBody.manualLimits !== undefined && responseBody.manualLimits !== null) {
+                        setLimits({ ...DEFAULT_MANUAL_LIMITS, ...responseBody.manualLimits });
+                    }
+                }
             }
             catch {
                 // 读不到就按默认（关闭）。
@@ -219,6 +227,28 @@ function WorkflowGlobalSettingsSection() {
         }
         catch (reason) {
             console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+        }
+    };
+    /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
+    const saveLimit = async (field, raw) => {
+        const parsed = Number(raw);
+        const value = Number.isFinite(parsed) ? Math.round(parsed) : DEFAULT_MANUAL_LIMITS[field];
+        const next = { ...limits, [field]: value };
+        setLimits(next);
+        try {
+            const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ manualLimits: next }),
+            });
+            const body = await response.json().catch(() => null);
+            if (body?.ok === true && body.manualLimits !== undefined)
+                setLimits({ ...DEFAULT_MANUAL_LIMITS, ...body.manualLimits });
+            else if (body?.ok !== true)
+                window.alert(String(body?.error ?? '保存手册上限失败'));
+        }
+        catch (reason) {
+            window.alert(String(reason));
         }
     };
     /** 真正落盘：只由防抖计时器或卸载时的兜底调用。 */
@@ -295,13 +325,22 @@ function WorkflowGlobalSettingsSection() {
             window.alert(String(reason));
         }
     };
-    const submitImport = async () => {
-        if (importText.trim() === '')
+    /** 选一个 json 文件导入成存档：文件名即存档名。 */
+    const pickImportFile = async (event) => {
+        const file = event?.target?.files?.[0];
+        if (event?.target)
+            event.target.value = ''; // 允许再次选同一个文件
+        if (file === undefined)
             return;
-        if (await callProfileRoute('profiles-import', { name: importName, json: importText })) {
-            setImportOpen(false);
-            setImportText('');
-            setImportName('');
+        try {
+            const text = await file.text();
+            const name = file.name.replace(/\.json$/i, '');
+            if (await callProfileRoute('profiles-import', { name, json: text })) {
+                window.alert(`已导入「${name}」，可在下拉里选它。`);
+            }
+        }
+        catch (reason) {
+            window.alert(String(reason));
         }
     };
     /** 改动即排一次防抖保存（700ms），不需要「保存」按钮。 */
@@ -349,7 +388,28 @@ function WorkflowGlobalSettingsSection() {
                             color: 'var(--dsw-alias-label-primary)',
                             fontSize: 12,
                             padding: '0 6px',
-                        }, children: profiles.map((name) => _jsx("option", { value: name, children: name }, name)) }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), _jsx(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), _jsx(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), _jsx(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), _jsx(ProfileToolButton, { onClick: () => setImportOpen((value) => !value), children: "\u5BFC\u5165" }), readOnlyProfile ? (_jsxs("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), saveAsOpen ? (_jsxs("div", { style: {
+                        }, children: profiles.map((name) => _jsx("option", { value: name, children: name }, name)) }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen((value) => !value); setSaveAsName((current) => (current !== '' ? current : (readOnlyProfile ? '我的存档' : `${activeProfile} 副本`))); }, children: "\u53E6\u5B58\u4E3A" }), _jsx(ProfileToolButton, { onClick: () => { void removeProfile(); }, disabled: readOnlyProfile, children: "\u5220\u9664" }), _jsx(ProfileToolButton, { onClick: () => { void refreshProfiles(); }, children: "\u5237\u65B0" }), _jsx(ProfileToolButton, { onClick: () => { void exportProfile(); }, children: "\u5907\u4EFD" }), _jsx(ProfileToolButton, { onClick: () => { importFileRef.current?.click(); }, children: "\u5BFC\u5165" }), readOnlyProfile ? (_jsxs("span", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)' }, children: ["\u300C", BUILTIN_PROFILE_NAME, "\u300D\u968F\u63D2\u4EF6\u63D0\u4F9B\u3001\u4E0D\u53EF\u4FEE\u6539\uFF1B\u8981\u6539\u5148\u300C\u53E6\u5B58\u4E3A\u300D"] })) : null] }), _jsxs("div", { style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    marginBottom: 12,
+                    fontSize: 12,
+                    color: 'var(--dsw-alias-label-secondary)',
+                }, children: [_jsx("span", { children: "\u624B\u518C\u5B57\u6570\u4E0A\u9650" }), [
+                        { field: 'constraints_chars', label: '约束 / 红线' },
+                        { field: 'plan_chars', label: '方案' },
+                        { field: 'session_total_chars', label: '会话手册整本' },
+                    ].map((item) => (_jsxs("label", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsx("span", { children: item.label }), _jsx("input", { type: "number", min: MANUAL_LIMIT_MIN_CHARS, max: MANUAL_LIMIT_MAX_CHARS, value: limits[item.field], onChange: (event) => setLimits({ ...limits, [item.field]: Number(event.target.value) }), onBlur: (event) => { void saveLimit(item.field, event.target.value); }, style: {
+                                    width: 72,
+                                    height: 24,
+                                    borderRadius: 6,
+                                    border: '1px solid var(--dsw-alias-border-l1)',
+                                    background: 'var(--dsw-alias-bg-base)',
+                                    color: 'var(--dsw-alias-label-primary)',
+                                    fontSize: 12,
+                                    padding: '0 6px',
+                                } })] }, item.field))), _jsx("span", { style: { fontSize: 11 }, children: "\u5B57\uFF08\u6309\u5B57\u4E0D\u6309\u5B57\u8282\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\uFF09" })] }), saveAsOpen ? (_jsxs("div", { style: {
                     border: '1px solid var(--dsw-alias-border-l1)',
                     borderRadius: 8,
                     padding: 10,
@@ -365,32 +425,7 @@ function WorkflowGlobalSettingsSection() {
                                     color: 'var(--dsw-alias-label-primary)',
                                     fontSize: 12,
                                     padding: '0 8px',
-                                } }), _jsx(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u4FDD\u5B58" }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen(false); setSaveAsName(''); }, children: "\u53D6\u6D88" })] })] })) : null, importOpen ? (_jsxs("div", { style: {
-                    border: '1px solid var(--dsw-alias-border-l1)',
-                    borderRadius: 8,
-                    padding: 10,
-                    marginBottom: 10,
-                    background: 'var(--dsw-alias-bg-base)',
-                }, children: [_jsx("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 }, children: "\u7C98\u8D34\u5BFC\u51FA\u7684 JSON \u5185\u5BB9\uFF1B\u5BFC\u5165\u540E\u4E0D\u4F1A\u81EA\u52A8\u5207\u6362\uFF0C\u53EF\u5728\u4E0A\u9762\u7684\u4E0B\u62C9\u91CC\u9009\u5B83\u3002" }), _jsx("input", { value: importName, onChange: (event) => setImportName(event.target.value), placeholder: "\u5B58\u6863\u540D\uFF08\u7559\u7A7A\u5219\u7528\u6587\u4EF6\u91CC\u7684\u540D\u5B57\uFF09", style: {
-                            width: '100%',
-                            height: 26,
-                            marginBottom: 6,
-                            borderRadius: 6,
-                            border: '1px solid var(--dsw-alias-border-l1)',
-                            background: 'var(--dsw-alias-bg-layer-1)',
-                            color: 'var(--dsw-alias-label-primary)',
-                            fontSize: 12,
-                            padding: '0 8px',
-                        } }), _jsx("textarea", { value: importText, onChange: (event) => setImportText(event.target.value), rows: 6, placeholder: '{"kind":"dsh-agent-workflow/operation-detail", \u2026}', style: {
-                            width: '100%',
-                            borderRadius: 6,
-                            border: '1px solid var(--dsw-alias-border-l1)',
-                            background: 'var(--dsw-alias-bg-layer-1)',
-                            color: 'var(--dsw-alias-label-primary)',
-                            fontSize: 11.5,
-                            padding: 8,
-                            resize: 'vertical',
-                        } }), _jsxs("div", { style: { display: 'flex', gap: 8, marginTop: 8 }, children: [_jsx(ProfileToolButton, { onClick: () => { void submitImport(); }, children: "\u5BFC\u5165\u4E3A\u5B58\u6863" }), _jsx(ProfileToolButton, { onClick: () => { setImportOpen(false); setImportText(''); setImportName(''); }, children: "\u53D6\u6D88" })] })] })) : null, AUTO_SEND_SETTING_VISIBLE ? (_jsxs("label", { style: {
+                                } }), _jsx(ProfileToolButton, { onClick: () => { void saveAsProfile(); }, children: "\u4FDD\u5B58" }), _jsx(ProfileToolButton, { onClick: () => { setSaveAsOpen(false); setSaveAsName(''); }, children: "\u53D6\u6D88" })] })] })) : null, _jsx("input", { ref: importFileRef, type: "file", accept: ".json,application/json", style: { display: 'none' }, onChange: (event) => { void pickImportFile(event); } }), AUTO_SEND_SETTING_VISIBLE ? (_jsxs("label", { style: {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,

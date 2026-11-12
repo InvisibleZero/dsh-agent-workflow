@@ -181,7 +181,12 @@ export function apply(ctx: any) {
    * （`presetForSession`）直接读会话的预设，不依赖 agent 是否已就绪。
    */
   const claimBySession = (sessionId: string): boolean => {
-    if (presetSessions.has(sessionId)) return true;
+    if (presetSessions.has(sessionId)) {
+      // 认领过但状态表可能仍是空的（认领发生在节点绑定之前）：这里补一次，
+      // 否则门禁拿到空状态、"写实施顺序"也会被误判成非讨论中。
+      if (!sessionState.has(sessionId)) void refreshSessionState(sessionId);
+      return true;
+    }
     try {
       const registry = ctx.get('agentPresets');
       const session = ctx.get('sessions')?.get?.(sessionId);
@@ -230,6 +235,8 @@ export function apply(ctx: any) {
     stateContext,
     isPresetSession,
     getState: (sessionId: string) => sessionState.get(sessionId),
+    /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
+    refreshState: (sessionId: string) => refreshSessionState(sessionId),
     setState: (sessionId: string, state: string) => sessionState.set(sessionId, state),
     logger: ctx.logger,
     requestAdvance: (input: { sessionId: string; to: string; reason?: string }) => {
@@ -303,17 +310,21 @@ export function apply(ctx: any) {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: '/dsh-agent-workflow/app-settings',
-      handler: makeHandler(ctx, repository, 'GET', async () => ({ autoSendEnterTrigger: (await repository.getAppSettings()).autoSendEnterTrigger })),
+      handler: makeHandler(ctx, repository, 'GET', async () => {
+        const settings = await repository.getAppSettings();
+        return { autoSendEnterTrigger: settings.autoSendEnterTrigger, manualLimits: settings.manualLimits };
+      }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: '/dsh-agent-workflow/app-settings-save',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         const saved = await repository.updateAppSettings({
-          autoSendEnterTrigger: body?.autoSendEnterTrigger === true,
+          autoSendEnterTrigger: body?.autoSendEnterTrigger === undefined ? undefined : body.autoSendEnterTrigger === true,
+          manualLimits: body?.manualLimits,
         });
-        logEvent(ctx.logger, 'info', `[workflow] app-settings saved (autoSend=${saved.autoSendEnterTrigger})`);
-        return { autoSendEnterTrigger: saved.autoSendEnterTrigger };
+        logEvent(ctx.logger, 'info', `[workflow] app-settings saved (autoSend=${saved.autoSendEnterTrigger}, 约束=${saved.manualLimits.constraints_chars}字, 方案=${saved.manualLimits.plan_chars}字, 整本=${saved.manualLimits.session_total_chars}字)`);
+        return { autoSendEnterTrigger: saved.autoSendEnterTrigger, manualLimits: saved.manualLimits };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
