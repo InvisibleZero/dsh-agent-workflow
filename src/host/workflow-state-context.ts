@@ -30,8 +30,10 @@ import type { ManualLimits } from '../schema/manual-limits';
 
 export { truncateToBytes };
 
-/** 整块注入的预算（字节）：维持原来的 8000，靠"分层 + 按重要度丢"解决挤占，不靠加预算。 */
-const TOTAL_BUDGET_BYTES = 8000;
+/** 整块注入的预算（字节）：A 公共细节里常驻「交付三项 / 已知可优化 / 命名宪法」，
+ *  硬层最坏情况（验收中 + 满额会话手册）约 7.9 KB，抬到 9000 留出余量；
+ *  靠"分层 + 按重要度丢"解决挤占，不靠无限加预算。 */
+const TOTAL_BUDGET_BYTES = 9000;
 
 interface BuiltContext {
   /** 层名 → 本轮该层文本（被丢的层是空串，槽位仍然挂着只是不出内容）。 */

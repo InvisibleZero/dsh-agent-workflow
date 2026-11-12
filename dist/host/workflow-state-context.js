@@ -21,8 +21,10 @@ import { join } from 'node:path';
 import { PROMPT_LAYER_SPECS, SESSION_MANUAL_BUDGET_BYTES, TAG_LAYER_BUDGET_BYTES, assemblePromptLayers, pickSessionManualParts, } from '../engine/prompt-layers';
 import { countUtf8Bytes, truncateToBytes } from '../engine/text-budget';
 export { truncateToBytes };
-/** 整块注入的预算（字节）：维持原来的 8000，靠"分层 + 按重要度丢"解决挤占，不靠加预算。 */
-const TOTAL_BUDGET_BYTES = 8000;
+/** 整块注入的预算（字节）：A 公共细节里常驻「交付三项 / 已知可优化 / 命名宪法」，
+ *  硬层最坏情况（验收中 + 满额会话手册）约 7.9 KB，抬到 9000 留出余量；
+ *  靠"分层 + 按重要度丢"解决挤占，不靠无限加预算。 */
+const TOTAL_BUDGET_BYTES = 9000;
 /**
  * 按字符截断（码点安全）。
  * 用于「约束 / 红线」这类有字数上限的小节：老手册可能超，超了要标出来而不是静默丢字。

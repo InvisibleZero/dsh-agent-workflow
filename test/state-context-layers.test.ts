@@ -141,8 +141,8 @@ describe('分层注入（与真机同一条注册/求值路径）', () => {
 
     expect(joined).toContain(DEFAULT_HARD_RULES.discussing);
     expect(scopedSpecs.find((spec) => spec.name === 'workflow:hard-rules').text()).toContain('（收尾）讨论阶段不写手册也不会卡住');
-    // 总量受 8000 字节预算约束，但不该以丢掉硬层为代价。
-    expect(Buffer.byteLength(joined, 'utf8')).toBeLessThanOrEqual(8000);
+    // 总量受预算约束（9000：A 公共细节装了交付/命名规范后硬层最坏约 7.9 KB），但不该以丢掉硬层为代价。
+    expect(Buffer.byteLength(joined, 'utf8')).toBeLessThanOrEqual(9000);
   });
 
   it('标签表为空时不注入这一层；有标签时注入且 ≤600 字节', async () => {
@@ -176,7 +176,7 @@ describe('分层注入（与真机同一条注册/求值路径）', () => {
     const { api, runtime } = await mount();
     await api.refreshNow(sessionId);
     const summary = runtime.logs.find((line) => line.includes('state-context ok'));
-    expect(summary).toContain('budget=8000');
+    expect(summary).toContain('budget=9000');
     expect(summary).toMatch(/headroom=\d+/);
     expect(summary).toContain('dropped=0');
   });
