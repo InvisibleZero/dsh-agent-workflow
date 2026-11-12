@@ -163,6 +163,13 @@ export declare class WorkflowRepository {
         by?: string;
     }): Promise<WorkflowSnapshot>;
     /**
+     * 切回讨论中时清空会话手册的「实施顺序」：保留「方案」与小节标题，只清条目。
+     *
+     * 不走 replaceManualSection：那条路径带字数闸门，手册本来就超限时会反过来挡住状态切换。
+     * 没有手册文件 / 老手册没有这一节时直接跳过（等于本来就没有清单可清）。
+     */
+    private clearChecklistOnReturnToDiscussion;
+    /**
      * 把节点绑定到一个 dsh 会话（点节点时打开）。
      * 传空字符串表示解绑；只改我们自己的快照，不碰宿主的会话存储。
      */

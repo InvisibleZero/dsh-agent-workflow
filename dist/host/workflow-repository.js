@@ -725,6 +725,11 @@ export class WorkflowRepository {
             if (node === undefined)
                 throw new Error('找不到节点');
             const from = node.current_state;
+            // 切回讨论中：上一轮的「实施顺序」作废。先清手册再落快照——清失败就不切换状态，
+            // 避免出现「已在讨论中、清单还是上一轮的」这种半截状态。
+            if (input.to === 'discussing' && from !== 'discussing') {
+                await this.clearChecklistOnReturnToDiscussion(snapshot, input.nodeId);
+            }
             const updated = {
                 ...snapshot,
                 nodes: snapshot.nodes.map((candidate) => candidate.node_id === input.nodeId
@@ -743,6 +748,39 @@ export class WorkflowRepository {
             await this.storage.save(updated);
             return updated;
         });
+    }
+    /**
+     * 切回讨论中时清空会话手册的「实施顺序」：保留「方案」与小节标题，只清条目。
+     *
+     * 不走 replaceManualSection：那条路径带字数闸门，手册本来就超限时会反过来挡住状态切换。
+     * 没有手册文件 / 老手册没有这一节时直接跳过（等于本来就没有清单可清）。
+     */
+    async clearChecklistOnReturnToDiscussion(snapshot, nodeId) {
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            return;
+        const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
+        let current;
+        try {
+            current = await fs.readFile(file, 'utf8');
+        }
+        catch {
+            return;
+        }
+        let next;
+        try {
+            next = replaceSectionBody(current, '实施顺序', '', []);
+        }
+        catch {
+            return;
+        }
+        try {
+            await writeTextAtomic(file, next);
+        }
+        catch (error) {
+            throw new Error(`切回「讨论中」时要清空「实施顺序」，但会话手册写入失败：${String(error?.message ?? error)}`);
+        }
+        this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
     }
     /**
      * 把节点绑定到一个 dsh 会话（点节点时打开）。

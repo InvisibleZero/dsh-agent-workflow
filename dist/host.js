@@ -1086,6 +1086,9 @@ var WorkflowRepository = class {
       const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
       if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
       const from = node.current_state;
+      if (input.to === "discussing" && from !== "discussing") {
+        await this.clearChecklistOnReturnToDiscussion(snapshot, input.nodeId);
+      }
       const updated = {
         ...snapshot,
         nodes: snapshot.nodes.map(
@@ -1104,6 +1107,35 @@ var WorkflowRepository = class {
       await this.storage.save(updated);
       return updated;
     });
+  }
+  /**
+   * 切回讨论中时清空会话手册的「实施顺序」：保留「方案」与小节标题，只清条目。
+   *
+   * 不走 replaceManualSection：那条路径带字数闸门，手册本来就超限时会反过来挡住状态切换。
+   * 没有手册文件 / 老手册没有这一节时直接跳过（等于本来就没有清单可清）。
+   */
+  async clearChecklistOnReturnToDiscussion(snapshot, nodeId) {
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return;
+    const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
+    let current;
+    try {
+      current = await fs2.readFile(file, "utf8");
+    } catch {
+      return;
+    }
+    let next;
+    try {
+      next = replaceSectionBody(current, "\u5B9E\u65BD\u987A\u5E8F", "", []);
+    } catch {
+      return;
+    }
+    try {
+      await writeTextAtomic(file, next);
+    } catch (error) {
+      throw new Error(`\u5207\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u65F6\u8981\u6E05\u7A7A\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF0C\u4F46\u4F1A\u8BDD\u624B\u518C\u5199\u5165\u5931\u8D25\uFF1A${String(error?.message ?? error)}`);
+    }
+    this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
   }
   /**
    * 把节点绑定到一个 dsh 会话（点节点时打开）。

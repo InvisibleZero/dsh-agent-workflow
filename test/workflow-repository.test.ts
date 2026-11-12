@@ -480,3 +480,60 @@ describe('WorkflowRepository：手册编辑与勾选（AI 工具的实现）', (
     })).rejects.toThrow(/evidence/);
   });
 });
+
+describe('WorkflowRepository：切回讨论中清空实施顺序', () => {
+  let dir: string;
+  let workDir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'wf-repo-'));
+    workDir = await mkdtemp(join(tmpdir(), 'wf-work-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(workDir, { recursive: true, force: true });
+  });
+
+  it('从已完结退回讨论中：清单清空，方案与小节标题保留', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+    await repo.replaceManualSection({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      section: '方案',
+      content: '### 1. 目标与验收\n\n做一个计算器',
+    });
+    for (const to of ['implementing', 'verifying', 'completed']) {
+      await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to });
+    }
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+
+    await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
+
+    const meta = await repo.getManualMeta(node.workflowId, node.nodeId);
+    expect(meta?.checklist).toEqual([]);
+    expect(meta?.hasPlan).toBe(true);
+    const manual = await repo.readManual(node.workflowId, node.nodeId);
+    expect(manual).toContain('## 实施顺序');
+    expect(manual).toContain('做一个计算器');
+  });
+
+  it('从实现中退回也清；正向进入验收中不清', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-2', workingDirectory: workDir });
+    await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'implementing' });
+    await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'verifying' });
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+
+    await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toEqual([]);
+  });
+
+  it('本来就在讨论中：不清（没有发生切换）', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-3', workingDirectory: workDir });
+    await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+  });
+});
