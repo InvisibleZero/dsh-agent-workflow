@@ -4,11 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowGuard, registerWorkflowTools } from '../src/host/workflow-tools';
+import { ToolAliasStore } from '../src/host/tool-alias-store';
+import { clearToolEvents, recordToolEvent } from '../src/host/tool-ledger';
 
 /**
  * 工具侧的契约与埋点：
  * - 字数闸门拒写时，事件里必须有一条专门记录（能回答「为什么这一步没往下走」）；
  * - 门禁拿不到状态时默认拦住并留痕（不能静默放行）。
+ *
+ * 五个基础工具现在只能经网关调用；这里走 workflow_tool_call 的同一条执行路径。
  */
 function makeToolRuntime() {
   const logs: string[] = [];
@@ -33,6 +37,9 @@ function makeToolRuntime() {
 function makeDeps(repository: WorkflowRepository, state: string | undefined, logs: string[]) {
   return {
     repository,
+    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-alias-unused')),
+    recordToolEvent,
+    stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,
     getState: () => state,
     refreshState: async () => {},
@@ -41,12 +48,14 @@ function makeDeps(repository: WorkflowRepository, state: string | undefined, log
     requestAdvance: () => {},
     pendingAdvanceOf: () => null,
     clearPendingAdvance: () => {},
+    notify: () => {},
   };
 }
 
 const SESSION = 'session-tool-test';
+const EXEC = { agent: { session: { id: SESSION } } };
 
-describe('workflow_manual 的字数闸门埋点', () => {
+describe('workflow_manual 的字数闸门埋点（经网关）', () => {
   let dir: string;
   let workDir: string;
   let repo: WorkflowRepository;
@@ -59,6 +68,7 @@ describe('workflow_manual 的字数闸门埋点', () => {
     const created = await repo.create({ path: workDir });
     workflowId = created.id;
     await repo.bindSession({ id: workflowId, nodeId: workflowId, sessionId: SESSION });
+    clearToolEvents();
   });
 
   afterEach(async () => {
@@ -71,16 +81,16 @@ describe('workflow_manual 的字数闸门埋点', () => {
     const deps = makeDeps(repo, state, runtime.logs);
     registerWorkflowGuard(runtime.ctx, deps);
     registerWorkflowTools(runtime.ctx, deps);
-    const manualTool = runtime.tools.find((tool) => tool.name === 'workflow_manual');
-    return { runtime, manualTool };
+    const call = runtime.tools.find((tool) => tool.name === 'workflow_tool_call');
+    const viaGateway = (name: string, args: any) => call.execute({ name, args }, EXEC);
+    return { runtime, viaGateway };
   }
 
   it('301 字约束被拒，并单独记一条 manual gate rejected（带 target / section）', async () => {
-    const { runtime, manualTool } = mount('implementing');
-    await expect(manualTool.execute(
-      { target: 'project', action: 'replace_section', section: '约束', content: 'x'.repeat(301) },
-      { agent: { session: { id: SESSION } } },
-    )).rejects.toThrow(/上限 300 字/);
+    const { runtime, viaGateway } = mount('implementing');
+    await expect(viaGateway('workflow_manual', {
+      target: 'project', action: 'replace_section', section: '约束', content: 'x'.repeat(301),
+    })).rejects.toThrow(/上限 300 字/);
 
     const gate = runtime.logs.find((line) => line.includes('manual gate rejected'));
     expect(gate).toBeDefined();
@@ -89,22 +99,20 @@ describe('workflow_manual 的字数闸门埋点', () => {
   });
 
   it('300 字约束写入成功，记 bytes 与 chars（字数是可核对的）', async () => {
-    const { runtime, manualTool } = mount('implementing');
-    const value = await manualTool.execute(
-      { target: 'project', action: 'replace_section', section: '约束', content: 'x'.repeat(300) },
-      { agent: { session: { id: SESSION } } },
-    );
-    expect(value.ok).toBe(true);
+    const { runtime, viaGateway } = mount('implementing');
+    const value = await viaGateway('workflow_manual', {
+      target: 'project', action: 'replace_section', section: '约束', content: 'x'.repeat(300),
+    });
+    expect(value.value.ok).toBe(true);
     const written = runtime.logs.find((line) => line.includes('manual write'));
     expect(written).toContain('chars=300');
   });
 
   it('append_entry 不带 tags 被拒，并记一条 manual entry rejected', async () => {
-    const { runtime, manualTool } = mount('implementing');
-    await expect(manualTool.execute(
-      { target: 'project', action: 'append_entry', section: '坑与防线', content: '没标签的条目' },
-      { agent: { session: { id: SESSION } } },
-    )).rejects.toThrow(/必须带至少一个标签/);
+    const { runtime, viaGateway } = mount('implementing');
+    await expect(viaGateway('workflow_manual', {
+      target: 'project', action: 'append_entry', section: '坑与防线', content: '没标签的条目',
+    })).rejects.toThrow(/必须带至少一个标签/);
 
     const rejected = runtime.logs.find((line) => line.includes('manual entry rejected'));
     expect(rejected).toContain('action=append_entry');
@@ -112,22 +120,20 @@ describe('workflow_manual 的字数闸门埋点', () => {
   });
 
   it('append_entry 带 tags 成功，返回登记后的标签表', async () => {
-    const { manualTool } = mount('implementing');
-    const value = await manualTool.execute(
-      { target: 'project', action: 'append_entry', section: '坑与防线', tags: ['门禁'], content: '状态表永不回填' },
-      { agent: { session: { id: SESSION } } },
-    );
-    expect(value.ok).toBe(true);
-    expect(value.registered).toEqual(['门禁']);
-    expect(value.entry).toBe('- [门禁] 状态表永不回填');
+    const { viaGateway } = mount('implementing');
+    const value = await viaGateway('workflow_manual', {
+      target: 'project', action: 'append_entry', section: '坑与防线', tags: ['门禁'], content: '状态表永不回填',
+    });
+    expect(value.value.ok).toBe(true);
+    expect(value.value.registered).toEqual(['门禁']);
+    expect(value.value.entry).toBe('- [门禁] 状态表永不回填');
   });
 
   it('条目级写入只对项目手册开放', async () => {
-    const { manualTool } = mount('implementing');
-    await expect(manualTool.execute(
-      { target: 'session', action: 'append_entry', section: '方案', tags: ['x'], content: 'y' },
-      { agent: { session: { id: SESSION } } },
-    )).rejects.toThrow(/只对项目手册/);
+    const { viaGateway } = mount('implementing');
+    await expect(viaGateway('workflow_manual', {
+      target: 'session', action: 'append_entry', section: '方案', tags: ['x'], content: 'y',
+    })).rejects.toThrow(/只对项目手册/);
   });
 });
 

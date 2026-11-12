@@ -22,6 +22,7 @@ export const PROMPT_LAYER_SPECS = [
     { name: 'state-detail', order: 150, hard: true, priority: 0 },
     { name: 'node-addition', order: 155, hard: false, priority: 3 },
     { name: 'verify-progress', order: 156, hard: false, priority: 1 },
+    { name: 'tool-catalog', order: 158, hard: false, priority: 2 },
     { name: 'constraints', order: 160, hard: false, priority: 1 },
     { name: 'manual-tags', order: 162, hard: false, priority: 2 },
     { name: 'manual-cue', order: 165, hard: false, priority: 2 },

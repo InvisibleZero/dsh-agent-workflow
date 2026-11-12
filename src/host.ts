@@ -17,6 +17,10 @@ import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
 import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host/session-claim';
 import { logEvent, newTraceId, recentEvents } from './host/event-log';
+import { ToolAliasStore } from './host/tool-alias-store';
+import { recordToolEvent, recentToolEvents } from './host/tool-ledger';
+import { BASE_TOOLS } from './schema/tool-catalog';
+import { mergeCatalog, renderCatalogText } from './engine/tool-policy';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 import { VERIFY_CHECKS } from './schema/verify-checks';
 import { plan_sections_from_template } from './engine/plan-sections';
@@ -315,8 +319,16 @@ export function apply(ctx: any) {
     return presetSessions.has(sessionId);
   };
 
+  // 别名目录：基础 5 条在代码里，别名按 workflow 落 tool-aliases.json。
+  const aliasStore = new ToolAliasStore(resolveDataDir());
+
   // 按状态注入操作细节（系统提示里的动态上下文，不写会话记录）；只对本预设接管的会话生效。
-  const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession);
+  const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession, {
+    catalogTextOf: async (workflowId: string) => {
+      const listing = await aliasStore.list(workflowId);
+      return renderCatalogText(mergeCatalog(BASE_TOOLS, listing.aliases));
+    },
+  });
 
   /** 读会话「此刻」的预设：true=工作流，false=明确是别的预设，null=读不到（别据此隐藏 UI）。 */
   const workflowPresetNow = (sessionId: string): boolean | null => {
@@ -388,6 +400,8 @@ export function apply(ctx: any) {
   const toolsDeps = {
     repository,
     stateContext,
+    aliasStore,
+    recordToolEvent,
     isPresetSession,
     getState: (sessionId: string) => sessionState.get(sessionId),
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
@@ -740,6 +754,35 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const rawLimit = Number(query.get('limit') ?? '100');
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
+      }),
+    }));
+    // 工具目录 + 审计账：设置页「工具」页签只读展示，写操作全走网关。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/tools',
+      handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
+        const startedAt = Date.now();
+        const snapshot = await aliasStore.snapshot();
+        const aliasCount = Object.values(snapshot.byWorkflow).reduce((sum, items) => sum + items.length, 0);
+        logEvent(
+          ctx.logger,
+          'info',
+          `[workflow] tools ok (base=${BASE_TOOLS.length}, aliases=${aliasCount}, corrupt=${String(snapshot.corrupt)}, ${Date.now() - startedAt}ms)`,
+          traceId,
+        );
+        return {
+          base: BASE_TOOLS.map((entry) => ({
+            name: entry.name,
+            summary: entry.summary,
+            description: entry.description,
+            allowed_states: entry.allowed_states,
+            side_effect: entry.side_effect,
+            parameters: entry.parameters,
+          })),
+          aliases: snapshot.byWorkflow,
+          corrupt: snapshot.corrupt,
+          events: recentToolEvents(50),
+        };
       }),
     }));
     // 浏览器半的埋点入口：落在同一个事件环里，才能和宿主日志对时间。

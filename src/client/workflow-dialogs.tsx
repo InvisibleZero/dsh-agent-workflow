@@ -122,6 +122,177 @@ const NODE_DETAIL_TABS = [
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
 const APPENDIX_TAB = { id: 'appendix', label: '附表' };
 
+/** 只读「工具」页签：目录与最近调用/拒绝。 */
+const TOOLS_TAB = { id: 'tools', label: '工具' };
+
+interface ToolsBaseItem {
+  name: string;
+  summary: string;
+  description: string;
+  allowed_states: string[];
+  side_effect: string;
+  parameters: { required?: string[]; properties?: Record<string, unknown> };
+}
+
+interface ToolsAliasItem {
+  name: string;
+  description: string;
+  base_tool: string;
+  allowed_states: string[];
+  version: number;
+  created_at: string;
+}
+
+interface ToolsEventItem {
+  at: string;
+  kind: string;
+  name: string;
+  decision: string;
+  code?: string;
+  state?: string;
+  ms?: number;
+  message?: string;
+}
+
+function toolStatesText(states: unknown): string {
+  if (!Array.isArray(states)) return '';
+  return states.map((state) => NODE_STATE_LABEL[state as keyof typeof NODE_STATE_LABEL] ?? String(state)).join(' / ');
+}
+
+/**
+ * 设置页里的只读「工具」页签：目录（基础 + 别名）+ 最近调用/拒绝。
+ *
+ * 和附表一样：点开才取，读失败给重试，绝不用空清单冒充「目录是空的」。
+ */
+function ToolsPanel() {
+  const [attempt, setAttempt] = useState(0);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [base, setBase] = useState<ToolsBaseItem[]>([]);
+  const [aliases, setAliases] = useState<Record<string, ToolsAliasItem[]>>({});
+  const [events, setEvents] = useState<ToolsEventItem[]>([]);
+  const [corrupt, setCorrupt] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
+    setError('');
+    void (async () => {
+      try {
+        const response = await fetch('/dsh-agent-workflow/tools');
+        const body = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (body?.ok !== true) {
+          const message = String(body?.error ?? '读取工具目录失败');
+          setStatus('error');
+          setError(message);
+          void reportClientEvent('warn', `[tools] 读取失败（路由）：${message}`);
+          return;
+        }
+        setBase(Array.isArray(body.base) ? body.base : []);
+        setAliases(body.aliases !== null && typeof body.aliases === 'object' ? body.aliases : {});
+        setEvents(Array.isArray(body.events) ? body.events : []);
+        setCorrupt(body.corrupt === true);
+        setStatus('ready');
+        // 成功也留一跳：服务端只证明「返回了」，这条才证明「页面拿到了」。
+        void reportClientEvent('info', `[tools] 已取回 基础 ${Array.isArray(body.base) ? body.base.length : 0} 条`);
+      } catch (reason) {
+        if (!cancelled) {
+          setStatus('error');
+          setError(String(reason));
+          void reportClientEvent('warn', `[tools] 读取失败（异常）：${String(reason)}`);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attempt]);
+
+  if (status === 'loading') {
+    return <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>读取中…</div>;
+  }
+  if (status === 'error') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 }}>读不到工具目录：{error}</div>
+        <button
+          type="button"
+          onClick={() => setAttempt((value) => value + 1)}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'transparent',
+            color: 'var(--dsw-alias-label-primary)',
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+        >重试</button>
+      </div>
+    );
+  }
+
+  const aliasGroups = Object.entries(aliases).filter(([, items]) => Array.isArray(items) && items.length > 0);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', minHeight: 0 }}>
+      {corrupt ? (
+        <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1.5 }}>
+          别名文件损坏：别名暂时不可用，基础工具不受影响。
+        </div>
+      ) : null}
+      <div>
+        <div style={LABEL_STYLE}>基础工具（{base.length}）</div>
+        {base.map((item) => (
+          <div key={item.name} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>
+              {item.name}
+              <span style={{ marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
+                {toolStatesText(item.allowed_states)} · {item.side_effect === 'write' ? '会改状态' : '只读'}
+              </span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }}>{item.summary}</div>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={LABEL_STYLE}>别名（按工作区分组；模型用 workflow_tool_add 申请，只登记不执行）</div>
+        {aliasGroups.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }}>还没有别名</div>
+        ) : aliasGroups.map(([workflowId, items]) => (
+          <div key={workflowId} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>工作区 {workflowId}</div>
+            {items.map((item) => (
+              <div key={item.name} style={{ fontSize: 12, lineHeight: 1.6 }}>
+                {item.name} → {item.base_tool}
+                <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
+                  {toolStatesText(item.allowed_states)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div>
+        <div style={LABEL_STYLE}>最近调用 / 拒绝（最多 50 条）</div>
+        {events.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }}>还没有记录</div>
+        ) : events.slice().reverse().map((item, index) => (
+          <div
+            key={`${item.at}-${index}`}
+            style={{
+              fontSize: 11.5,
+              lineHeight: 1.6,
+              color: item.decision === 'allow' ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-state-error-primary)',
+            }}
+          >
+            {item.at.slice(11, 19)} {item.kind === 'add' ? '登记' : '调用'} {item.name} · {item.decision}
+            {item.code ? `（${item.code}）` : ''}{item.ms !== undefined ? ` · ${item.ms}ms` : ''}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 附表的两组条目：字段与 GET /dsh-agent-workflow/appendix 的返回一一对应。 */
 interface AppendixPlanSection { id: number; title: string; hint: string }
 interface AppendixVerifyItem { id: number; name: string; judge: string; needsCommand: boolean }
@@ -744,7 +915,7 @@ function WorkflowGlobalSettingsSection() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
-        {[...STATE_TABS, APPENDIX_TAB].map((tab) => (
+        {[...STATE_TABS, APPENDIX_TAB, TOOLS_TAB].map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -771,6 +942,8 @@ function WorkflowGlobalSettingsSection() {
       }}>
         {activeTab === 'appendix' ? (
           <AppendixPanel />
+        ) : activeTab === 'tools' ? (
+          <ToolsPanel />
         ) : activeTab === 'shared' ? (
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>

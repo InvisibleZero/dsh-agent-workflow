@@ -99,6 +99,82 @@ const NODE_DETAIL_TABS = [
 ];
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
 const APPENDIX_TAB = { id: 'appendix', label: '附表' };
+/** 只读「工具」页签：目录与最近调用/拒绝。 */
+const TOOLS_TAB = { id: 'tools', label: '工具' };
+function toolStatesText(states) {
+    if (!Array.isArray(states))
+        return '';
+    return states.map((state) => node_state_label_1.NODE_STATE_LABEL[state] ?? String(state)).join(' / ');
+}
+/**
+ * 设置页里的只读「工具」页签：目录（基础 + 别名）+ 最近调用/拒绝。
+ *
+ * 和附表一样：点开才取，读失败给重试，绝不用空清单冒充「目录是空的」。
+ */
+function ToolsPanel() {
+    const [attempt, setAttempt] = (0, react_1.useState)(0);
+    const [status, setStatus] = (0, react_1.useState)('loading');
+    const [base, setBase] = (0, react_1.useState)([]);
+    const [aliases, setAliases] = (0, react_1.useState)({});
+    const [events, setEvents] = (0, react_1.useState)([]);
+    const [corrupt, setCorrupt] = (0, react_1.useState)(false);
+    const [error, setError] = (0, react_1.useState)('');
+    (0, react_1.useEffect)(() => {
+        let cancelled = false;
+        setStatus('loading');
+        setError('');
+        void (async () => {
+            try {
+                const response = await fetch('/dsh-agent-workflow/tools');
+                const body = await response.json().catch(() => null);
+                if (cancelled)
+                    return;
+                if (body?.ok !== true) {
+                    const message = String(body?.error ?? '读取工具目录失败');
+                    setStatus('error');
+                    setError(message);
+                    void (0, client_log_1.reportClientEvent)('warn', `[tools] 读取失败（路由）：${message}`);
+                    return;
+                }
+                setBase(Array.isArray(body.base) ? body.base : []);
+                setAliases(body.aliases !== null && typeof body.aliases === 'object' ? body.aliases : {});
+                setEvents(Array.isArray(body.events) ? body.events : []);
+                setCorrupt(body.corrupt === true);
+                setStatus('ready');
+                // 成功也留一跳：服务端只证明「返回了」，这条才证明「页面拿到了」。
+                void (0, client_log_1.reportClientEvent)('info', `[tools] 已取回 基础 ${Array.isArray(body.base) ? body.base.length : 0} 条`);
+            }
+            catch (reason) {
+                if (!cancelled) {
+                    setStatus('error');
+                    setError(String(reason));
+                    void (0, client_log_1.reportClientEvent)('warn', `[tools] 读取失败（异常）：${String(reason)}`);
+                }
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [attempt]);
+    if (status === 'loading') {
+        return (0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8BFB\u53D6\u4E2D\u2026" });
+    }
+    if (status === 'error') {
+        return ((0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 }, children: ["\u8BFB\u4E0D\u5230\u5DE5\u5177\u76EE\u5F55\uFF1A", error] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setAttempt((value) => value + 1), style: {
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        border: '1px solid var(--dsw-alias-border-l1)',
+                        background: 'transparent',
+                        color: 'var(--dsw-alias-label-primary)',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                    }, children: "\u91CD\u8BD5" })] }));
+    }
+    const aliasGroups = Object.entries(aliases).filter(([, items]) => Array.isArray(items) && items.length > 0);
+    return ((0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', minHeight: 0 }, children: [corrupt ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1.5 }, children: "\u522B\u540D\u6587\u4EF6\u635F\u574F\uFF1A\u522B\u540D\u6682\u65F6\u4E0D\u53EF\u7528\uFF0C\u57FA\u7840\u5DE5\u5177\u4E0D\u53D7\u5F71\u54CD\u3002" })) : null, (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { style: LABEL_STYLE, children: ["\u57FA\u7840\u5DE5\u5177\uFF08", base.length, "\uFF09"] }), base.map((item) => ((0, jsx_runtime_1.jsxs)("div", { style: { marginBottom: 6 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, fontWeight: 600 }, children: [item.name, (0, jsx_runtime_1.jsxs)("span", { style: { marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: [toolStatesText(item.allowed_states), " \u00B7 ", item.side_effect === 'write' ? '会改状态' : '只读'] })] }), (0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }, children: item.summary })] }, item.name)))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("div", { style: LABEL_STYLE, children: "\u522B\u540D\uFF08\u6309\u5DE5\u4F5C\u533A\u5206\u7EC4\uFF1B\u6A21\u578B\u7528 workflow_tool_add \u7533\u8BF7\uFF0C\u53EA\u767B\u8BB0\u4E0D\u6267\u884C\uFF09" }), aliasGroups.length === 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD8\u6CA1\u6709\u522B\u540D" })) : aliasGroups.map(([workflowId, items]) => ((0, jsx_runtime_1.jsxs)("div", { style: { marginBottom: 8 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5DE5\u4F5C\u533A ", workflowId] }), items.map((item) => ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, lineHeight: 1.6 }, children: [item.name, " \u2192 ", item.base_tool, (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: toolStatesText(item.allowed_states) })] }, item.name)))] }, workflowId)))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("div", { style: LABEL_STYLE, children: "\u6700\u8FD1\u8C03\u7528 / \u62D2\u7EDD\uFF08\u6700\u591A 50 \u6761\uFF09" }), events.length === 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD8\u6CA1\u6709\u8BB0\u5F55" })) : events.slice().reverse().map((item, index) => ((0, jsx_runtime_1.jsxs)("div", { style: {
+                            fontSize: 11.5,
+                            lineHeight: 1.6,
+                            color: item.decision === 'allow' ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-state-error-primary)',
+                        }, children: [item.at.slice(11, 19), " ", item.kind === 'add' ? '登记' : '调用', " ", item.name, " \u00B7 ", item.decision, item.code ? `（${item.code}）` : '', item.ms !== undefined ? ` · ${item.ms}ms` : ''] }, `${item.at}-${index}`)))] })] }));
+}
 /**
  * 附表：设置页里的只读清单。
  *
@@ -517,7 +593,7 @@ function WorkflowGlobalSettingsSection() {
                                         borderRadius: '50%',
                                         background: node_state_color_1.NODE_STATE_COLOR[item.state],
                                         display: 'inline-block',
-                                    } }), (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' }, children: item.label }), index < node_state_color_1.WORKFLOW_FLOW.length - 1 ? ((0, jsx_runtime_1.jsx)("span", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginLeft: 2 }, children: "\u2192" })) : null] }, item.state))) }), (0, jsx_runtime_1.jsx)("div", { style: { marginTop: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09\uFF1A\u5B9E\u73B0\u4E2D \u2192 \u8BA8\u8BBA\u4E2D\uFF1B\u9A8C\u6536\u4E2D \u2192 \u5B9E\u73B0\u4E2D / \u8BA8\u8BBA\u4E2D" })] }), (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: [...STATE_TABS, APPENDIX_TAB].map((tab) => ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
+                                    } }), (0, jsx_runtime_1.jsx)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', whiteSpace: 'nowrap' }, children: item.label }), index < node_state_color_1.WORKFLOW_FLOW.length - 1 ? ((0, jsx_runtime_1.jsx)("span", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginLeft: 2 }, children: "\u2192" })) : null] }, item.state))) }), (0, jsx_runtime_1.jsx)("div", { style: { marginTop: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD4\u5DE5\uFF08\u9000\u56DE\u4E0A\u4E00\u9636\u6BB5\uFF09\uFF1A\u5B9E\u73B0\u4E2D \u2192 \u8BA8\u8BBA\u4E2D\uFF1B\u9A8C\u6536\u4E2D \u2192 \u5B9E\u73B0\u4E2D / \u8BA8\u8BBA\u4E2D" })] }), (0, jsx_runtime_1.jsx)("div", { style: { display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }, children: [...STATE_TABS, APPENDIX_TAB, TOOLS_TAB].map((tab) => ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setActiveTab(tab.id), style: {
                         padding: '6px 12px',
                         background: 'transparent',
                         border: 'none',
@@ -531,7 +607,7 @@ function WorkflowGlobalSettingsSection() {
                     height: 380,
                     // 内置存档只读：输入框用 readOnly（仍能滚动、选中、复制），
                     // 不能用 pointer-events:none 整块禁用——那样滚轮和文本选择都会一起失效。
-                }, children: activeTab === 'appendix' ? ((0, jsx_runtime_1.jsx)(AppendixPanel, {})) : activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, readOnly: readOnlyProfile, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, readOnly: readOnlyProfile, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, readOnly: readOnlyProfile, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, readOnly: readOnlyProfile, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
+                }, children: activeTab === 'appendix' ? ((0, jsx_runtime_1.jsx)(AppendixPanel, {})) : activeTab === 'tools' ? ((0, jsx_runtime_1.jsx)(ToolsPanel, {})) : activeTab === 'shared' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u516C\u5171\u64CD\u4F5C\u7EC6\u8282 \u00B7 \u4E09\u6001\u901A\u7528" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto' }, readOnly: readOnlyProfile, value: detail.shared_detail ?? '', onChange: (event) => update({ ...detail, shared_detail: event.target.value }) })] })) : ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { style: LABEL_STYLE, children: "\u8FDB\u5165\u8BE5\u72B6\u6001\u540E\u81EA\u52A8\u704C\u5165\u8F93\u5165\u6846\u7684\u9ED8\u8BA4\u6587\u672C\uFF08\u53EF\u7A7A\uFF09" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '0 0 20%', resize: 'none' }, readOnly: readOnlyProfile, value: detail[activeTab]?.enter_trigger ?? '', placeholder: "\u7559\u7A7A\u5219\u4E0D\u81EA\u52A8\u704C\u5165", onChange: (event) => patchTab(activeTab, { enter_trigger: event.target.value === '' ? null : event.target.value }) }), (0, jsx_runtime_1.jsx)("label", { style: { ...LABEL_STYLE, marginTop: 10 }, children: "\u8BE5\u72B6\u6001\u7684\u64CD\u4F5C\u7EC6\u8282" }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, flex: '1 1 auto', minHeight: 80 }, readOnly: readOnlyProfile, value: detail[activeTab]?.operation_detail ?? '', onChange: (event) => patchTab(activeTab, { operation_detail: event.target.value }) }), activeTab === 'discussing' || activeTab === 'implementing' || activeTab === 'verifying' ? ((0, jsx_runtime_1.jsx)(HardRulePanel, { state: activeTab, readOnly: readOnlyProfile, value: detail.hard_rules?.[activeTab] ?? hard_rules_1.DEFAULT_HARD_RULES[activeTab], overridden: detail.hard_rules?.[activeTab] !== undefined, onChange: (next) => update({ ...detail, hard_rules: { ...(detail.hard_rules ?? {}), [activeTab]: next } }), onReset: () => {
                                 const next = { ...(detail.hard_rules ?? {}) };
                                 delete next[activeTab];
                                 update({ ...detail, hard_rules: next });

@@ -1,6 +1,6 @@
 // src/host.ts
 import { homedir } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { spawn } from "node:child_process";
 
 // src/host/workflow-repository.ts
@@ -907,14 +907,14 @@ var WorkflowRepository = class {
   }
   /** 列出存档名（不含内置存档；读不出来的文件跳过，不让坏文件阻塞设置页）。 */
   async listProfileNames() {
-    let entries = [];
+    let entries2 = [];
     try {
-      entries = await fs2.readdir(this.profilesDir());
+      entries2 = await fs2.readdir(this.profilesDir());
     } catch {
       return [];
     }
     const names = [];
-    for (const entry of entries) {
+    for (const entry of entries2) {
       if (!entry.toLowerCase().endsWith(".json")) continue;
       const name = entry.slice(0, -".json".length);
       if (name === BUILTIN_PROFILE_NAME) continue;
@@ -973,8 +973,8 @@ var WorkflowRepository = class {
     const hasProfiles = raw.profiles !== null && typeof raw.profiles === "object";
     const isFlat = typeof raw.shared_detail === "string";
     if (!hasProfiles && !isFlat) return;
-    const entries = hasProfiles ? Object.entries(raw.profiles) : [[MIGRATED_PROFILE_NAME, raw]];
-    for (const [name, value] of entries) {
+    const entries2 = hasProfiles ? Object.entries(raw.profiles) : [[MIGRATED_PROFILE_NAME, raw]];
+    for (const [name, value] of entries2) {
       if (name === BUILTIN_PROFILE_NAME) continue;
       const parsed = GlobalOperationDetail.safeParse(value);
       if (!parsed.success) continue;
@@ -1997,6 +1997,7 @@ var PROMPT_LAYER_SPECS = [
   { name: "state-detail", order: 150, hard: true, priority: 0 },
   { name: "node-addition", order: 155, hard: false, priority: 3 },
   { name: "verify-progress", order: 156, hard: false, priority: 1 },
+  { name: "tool-catalog", order: 158, hard: false, priority: 2 },
   { name: "constraints", order: 160, hard: false, priority: 1 },
   { name: "manual-tags", order: 162, hard: false, priority: 2 },
   { name: "manual-cue", order: 165, hard: false, priority: 2 },
@@ -2089,7 +2090,7 @@ ${listText}`,
     planTruncated: rawPlan !== "" && planText !== rawPlan
   };
 }
-function registerWorkflowStateContext(ctx, repository, isWorkflowSession = () => true) {
+function registerWorkflowStateContext(ctx, repository, isWorkflowSession = () => true, options) {
   const cache = /* @__PURE__ */ new Map();
   const pending = /* @__PURE__ */ new Set();
   const clear = (sessionId, reason) => {
@@ -2167,6 +2168,14 @@ ${projectSections.tags.join(" / ")}`;
       }
       sessionManual = rendered.text;
     }
+    let toolCatalog = "";
+    if (typeof options?.catalogTextOf === "function") {
+      try {
+        toolCatalog = await options.catalogTextOf(found.workflowId);
+      } catch (error) {
+        logEvent(ctx.logger, "warn", `[workflow] tool catalog failed (session=${sessionId}): ${String(error?.message ?? error)}`);
+      }
+    }
     const assembly = assemblePromptLayers([
       { name: "header", text: header },
       { name: "hard-rules", text: typeof hardRule === "string" && hardRule.trim() !== "" ? `\u3010\u672C\u9636\u6BB5\u786C\u89C4\u5219\u3011
@@ -2175,6 +2184,7 @@ ${hardRule.trim()}` : "" },
       { name: "state-detail", text: detail.state_detail },
       { name: "node-addition", text: additionParts.join("\n\n") },
       { name: "verify-progress", text: verifyProgress },
+      { name: "tool-catalog", text: toolCatalog },
       { name: "constraints", text: constraints.text.trim() === "" ? "" : `\u3010\u7EA6\u675F / \u7EA2\u7EBF\u3011\uFF08\u672C\u9879\u76EE\u7EDD\u4E0D\u80FD\u505A\uFF09
 ${constraints.text.trim()}` },
       { name: "manual-tags", text: tagsText },
@@ -2316,6 +2326,390 @@ function pickSessionId(context) {
 }
 
 // src/host/workflow-tools.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+
+// src/schema/tool-catalog.ts
+var ALL_STATES = ["discussing", "implementing", "verifying", "completed"];
+var ANCHOR_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["file"],
+  properties: {
+    file: { type: "string", description: "\u5DE5\u4F5C\u76EE\u5F55\u5185\u7684\u76F8\u5BF9\u8DEF\u5F84" },
+    line: { type: "number", description: "\u53EF\u9009\u884C\u53F7\uFF1B\u7A0B\u5E8F\u4F1A\u6838\u5BF9\u5B83\u4E0D\u8D85\u8FC7\u6587\u4EF6\u884C\u6570" }
+  }
+};
+var FINDING_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["location", "problem", "why_not_fixed", "impact"],
+  properties: {
+    location: { type: "string" },
+    problem: { type: "string" },
+    why_not_fixed: { type: "string" },
+    impact: { type: "string" }
+  }
+};
+var BASE_TOOLS = [
+  {
+    name: "workflow_advance",
+    summary: "\u8BF7\u6C42\u5207\u9636\u6BB5\uFF0C\u53EA\u767B\u8BB0\u3001\u9700\u7528\u6237\u70B9\u540C\u610F\uFF1B\u8FD4\u5DE5\u5FC5\u987B\u7ED9 reason\u3002",
+    description: "\u8BF7\u6C42\u628A\u5F53\u524D\u5DE5\u4F5C\u6D41\u4F1A\u8BDD\u5207\u6362\u9636\u6BB5\u3002\u5B83\u53EA\u767B\u8BB0\u8BF7\u6C42\u3001\u4E0D\u6539\u53D8\u9636\u6BB5\uFF1A\u7528\u6237\u5FC5\u987B\u5728\u754C\u9762\u4E0A\u70B9\u300C\u540C\u610F\u300D\u624D\u751F\u6548\uFF085 \u5206\u949F\u672A\u5904\u7406\u4F5C\u5E9F\uFF09\u3002\u8BA8\u8BBA\u4E2D\u2192\u5B9E\u73B0\u4E2D\u524D\u65B9\u6848\u5FC5\u987B\u5DF2\u5199\u5165\u4F1A\u8BDD\u624B\u518C\uFF1B\u5B9E\u73B0\u4E2D\u2192\u9A8C\u6536\u4E2D\u524D\u5B9E\u65BD\u987A\u5E8F\u5FC5\u987B\u5168\u90E8\u52FE\u9009\uFF1B\u9A8C\u6536\u4E2D\u2192\u5DF2\u5B8C\u7ED3\u524D\u4E03\u9879\u5FC5\u987B\u5168\u90E8\u62A5\u5907\u3002\u8FD4\u5DE5\uFF08\u5411\u540E\uFF09\u5FC5\u987B\u7ED9 reason\u3002\u6536\u5C3E\u65F6\u628A\u56DB\u4EF6\u4E8B\u5199\u8FDB\u9879\u76EE\u624B\u518C\uFF08\u65B0\u51B3\u7B56 / \u65B0\u5751 / \u90FD\u6CA1\u6709\u5199\u300C\u65E0\u300D / \u6587\u6863\u4E0E\u5B9E\u73B0\u662F\u5426\u4E00\u81F4\uFF09\uFF0C\u518D\u540C\u6B65\u4F1A\u8BDD\u624B\u518C\u3002",
+    base_tool: "workflow_advance",
+    fixed_args: {},
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["to"],
+      properties: {
+        to: {
+          type: "string",
+          enum: ["discussing", "implementing", "verifying", "completed"],
+          description: "Requested stage. Forward = normal progression; backward = rework."
+        },
+        reason: { type: "string", description: "Required when moving backward (rework): why the previous stage was insufficient." }
+      }
+    },
+    allowed_states: [...ALL_STATES],
+    side_effect: "write"
+  },
+  {
+    name: "workflow_manual",
+    summary: "\u8BFB\u5199\u624B\u518C\uFF1B\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u65B9\u6848/\u5B9E\u65BD\u987A\u5E8F\uFF08\u540E\u8005\u4EC5\u8BA8\u8BBA\u4E2D\uFF09\uFF1B\u6761\u76EE\u5FC5\u987B\u5E26\u6807\u7B7E\u3002",
+    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C / \u9879\u76EE\u624B\u518C\u3002target=session \u53EF\u5199\u300C\u65B9\u6848\u300D\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u5B9E\u65BD\u987A\u5E8F\u53EA\u5728\u8BA8\u8BBA\u4E2D\u53EF\u5B9A\u4E49\uFF0C\u4E4B\u540E\u53EA\u80FD\u52FE\u9009\uFF09\uFF1Btarget=project \u53EF\u5199 \u9879\u76EE\u603B\u89C8 / \u51B3\u7B56\u8BB0\u5F55 / \u7EA6\u675F / \u5751\u4E0E\u9632\u7EBF / \u6807\u7B7E\u8868\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry\uFF08\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\uFF09\u3001remove_entry \u5220\u9664\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u4E0A\u9650 1200 \u5B57\u3001\u7EA6\u675F 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
+    base_tool: "workflow_manual",
+    fixed_args: {},
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["target", "action"],
+      properties: {
+        target: { type: "string", enum: ["session", "project"], description: "Which manual to touch." },
+        action: {
+          type: "string",
+          enum: ["read", "replace_section", "append_entry", "update_entry", "remove_entry", "rename_tag"],
+          description: "read returns text; replace_section rewrites a whole section (session \u65B9\u6848 / project \u6807\u7B7E\u8868); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it."
+        },
+        section: { type: "string", description: "Section name (e.g. \u65B9\u6848 / \u9879\u76EE\u603B\u89C8 / \u51B3\u7B56\u8BB0\u5F55 / \u7EA6\u675F / \u5751\u4E0E\u9632\u7EBF / \u6807\u7B7E\u8868)." },
+        content: { type: "string", description: "Entry text (append_entry / update_entry) or new section body (replace_section)." },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Required for append_entry / update_entry: 1+ tags, each \u226412 chars, no brackets or \uFF5C. Pick from the injected \u6807\u7B7E\u8868 (or a real file name in this project); unknown tags get registered automatically until the table is full."
+        },
+        entry: { type: "string", description: "update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix)." },
+        from: { type: "string", description: "rename_tag: the tag to replace." },
+        to: { type: "string", description: "rename_tag: the tag to keep. Use this to merge synonyms when the table is full." }
+      }
+    },
+    allowed_states: [...ALL_STATES],
+    side_effect: "write"
+  },
+  {
+    name: "workflow_check",
+    summary: "\u52FE\u9009/\u53D6\u6D88\u5B9E\u65BD\u987A\u5E8F\u5DF2\u6709\u6761\u76EE\uFF1B\u52FE\u9009\u5FC5\u987B\u5E26 evidence\uFF1B\u8BA8\u8BBA\u4E2D\u4E0D\u53EF\u7528\u3002",
+    description: "\u52FE\u9009\u6216\u53D6\u6D88\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u7684\u4E00\u4E2A\u5DF2\u6709\u6761\u76EE\uFF1A\u6761\u76EE\u6587\u672C\u5FC5\u987B\u5B8C\u5168\u4E00\u81F4\uFF0C\u4E0D\u80FD\u65B0\u589E\u3001\u6539\u5199\u6216\u91CD\u6392\u3002\u52FE\u9009\u5FC5\u987B\u5E26 evidence\uFF08\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF09\uFF0C\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\u884C\uFF1B\u5168\u90E8\u52FE\u5B8C\u624D\u80FD\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002\u8BA8\u8BBA\u4E2D\u4E0D\u53EF\u7528\u3002",
+    base_tool: "workflow_check",
+    fixed_args: {},
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["item", "done"],
+      properties: {
+        item: { type: "string", description: "Exact text of an existing checklist item." },
+        done: { type: "boolean", description: "true = checked, false = unchecked." },
+        evidence: { type: "string", description: "\u52FE\u9009\u65F6\u5FC5\u586B\uFF1A\u8FD9\u4E00\u5C42\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u662F\u4EC0\u4E48\uFF08\u81EA\u7531\u6587\u672C\uFF0C\u4F8B\uFF1A\u8DD1 node test.mjs\uFF0C12 \u9879\u5168\u8FC7\uFF09\u3002\u53D6\u6D88\u52FE\u9009\u53EF\u7701\u7565\u3002" }
+      }
+    },
+    allowed_states: ["implementing", "verifying", "completed"],
+    side_effect: "write"
+  },
+  {
+    name: "workflow_verify_report",
+    summary: "\u9A8C\u6536\u62A5\u5907\u4E00\u9879\uFF1Apass\u2192\u2713 / deferred\u2192\uFF1F\uFF1B\u951A\u70B9\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\uFF1B1/4/7 \u9879\u5E26\u547D\u4EE4\u3002",
+    description: "\u5728\u300C\u9A8C\u6536\u4E2D\u300D\u4E3A\u4E03\u9879\u4E2D\u7684\u4E00\u9879\u63D0\u4EA4\u62A5\u5907\uFF1Apass\u2192\u2713\uFF0Cdeferred\uFF08\u67E5\u51FA\u95EE\u9898\u672C\u8F6E\u4E0D\u4FEE\uFF09\u2192\uFF1F\u3002\u5FC5\u987B\u5E26\u81F3\u5C11\u4E00\u4E2A\u5DE5\u4F5C\u76EE\u5F55\u5185\u771F\u5B9E\u5B58\u5728\u7684\u951A\u70B9\uFF08\u6587\u4EF6 + \u53EF\u9009\u884C\u53F7\uFF09\uFF1Bdeferred \u8FD8\u5FC5\u987B\u5199 findings\uFF08\u4F4D\u7F6E/\u95EE\u9898/\u4E3A\u4EC0\u4E48\u4E0D\u4FEE/\u5F71\u54CD\uFF09\u3002\u7B2C 1/4/7 \u9879\u5FC5\u987B\u5E26\u590D\u8DD1\u547D\u4EE4\u3002\u6BCF\u6B21\u8FDB\u5165\u9A8C\u6536\u4E2D\u8F6E\u6B21 +1\uFF0C\u65E7\u62A5\u5907\u81EA\u52A8\u5931\u6548\u3002",
+    base_tool: "workflow_verify_report",
+    fixed_args: {},
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["item", "result", "summary", "anchors"],
+      properties: {
+        item: { type: "string", anyOf: [{ type: "string" }, { type: "number" }], description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0\uFF08\u4F8B\uFF1A3 \u6216\u300C\u6B7B\u4EE3\u7801\u626B\u63CF\u300D\uFF09" },
+        result: { type: "string", enum: ["pass", "deferred"], description: "pass = \u901A\u8FC7\uFF1Bdeferred = \u67E5\u51FA\u95EE\u9898\u4F46\u672C\u8F6E\u4E0D\u4FEE\uFF08\u8BB0 \uFF1F\uFF09" },
+        summary: { type: "string", description: "\u7ED3\u8BBA\u6458\u8981\uFF1A\u505A\u4E86\u4EC0\u4E48\u3001\u770B\u5230\u4EC0\u4E48\u7ED3\u679C\u3002" },
+        anchors: { type: "array", items: ANCHOR_SCHEMA, description: "\u8BC1\u636E\u951A\u70B9\uFF0C\u81F3\u5C11\u4E00\u6761\uFF1B\u6587\u4EF6\u5FC5\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\u3002" },
+        command: { type: "string", description: "\u590D\u8DD1\u547D\u4EE4\uFF1B\u5951\u7EA6\u6D4B\u8BD5 / \u8FB9\u754C\u6D4B\u8BD5 / \u56DE\u5F52\u538B\u6D4B\u4E09\u9879\u5FC5\u586B\u3002" },
+        findings: { type: "array", items: FINDING_SCHEMA, description: "deferred \u65F6\u5FC5\u586B\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48\u3002" }
+      }
+    },
+    allowed_states: ["verifying"],
+    side_effect: "write"
+  },
+  {
+    name: "workflow_verify_check",
+    summary: "\u53EA\u80FD\u64A4\u9A8C\u6536\u52FE\uFF08done=false\uFF09\uFF1B\u6253\u52FE\u53EA\u80FD\u9760 report\u3002",
+    description: "\u53EA\u80FD\u53D6\u6D88\u9A8C\u6536\u52FE\uFF08done=false\uFF09\u3002AI \u4E0D\u80FD\u76F4\u63A5\u6253\u52FE\uFF1A\u6807\u8BB0\u53EA\u80FD\u7531 workflow_verify_report \u4EA7\u751F\uFF1B\u9700\u8981\u91CD\u65B0\u6253\u52FE\u5C31\u91CD\u65B0\u62A5\u5907\u3002\u53EA\u80FD\u5728\u300C\u9A8C\u6536\u4E2D\u300D\u7528\u3002",
+    base_tool: "workflow_verify_check",
+    fixed_args: {},
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["item", "done"],
+      properties: {
+        item: { type: "string", anyOf: [{ type: "string" }, { type: "number" }], description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0" },
+        done: { type: "boolean", description: "\u53EA\u80FD\u662F false\uFF08\u53D6\u6D88\u52FE\uFF09\u3002\u4F20 true \u4F1A\u88AB\u62D2\u3002" }
+      }
+    },
+    allowed_states: ["verifying"],
+    side_effect: "write"
+  }
+];
+var BASE_TOOL_NAMES = BASE_TOOLS.map((entry) => entry.name);
+
+// src/engine/tool-policy.ts
+var BASE_TOOLS_BY_NAME = new Map(BASE_TOOLS.map((entry) => [entry.name, entry]));
+function deny(code, message) {
+  return { allow: false, code, message };
+}
+function fail(code, message) {
+  return { ok: false, code, message };
+}
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function stateLabel(state) {
+  return NODE_STATE_LABEL[state] ?? state;
+}
+function statesText(states) {
+  return states.map(stateLabel).join(" / ");
+}
+function cloneSchema(schema) {
+  const cloned = { type: schema.type };
+  if (schema.description !== void 0) cloned.description = schema.description;
+  if (schema.enum !== void 0) cloned.enum = [...schema.enum];
+  if (schema.anyOf !== void 0) cloned.anyOf = schema.anyOf.map(cloneSchema);
+  if (schema.items !== void 0) cloned.items = cloneSchema(schema.items);
+  if (schema.properties !== void 0) {
+    cloned.properties = {};
+    for (const [key, value] of Object.entries(schema.properties)) cloned.properties[key] = cloneSchema(value);
+  }
+  if (schema.required !== void 0) cloned.required = [...schema.required];
+  if (schema.additionalProperties !== void 0) cloned.additionalProperties = schema.additionalProperties;
+  return cloned;
+}
+function deriveAliasParameters(base, fixedArgs) {
+  const fixedKeys = new Set(Object.keys(fixedArgs));
+  const properties = {};
+  for (const [key, value] of Object.entries(base.properties)) {
+    if (!fixedKeys.has(key)) properties[key] = cloneSchema(value);
+  }
+  const required = (base.required ?? []).filter((key) => !fixedKeys.has(key));
+  return {
+    type: "object",
+    properties,
+    ...required.length > 0 ? { required } : {},
+    additionalProperties: base.additionalProperties === true
+  };
+}
+function mergeCatalog(base, aliases) {
+  const baseByName = new Map(base.map((entry) => [entry.name, entry]));
+  const merged = [...base];
+  for (const alias of aliases) {
+    const baseEntry = baseByName.get(alias.base_tool);
+    if (baseEntry === void 0) continue;
+    const fixed = isPlainObject(alias.fixed_args) ? alias.fixed_args : {};
+    const allowedStates = alias.allowed_states.filter((state) => ALL_STATES.includes(state));
+    merged.push({
+      name: alias.name,
+      summary: alias.description,
+      description: alias.description,
+      base_tool: baseEntry.name,
+      fixed_args: fixed,
+      parameters: deriveAliasParameters(baseEntry.parameters, fixed),
+      allowed_states: allowedStates.length > 0 ? allowedStates : [...baseEntry.allowed_states],
+      side_effect: baseEntry.side_effect,
+      alias: true,
+      version: alias.version,
+      created_at: alias.created_at
+    });
+  }
+  return merged;
+}
+function validateValue(schema, value, path2) {
+  if (schema.anyOf !== void 0) {
+    const problems = [];
+    for (const option of schema.anyOf) {
+      const problem = validateValue(option, value, path2);
+      if (problem === void 0) return void 0;
+      problems.push(problem);
+    }
+    return problems[0] ?? `${path2} \u4E0D\u5339\u914D\u4EFB\u4F55\u5141\u8BB8\u7684\u7C7B\u578B`;
+  }
+  switch (schema.type) {
+    case "string":
+      if (typeof value !== "string") return `${path2} \u5E94\u4E3A\u5B57\u7B26\u4E32`;
+      break;
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) return `${path2} \u5E94\u4E3A\u6570\u5B57`;
+      break;
+    case "boolean":
+      if (typeof value !== "boolean") return `${path2} \u5E94\u4E3A\u5E03\u5C14\u503C`;
+      break;
+    case "array":
+      if (!Array.isArray(value)) return `${path2} \u5E94\u4E3A\u6570\u7EC4`;
+      if (schema.items !== void 0) {
+        for (let index = 0; index < value.length; index += 1) {
+          const problem = validateValue(schema.items, value[index], `${path2}[${index}]`);
+          if (problem !== void 0) return problem;
+        }
+      }
+      break;
+    case "object": {
+      if (!isPlainObject(value)) return `${path2} \u5E94\u4E3A\u5BF9\u8C61`;
+      const properties = schema.properties ?? {};
+      for (const key of schema.required ?? []) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) return `${path2}.${key} \u7F3A\u5931\uFF08\u5FC5\u586B\uFF09`;
+      }
+      for (const [key, item] of Object.entries(value)) {
+        const property = properties[key];
+        if (property === void 0) {
+          if (schema.additionalProperties === false) return `${path2}.${key} \u4E0D\u662F\u53EF\u63A5\u53D7\u7684\u53C2\u6570`;
+          continue;
+        }
+        const problem = validateValue(property, item, `${path2}.${key}`);
+        if (problem !== void 0) return problem;
+      }
+      break;
+    }
+    default:
+      return `${path2} \u7684 schema \u7C7B\u578B\u672A\u77E5`;
+  }
+  if (schema.enum !== void 0 && !schema.enum.includes(String(value))) {
+    return `${path2} \u53EA\u80FD\u662F ${schema.enum.join(" / ")}`;
+  }
+  return void 0;
+}
+function validateToolArgs(schema, args) {
+  if (!isPlainObject(args)) return "args \u5FC5\u987B\u662F\u5BF9\u8C61";
+  return validateValue({ ...schema, type: "object" }, args, "args");
+}
+function decideToolCall(input) {
+  const { entry } = input;
+  if (!entry.allowed_states.includes(input.state)) {
+    return deny(
+      "stage-denied",
+      `\u5F53\u524D\u72B6\u6001\u300C${stateLabel(input.state)}\u300D\u4E0D\u5141\u8BB8\u8C03\u7528 ${entry.name}\uFF08\u5141\u8BB8\uFF1A${statesText(entry.allowed_states)}\uFF09\u3002`
+    );
+  }
+  const args = input.args === void 0 || input.args === null ? {} : input.args;
+  if (!isPlainObject(args)) return deny("arguments-invalid", `${entry.name} \u7684 args \u5FC5\u987B\u662F\u5BF9\u8C61\u3002`);
+  for (const key of Object.keys(entry.fixed_args)) {
+    if (Object.prototype.hasOwnProperty.call(args, key)) {
+      return deny("arguments-override", `${entry.name} \u7684 ${key} \u662F\u56FA\u5B9A\u53C2\u6570\uFF0C\u4E0D\u80FD\u5728\u8C03\u7528\u65F6\u8986\u76D6\u3002`);
+    }
+  }
+  const problem = validateToolArgs(entry.parameters, args);
+  if (problem !== void 0) return deny("arguments-invalid", `${entry.name} \u53C2\u6570\u4E0D\u7B26\uFF1A${problem}\u3002`);
+  return { allow: true };
+}
+function mergeArgs(fixed, call) {
+  const fixedArgs = isPlainObject(fixed) ? fixed : {};
+  const callArgs = isPlainObject(call) ? call : {};
+  return { ...callArgs, ...fixedArgs };
+}
+function summarizeArgs(args, maxChars = 240) {
+  let text;
+  try {
+    text = JSON.stringify(args ?? {});
+  } catch {
+    text = "[unserializable]";
+  }
+  const flat = text.replace(/\s+/g, " ");
+  return flat.length > maxChars ? `${flat.slice(0, maxChars)}\u2026` : flat;
+}
+function validateAliasInput(input) {
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!/^[a-z][a-z0-9_]{2,40}$/.test(name)) {
+    return fail("name-invalid", "\u5DE5\u5177\u540D\u5FC5\u987B\u662F 3~41 \u4F4D\u5C0F\u5199\u5B57\u6BCD/\u6570\u5B57/\u4E0B\u5212\u7EBF\uFF0C\u4E14\u4EE5\u5B57\u6BCD\u5F00\u5934\uFF08\u4F8B\uFF1Anote_decision\uFF09\u3002");
+  }
+  if (input.existingNames.includes(name)) {
+    return fail("name-duplicate", `\u5DF2\u7ECF\u6709\u53EB\u300C${name}\u300D\u7684\u5DE5\u5177\uFF1A\u6362\u4E00\u4E2A\u540D\u5B57\uFF0C\u6216\u76F4\u63A5\u8C03\u7528\u5DF2\u6709\u7684\u3002`);
+  }
+  const description = typeof input.description === "string" ? input.description.trim() : "";
+  if (description === "" || Array.from(description).length > 200) {
+    return fail("description-invalid", "\u63CF\u8FF0\u4E0D\u80FD\u4E3A\u7A7A\uFF0C\u4E14\u4E0D\u8D85\u8FC7 200 \u5B57\uFF1A\u5199\u6E05\u8FD9\u4E2A\u5DE5\u5177\u505A\u4EC0\u4E48\u3001\u4EC0\u4E48\u65F6\u5019\u7528\u3002");
+  }
+  const baseTool = typeof input.baseTool === "string" ? input.baseTool : "";
+  if (!BASE_TOOL_NAMES.includes(baseTool)) {
+    return fail("base-tool-invalid", `\u57FA\u7840\u5DE5\u5177\u53EA\u80FD\u662F\uFF1A${BASE_TOOL_NAMES.join(" / ")}\uFF1B\u522B\u540D\u4E0D\u80FD\u518D\u6302\u522B\u540D\uFF08\u7981\u6B62\u94FE\u5F0F\uFF09\u3002`);
+  }
+  const base = BASE_TOOLS_BY_NAME.get(baseTool);
+  const fixed = input.fixedArgs === void 0 || input.fixedArgs === null ? {} : input.fixedArgs;
+  if (!isPlainObject(fixed)) return fail("fixed-args-invalid", "fixed_args \u5FC5\u987B\u662F\u5BF9\u8C61\u3002");
+  for (const [key, value] of Object.entries(fixed)) {
+    const property = base.parameters.properties[key];
+    if (property === void 0) return fail("fixed-args-invalid", `fixed_args.${key} \u4E0D\u662F ${baseTool} \u7684\u53C2\u6570\u3002`);
+    const problem = validateValue(property, value, `fixed_args.${key}`);
+    if (problem !== void 0) return fail("fixed-args-invalid", problem);
+  }
+  let allowedStates = [...base.allowed_states];
+  if (input.allowedStates !== void 0 && input.allowedStates !== null) {
+    if (!Array.isArray(input.allowedStates) || input.allowedStates.length === 0) {
+      return fail("states-invalid", "allowed_states \u5FC5\u987B\u662F\u975E\u7A7A\u6570\u7EC4\uFF08\u4E0D\u4F20\u5219\u7EE7\u627F\u57FA\u7840\u5DE5\u5177\u7684\u5168\u90E8\u72B6\u6001\uFF09\u3002");
+    }
+    const picked = [];
+    for (const candidate of input.allowedStates) {
+      if (typeof candidate !== "string" || !ALL_STATES.includes(candidate)) {
+        return fail("states-invalid", `allowed_states \u91CC\u6709\u672A\u77E5\u72B6\u6001\uFF1A${String(candidate)}\u3002`);
+      }
+      if (!base.allowed_states.includes(candidate)) {
+        return fail("states-invalid", `${baseTool} \u672C\u8EAB\u5728\u300C${stateLabel(String(candidate))}\u300D\u4E0D\u53EF\u7528\uFF0C\u522B\u540D\u4E0D\u80FD\u653E\u5BBD\u3002`);
+      }
+      if (!picked.includes(candidate)) picked.push(candidate);
+    }
+    if (picked.length === 0) return fail("states-invalid", "allowed_states \u4E0D\u80FD\u4E3A\u7A7A\u3002");
+    allowedStates = picked;
+  }
+  if (input.sampleArgs === void 0 || input.sampleArgs === null) {
+    return fail("sample-args-invalid", "sample_args \u5FC5\u586B\uFF1A\u7ED9\u4E00\u4E2A\u80FD\u8DD1\u901A\u7684\u793A\u4F8B\u53C2\u6570\uFF0C\u767B\u8BB0\u65F6\u4F1A\u7528\u5B83\u6821\u9A8C\u3002");
+  }
+  if (!isPlainObject(input.sampleArgs)) return fail("sample-args-invalid", "sample_args \u5FC5\u987B\u662F\u5BF9\u8C61\u3002");
+  for (const key of Object.keys(fixed)) {
+    if (Object.prototype.hasOwnProperty.call(input.sampleArgs, key)) {
+      return fail("sample-args-invalid", `sample_args \u91CC\u4E0D\u8981\u518D\u5199\u56FA\u5B9A\u53C2\u6570 ${key}\u3002`);
+    }
+  }
+  const mergedSample = { ...input.sampleArgs, ...fixed };
+  const sampleProblem = validateToolArgs(base.parameters, mergedSample);
+  if (sampleProblem !== void 0) {
+    return fail("sample-args-invalid", `sample_args \u4E0D\u6EE1\u8DB3 ${baseTool} \u7684\u53C2\u6570\u8981\u6C42\uFF1A${sampleProblem}\u3002`);
+  }
+  return {
+    ok: true,
+    parameters: deriveAliasParameters(base.parameters, fixed),
+    allowedStates
+  };
+}
+function renderCatalogText(entries2) {
+  const base = entries2.filter((entry) => entry.alias !== true);
+  const aliases = entries2.filter((entry) => entry.alias === true);
+  const lines = ["\u3010\u5DE5\u5177\u76EE\u5F55\u3011\u6A21\u578B\u53EA\u80FD\u901A\u8FC7 workflow_tool_call({name,args}) \u8C03\u7528\u4E0B\u5217\u5DE5\u5177\uFF1B\u65B0\u589E\u5DE5\u5177\u7528 workflow_tool_add\uFF08\u53EA\u767B\u8BB0\u3001\u4E0D\u6267\u884C\uFF09\u3002"];
+  const lineOf = (entry) => {
+    const required = entry.parameters.required ?? [];
+    const requiredText = required.length > 0 ? `\u5FC5\u586B\uFF1A${required.join(",")}` : "\u65E0\u5FC5\u586B\u53C2\u6570";
+    const summary = entry.alias === true ? entry.description : entry.summary ?? entry.description;
+    return `- ${entry.name}\uFF08${statesText(entry.allowed_states)}\u53EF\u7528\uFF1B${requiredText}\uFF09${summary}`;
+  };
+  for (const entry of base) lines.push(lineOf(entry));
+  if (aliases.length > 0) {
+    lines.push("\u522B\u540D\uFF08workflow_tool_add \u767B\u8BB0\u7684\u56FA\u5B9A\u53C2\u6570\u7248\u672C\uFF09\uFF1A");
+    for (const alias of aliases) lines.push(lineOf(alias));
+  }
+  return lines.join("\n");
+}
+
+// src/host/workflow-tools.ts
 var SIDE_EFFECT_TOOLS = /* @__PURE__ */ new Set(["write", "edit", "apply_patch", "pwsh", "bash", "notebook"]);
 var ALLOWED_TRANSITIONS = {
   discussing: ["implementing"],
@@ -2333,7 +2727,7 @@ function labelOf(state) {
 }
 function denialFor(state, toolName) {
   if (state !== "discussing") return void 0;
-  return `\u5F53\u524D\u72B6\u6001\u662F\u300C\u8BA8\u8BBA\u4E2D\u300D\uFF0C\u4E0D\u5141\u8BB8\u6267\u884C ${toolName}\uFF1A\u8BA8\u8BBA\u9636\u6BB5\u53EA\u51FA\u65B9\u6848\u3001\u4E0D\u6539\u4EE3\u7801\u3002\u5148\u8C03\u7528 workflow_advance({ to: "implementing" }) \u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\uFF08\u9700\u8981\u5148\u628A\u65B9\u6848\u5199\u8FDB\u4F1A\u8BDD\u624B\u518C\uFF09\uFF0C\u6216\u8BF7\u7528\u6237\u70B9\u72B6\u6001\u80F6\u56CA\u7684 \u2192\u3002`;
+  return `\u5F53\u524D\u72B6\u6001\u662F\u300C\u8BA8\u8BBA\u4E2D\u300D\uFF0C\u4E0D\u5141\u8BB8\u6267\u884C ${toolName}\uFF1A\u8BA8\u8BBA\u9636\u6BB5\u53EA\u51FA\u65B9\u6848\u3001\u4E0D\u6539\u4EE3\u7801\u3002\u5148\u8C03\u7528 workflow_tool_call({ name: "workflow_advance", args: { to: "implementing" } }) \u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\uFF08\u9700\u8981\u5148\u628A\u65B9\u6848\u5199\u8FDB\u4F1A\u8BDD\u624B\u518C\uFF09\uFF0C\u6216\u8BF7\u7528\u6237\u70B9\u72B6\u6001\u80F6\u56CA\u7684 \u2192\u3002`;
 }
 function registerWorkflowGuard(ctx, deps) {
   ctx.inject(["tools"], (toolCtx) => {
@@ -2359,478 +2753,500 @@ function registerWorkflowGuard(ctx, deps) {
 function registerWorkflowTools(ctx, deps) {
   ctx.inject(["tools"], (toolCtx) => {
     const whenWorkflow = (context) => deps.isPresetSession(context?.agent?.session?.id);
-    const instrument = async (toolName, sessionId, run) => {
+    const instrument = async (toolName, sessionId, trace, run) => {
       const startedAt = Date.now();
       try {
         const value = await run();
-        logEvent(ctx.logger, "info", `[workflow] tool ${toolName} ok (session=${sessionId}, ${Date.now() - startedAt}ms)`);
+        logEvent(ctx.logger, "info", `[workflow] tool ${toolName} ok (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms)`);
         return value;
       } catch (error) {
         const message = String(error?.message ?? error);
-        logEvent(ctx.logger, "warn", `[workflow] tool ${toolName} failed (session=${sessionId}, ${Date.now() - startedAt}ms): ${message}`);
+        logEvent(ctx.logger, "warn", `[workflow] tool ${toolName} failed (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms): ${message}`);
         throw error;
       }
     };
+    const record = (input) => deps.recordToolEvent?.(input);
     toolCtx.effect(() => toolCtx.tools.register({
-      name: "workflow_advance",
-      description: "Request a stage change for this workflow session. This tool does NOT change the stage: it validates the preconditions and leaves a request the user must approve in the session UI (a \u540C\u610F / \u62D2\u7EDD control appears next to the state badge). Call it when the user agrees to move on: \u8BA8\u8BBA\u4E2D\u2192\u5B9E\u73B0\u4E2D before writing any code (the session manual must contain a plan), \u5B9E\u73B0\u4E2D\u2192\u9A8C\u6536\u4E2D when every checklist item is checked. Only available in sessions using the workflow preset. When wrapping up (reaching \u5DF2\u5B8C\u7ED3 or ending a session), write the four takeaways into \u9879\u76EE\u624B\u518C via workflow_manual: \u2460 new or overturned decisions (\u51B3\u7B56\u8BB0\u5F55) \u2461 pitfalls as \u73B0\u8C61 \u2192 \u6839\u56E0 \u2192 \u9632\u7EBF \u2192 \u81EA\u67E5 (\u5751\u4E0E\u9632\u7EBF) \u2462 write \u300C\u65E0\u300D if neither \u2463 whether the docs still match the implementation, and what you changed if not; then sync \u4F1A\u8BDD\u624B\u518C (\u65B9\u6848 / \u5B9E\u65BD\u987A\u5E8F).",
+      name: "workflow_tool_call",
+      description: "\u8C03\u7528\u5DE5\u5177\u76EE\u5F55\u91CC\u7684\u5DE5\u5177\uFF1Aname \u662F\u76EE\u5F55\u91CC\u7684\u5DE5\u5177\u540D\uFF0Cargs \u662F\u5B83\u7684\u53C2\u6570\u3002\u76EE\u5F55\u5728\u7CFB\u7EDF\u63D0\u793A\u91CC\uFF08\u57FA\u7840 5 \u4E2A + \u672C\u5DE5\u4F5C\u533A\u767B\u8BB0\u7684\u522B\u540D\uFF09\u3002\u76EE\u5F55\u5916\u540D\u5B57\u3001\u5F53\u524D\u9636\u6BB5\u4E0D\u53EF\u7528\u3001\u53C2\u6570\u4E0D\u7B26\u3001\u8986\u76D6\u56FA\u5B9A\u53C2\u6570\u90FD\u4F1A\u88AB\u62D2\uFF0C\u62D2\u7EDD\u7406\u7531\u4F1A\u539F\u6837\u8FD4\u56DE\uFF1B\u65B0\u589E\u5DE5\u5177\u7528 workflow_tool_add\u3002",
       parameters: {
         type: "object",
         additionalProperties: false,
-        required: ["to"],
+        required: ["name", "args"],
         properties: {
-          to: {
-            type: "string",
-            enum: ["discussing", "implementing", "verifying", "completed"],
-            description: "Requested stage. Forward = normal progression; backward = rework."
-          },
-          reason: {
-            type: "string",
-            description: "Required when moving backward (rework): why the previous stage was insufficient."
-          }
+          name: { type: "string", description: "\u76EE\u5F55\u91CC\u7684\u5DE5\u5177\u540D\uFF08\u4F8B\uFF1Aworkflow_manual / workflow_verify_report / \u522B\u540D\uFF09\u3002" },
+          args: { type: "object", description: "\u8BE5\u5DE5\u5177\u7684\u53C2\u6570\u5BF9\u8C61\uFF1B\u6309\u76EE\u5F55\u91CC\u7684\u5FC5\u586B\u9879\u4E0E\u53C2\u6570\u8BF4\u660E\u4F20\u3002", additionalProperties: true }
         }
       },
       output: {
         schema: {
           type: "object",
           additionalProperties: false,
-          required: ["requested", "status", "message"],
+          required: ["ok", "name", "base_tool", "value"],
           properties: {
-            requested: { type: "string" },
-            status: { type: "string" },
+            ok: { type: "boolean" },
+            name: { type: "string" },
+            base_tool: { type: "string" },
+            value: { type: "object" }
+          }
+        },
+        render: (_args, value) => [{
+          type: "text",
+          text: `\u5DF2\u8C03\u7528 ${value.name}${value.value?.message ? `\uFF1A${value.value.message}` : ""}`
+        }]
+      },
+      execute: async (args, exec) => {
+        const sessionId = requireSession(deps, exec);
+        const trace = newTraceId();
+        return instrument("workflow_tool_call", sessionId, trace, async () => {
+          const found = await deps.repository.findBySession(sessionId);
+          if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
+          const name = typeof args?.name === "string" ? args.name : "";
+          const catalog = await loadCatalog(deps, found.workflowId);
+          const state = await currentStateOf(deps, sessionId);
+          const startedAt = Date.now();
+          const entry = catalog.find((item) => item.name === name);
+          if (entry === void 0) {
+            const message = `\u5DE5\u5177\u76EE\u5F55\u91CC\u6CA1\u6709\u300C${name}\u300D\uFF1A\u53EA\u80FD\u8C03\u7528\u76EE\u5F55\u91CC\u7684\u5DE5\u5177\uFF1B\u8981\u65B0\u589E\u8BF7\u7528 workflow_tool_add\u3002`;
+            record({
+              kind: "call",
+              session: sessionId,
+              workflow_id: found.workflowId,
+              name,
+              trace,
+              decision: "deny",
+              code: "unknown-tool",
+              state,
+              args: summarizeArgs(args?.args),
+              message
+            });
+            throw new Error(message);
+          }
+          const decision = decideToolCall({ state, entry, args: args?.args });
+          if (!decision.allow) {
+            record({
+              kind: "call",
+              session: sessionId,
+              workflow_id: found.workflowId,
+              name,
+              trace,
+              base_tool: entry.base_tool,
+              version: entry.version,
+              decision: "deny",
+              code: decision.code,
+              state,
+              args: summarizeArgs(args?.args),
+              message: decision.message
+            });
+            throw new Error(decision.message);
+          }
+          const merged = mergeArgs(entry.fixed_args, args?.args);
+          let value;
+          try {
+            value = await invokeBaseTool(deps, entry.base_tool, merged, sessionId);
+          } catch (error) {
+            const message = String(error?.message ?? error);
+            record({
+              kind: "call",
+              session: sessionId,
+              workflow_id: found.workflowId,
+              name,
+              trace,
+              base_tool: entry.base_tool,
+              version: entry.version,
+              decision: "error",
+              code: "execution-failed",
+              state,
+              args: summarizeArgs(args?.args),
+              ms: Date.now() - startedAt,
+              message
+            });
+            throw error;
+          }
+          record({
+            kind: "call",
+            session: sessionId,
+            workflow_id: found.workflowId,
+            name,
+            trace,
+            base_tool: entry.base_tool,
+            version: entry.version,
+            decision: "allow",
+            state,
+            args: summarizeArgs(args?.args),
+            ms: Date.now() - startedAt
+          });
+          return { ok: true, name: entry.name, base_tool: entry.base_tool, value };
+        });
+      }
+    }, { when: whenWorkflow }));
+    toolCtx.effect(() => toolCtx.tools.register({
+      name: "workflow_tool_add",
+      description: "\u767B\u8BB0\u4E00\u4E2A\u65B0\u7684\u5DE5\u5177\u522B\u540D\uFF08\u6A21\u578B\u53EA\u6709\u7533\u8BF7\u6743\uFF0C\u6CA1\u6709\u76F4\u63A5\u6CE8\u518C\u6743\uFF09\uFF1A\u53EA\u80FD\u628A\u4E94\u4E2A\u57FA\u7840\u5DE5\u5177\u4E4B\u4E00\u52A0\u4E0A\u56FA\u5B9A\u53C2\u6570\uFF0C\u4E0D\u80FD\u6302\u522B\u540D\uFF08\u7981\u6B62\u94FE\u5F0F\uFF09\u3002\u767B\u8BB0\u65F6\u81EA\u52A8\u8FC7\u56DB\u5173\uFF1A\u57FA\u7840\u5DE5\u5177\u767D\u540D\u5355\u3001\u540D\u5B57/\u63CF\u8FF0/\u56FA\u5B9A\u53C2\u6570/\u9636\u6BB5\u7EE7\u627F\u7684\u9759\u6001\u6821\u9A8C\u3001sample_args \u53C2\u6570\u6821\u9A8C\u3001\u526F\u4F5C\u7528\u7EE7\u627F\uFF1B\u5168\u8FC7\u5C31\u5199\u5165\u672C\u5DE5\u4F5C\u533A\u76EE\u5F55\u3001\u7ACB\u5373\u53EF\u7528\uFF0C\u4E0D\u6267\u884C\u4EFB\u4F55\u4E1A\u52A1\u3002\u53EA\u80FD\u5728\u8BA8\u8BBA\u4E2D / \u5B9E\u73B0\u4E2D\u767B\u8BB0\uFF1B\u9A8C\u6536\u4E2D / \u5DF2\u5B8C\u7ED3\u4F1A\u88AB\u62D2\u3002",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "description", "base_tool", "sample_args"],
+        properties: {
+          name: { type: "string", description: "\u65B0\u5DE5\u5177\u540D\uFF1A3~41 \u4F4D\u5C0F\u5199\u5B57\u6BCD/\u6570\u5B57/\u4E0B\u5212\u7EBF\uFF0C\u4EE5\u5B57\u6BCD\u5F00\u5934\uFF08\u4F8B\uFF1Anote_decision\uFF09\u3002" },
+          description: { type: "string", description: "\u4E00\u53E5\u8BDD\u8BF4\u660E\uFF1A\u505A\u4EC0\u4E48\u3001\u4EC0\u4E48\u65F6\u5019\u7528\uFF08\u2264200 \u5B57\uFF09\u3002" },
+          base_tool: {
+            type: "string",
+            enum: BASE_TOOL_NAMES,
+            description: "\u57FA\u7840\u5DE5\u5177\uFF1A\u522B\u540D\u53EA\u80FD\u5728\u5B83\u4EEC\u4E4B\u4E0A\u52A0\u56FA\u5B9A\u53C2\u6570\u3002"
+          },
+          fixed_args: { type: "object", description: "\u9884\u7F6E\u53C2\u6570\uFF1A\u8C03\u7528\u65F6\u4E0D\u80FD\u518D\u4F20\u8FD9\u4E9B\u952E\u3002", additionalProperties: true },
+          allowed_states: {
+            type: "array",
+            items: { type: "string", enum: ["discussing", "implementing", "verifying", "completed"] },
+            description: "\u53EF\u9009\uFF1A\u6536\u7A84\u53EF\u7528\u9636\u6BB5\uFF0C\u5FC5\u987B\u662F\u57FA\u7840\u5DE5\u5177\u5141\u8BB8\u9636\u6BB5\u7684\u5B50\u96C6\uFF1B\u4E0D\u4F20\u5219\u7EE7\u627F\u5168\u90E8\u3002"
+          },
+          sample_args: { type: "object", description: "\u5FC5\u586B\uFF1A\u4E00\u4E2A\u80FD\u8DD1\u901A\u7684\u793A\u4F8B\u53C2\u6570\uFF08\u4E0D\u542B\u56FA\u5B9A\u53C2\u6570\uFF09\uFF0C\u767B\u8BB0\u65F6\u7528\u5B83\u6821\u9A8C\u53C2\u6570\u5F62\u72B6\u3002", additionalProperties: true }
+        }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ok", "entry", "message"],
+          properties: {
+            ok: { type: "boolean" },
+            entry: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "base_tool", "allowed_states", "version"],
+              properties: {
+                name: { type: "string" },
+                base_tool: { type: "string" },
+                allowed_states: { type: "array", items: { type: "string" } },
+                version: { type: "number" }
+              }
+            },
             message: { type: "string" }
           }
         },
-        render: (_args, value) => [
-          { type: "text", text: `\u5DF2\u8BF7\u6C42\u5207\u6362\u5230\u300C${labelOf(value.requested)}\u300D\uFF0C\u7B49\u5F85\u7528\u6237\u786E\u8BA4\u3002` }
-        ]
+        render: (_args, value) => [{
+          type: "text",
+          text: `\u5DF2\u767B\u8BB0\u300C${value.entry?.name ?? "?"}\u300D\u2192 ${value.entry?.base_tool ?? "?"}\uFF0C\u73B0\u5728\u53EF\u4EE5\u901A\u8FC7 workflow_tool_call \u8C03\u7528\u3002`
+        }]
       },
       execute: async (args, exec) => {
         const sessionId = requireSession(deps, exec);
-        return instrument("workflow_advance", sessionId, async () => {
+        const trace = newTraceId();
+        const startedAt = Date.now();
+        return instrument("workflow_tool_add", sessionId, trace, async () => {
           const found = await deps.repository.findBySession(sessionId);
           if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
-          const from = String(found.current_state);
-          const to = String(args?.to ?? "");
-          const allowed = ALLOWED_TRANSITIONS[from] ?? [];
-          if (!allowed.includes(to)) {
-            throw new Error(`\u4E0D\u80FD\u4ECE\u300C${labelOf(from)}\u300D\u76F4\u63A5\u5230\u300C${labelOf(to)}\u300D\uFF1B\u5F53\u524D\u53EF\u53BB\uFF1A${allowed.map(labelOf).join(" / ")}`);
+          const state = await currentStateOf(deps, sessionId);
+          if (state !== "discussing" && state !== "implementing") {
+            const message = `\u5F53\u524D\u72B6\u6001\u300C${labelOf(state)}\u300D\u4E0D\u80FD\u65B0\u589E\u5DE5\u5177\uFF1A\u5DE5\u5177\u53D8\u66F4\u4F1A\u6C61\u67D3\u9A8C\u6536\u7ED3\u8BBA\uFF0C\u7B49\u56DE\u5230\u8BA8\u8BBA\u4E2D / \u5B9E\u73B0\u4E2D\u518D\u767B\u8BB0\u3002`;
+            record({
+              kind: "add",
+              session: sessionId,
+              workflow_id: found.workflowId,
+              name: String(args?.name ?? ""),
+              trace,
+              decision: "deny",
+              code: "stage-denied",
+              state,
+              message
+            });
+            throw new Error(message);
           }
-          const backward = STATE_ORDER.indexOf(to) < STATE_ORDER.indexOf(from);
-          if (backward && (typeof args?.reason !== "string" || args.reason.trim() === "")) {
-            throw new Error("\u8FD4\u5DE5\u9700\u8981 reason\uFF1A\u8BF4\u660E\u4E0A\u4E00\u9636\u6BB5\u54EA\u91CC\u4E0D\u591F");
+          const listing = await deps.aliasStore.list(found.workflowId);
+          if (listing.corrupt) {
+            logEvent(deps.logger, "warn", `[workflow] alias store corrupt (workflow=${found.workflowId})\uFF1A\u522B\u540D\u4E0D\u53EF\u7528\uFF0C\u57FA\u7840\u5DE5\u5177\u4E0D\u53D7\u5F71\u54CD`);
           }
-          await assertAdvanceAllowed(deps.repository, found, from, to);
-          deps.requestAdvance({ sessionId, to, ...typeof args?.reason === "string" ? { reason: args.reason } : {} });
-          logEvent(ctx.logger, "info", `[workflow] advance requested (session=${sessionId}, ${from}\u2192${to}${backward ? ", rework" : ""})`);
-          return {
-            requested: to,
-            status: "awaiting-approval",
-            message: `\u5DF2\u8BF7\u6C42\u4ECE\u300C${labelOf(from)}\u300D\u5207\u6362\u5230\u300C${labelOf(to)}\u300D\uFF0C\u7B49\u5F85\u7528\u6237\u5728\u4F1A\u8BDD\u91CC\u786E\u8BA4\uFF1B\u540C\u610F\u4E4B\u524D\u72B6\u6001\u4E0D\u4F1A\u53D8\u3002`
+          const validation = validateAliasInput({
+            name: args?.name,
+            description: args?.description,
+            baseTool: args?.base_tool,
+            fixedArgs: args?.fixed_args,
+            allowedStates: args?.allowed_states,
+            sampleArgs: args?.sample_args,
+            existingNames: [...BASE_TOOL_NAMES, ...listing.aliases.map((entry2) => entry2.name)]
+          });
+          const requestedName = String(args?.name ?? "").trim();
+          if (!validation.ok) {
+            record({
+              kind: "add",
+              session: sessionId,
+              workflow_id: found.workflowId,
+              name: requestedName,
+              trace,
+              base_tool: String(args?.base_tool ?? ""),
+              decision: "deny",
+              code: validation.code,
+              state,
+              message: validation.message
+            });
+            throw new Error(validation.message);
+          }
+          const fixedArgs = isPlainRecord(args?.fixed_args) ? args.fixed_args : {};
+          const entry = {
+            tool_id: randomUUID4(),
+            name: requestedName,
+            description: String(args.description).trim(),
+            base_tool: String(args.base_tool),
+            fixed_args: fixedArgs,
+            allowed_states: validation.allowedStates,
+            created_at: (/* @__PURE__ */ new Date()).toISOString(),
+            version: 1
           };
-        });
-      }
-    }, { when: whenWorkflow }));
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: "workflow_manual",
-      description: "Read or update this workflow session's manual. target=session edits \u4F1A\u8BDD\u624B\u518C (writable section: \u65B9\u6848); target=project edits \u9879\u76EE\u624B\u518C (writable sections: \u9879\u76EE\u603B\u89C8 / \u51B3\u7B56\u8BB0\u5F55 / \u7EA6\u675F / \u5751\u4E0E\u9632\u7EBF). Replaces one section body only \u2014 headings and other sections are preserved, and the \u5B9E\u65BD\u987A\u5E8F checklist cannot be edited here (use workflow_check). Section bodies are capped by character count (\u7EA6\u675F 300, \u65B9\u6848 1200, \u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000; checklist evidence \u300C\uFF5C \u81EA\u68C0\uFF1A\u300D is not counted) \u2014 over-limit writes are rejected with current / limit / over numbers, so trim before retrying. Allowed in every stage.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["target", "action"],
-        properties: {
-          target: { type: "string", enum: ["session", "project"], description: "Which manual to touch." },
-          action: {
-            type: "string",
-            enum: ["read", "replace_section", "append_entry", "update_entry", "remove_entry", "rename_tag"],
-            description: "read returns text; replace_section rewrites a whole section (session \u65B9\u6848 / project \u6807\u7B7E\u8868); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it."
-          },
-          section: { type: "string", description: "Section name (e.g. \u65B9\u6848 / \u9879\u76EE\u603B\u89C8 / \u51B3\u7B56\u8BB0\u5F55 / \u7EA6\u675F / \u5751\u4E0E\u9632\u7EBF / \u6807\u7B7E\u8868)." },
-          content: { type: "string", description: "Entry text (append_entry / update_entry) or new section body (replace_section)." },
-          tags: {
-            type: "array",
-            items: { type: "string" },
-            description: "Required for append_entry / update_entry: 1+ tags, each \u226412 chars, no brackets or \uFF5C. Pick from the injected \u6807\u7B7E\u8868 (or a real file name in this project); unknown tags get registered automatically until the table is full."
-          },
-          entry: { type: "string", description: "update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix)." },
-          from: { type: "string", description: "rename_tag: the tag to replace." },
-          to: { type: "string", description: "rename_tag: the tag to keep. Use this to merge synonyms when \u6807\u7B7E\u8868 is full." }
-        }
-      },
-      output: {
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["ok"],
-          properties: {
-            ok: { type: "boolean" },
-            text: { type: "string" },
-            bytes: { type: "integer" },
-            section: { type: "string" },
-            tags: { type: "array", items: { type: "string" } },
-            registered: { type: "array", items: { type: "string" } },
-            entry: { type: "string" },
-            rewritten: { type: "integer" },
-            removed: { type: "string" }
-          }
-        },
-        render: (args, value) => {
-          if (args?.action === "read") return [{ type: "text", text: `\u624B\u518C\u5171 ${value.text?.length ?? 0} \u5B57` }];
-          if (args?.action === "rename_tag") return [{ type: "text", text: `\u5DF2\u5408\u5E76\u6807\u7B7E\uFF0C\u6539\u5199 ${value.rewritten ?? 0} \u6761` }];
-          if (args?.action === "remove_entry") return [{ type: "text", text: "\u5DF2\u5220\u9664\u4E00\u6761" }];
-          if (args?.action === "append_entry" || args?.action === "update_entry") {
-            const registered = Array.isArray(value.registered) && value.registered.length > 0 ? `\uFF0C\u65B0\u767B\u8BB0\u6807\u7B7E\uFF1A${value.registered.join(" / ")}` : "";
-            return [{ type: "text", text: `\u5DF2\u5199\u5165\u300C${value.section}\u300D\u4E00\u6761${registered}` }];
-          }
-          return [{ type: "text", text: `\u5DF2\u66F4\u65B0\u300C${value.section}\u300D\u5C0F\u8282\uFF08${value.bytes} \u5B57\u8282\uFF09` }];
-        }
-      },
-      execute: async (args, exec) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument("workflow_manual", sessionId, async () => {
-          const found = await deps.repository.findBySession(sessionId);
-          if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
-          const target = String(args?.target ?? "");
-          if (target !== "session" && target !== "project") throw new Error("target \u53EA\u80FD\u662F session \u6216 project");
-          const action = String(args?.action ?? "");
-          const nodeId = target === "session" ? found.nodeId : null;
-          if (action === "read") {
-            const text = await deps.repository.readManual(found.workflowId, nodeId);
-            return { ok: true, text };
-          }
-          if (action === "append_entry" || action === "update_entry" || action === "remove_entry" || action === "rename_tag") {
-            if (target !== "project") {
-              throw new Error("\u6761\u76EE\u7EA7\u5199\u5165\u53EA\u5BF9\u9879\u76EE\u624B\u518C\uFF08target=project\uFF09\u53EF\u7528\uFF1B\u4F1A\u8BDD\u624B\u518C\u7528 replace_section \u5199\u65B9\u6848");
-            }
-            const section2 = String(args?.section ?? "").trim();
-            const tags = Array.isArray(args?.tags) ? args.tags.map((tag) => String(tag)) : [];
-            const entry = String(args?.entry ?? "").trim();
-            try {
-              if (action === "append_entry") {
-                const written = await deps.repository.appendProjectEntry({
-                  workflowId: found.workflowId,
-                  section: section2,
-                  tags,
-                  content: String(args?.content ?? "")
-                });
-                logEvent(ctx.logger, "info", `[workflow] manual entry appended (session=${sessionId}, section=${section2}, table=${written.tags.length}, registered=${written.registered.length})`);
-                return { ok: true, section: section2, entry: written.entry, tags: written.tags, registered: written.registered };
-              }
-              if (action === "update_entry") {
-                const written = await deps.repository.updateProjectEntry({
-                  workflowId: found.workflowId,
-                  section: section2,
-                  entry,
-                  tags,
-                  content: String(args?.content ?? "")
-                });
-                logEvent(ctx.logger, "info", `[workflow] manual entry updated (session=${sessionId}, section=${section2}, tags=${written.tags.length})`);
-                return { ok: true, section: section2, entry: written.entry, tags: written.tags };
-              }
-              if (action === "remove_entry") {
-                const removed = await deps.repository.removeProjectEntry({ workflowId: found.workflowId, section: section2, entry });
-                logEvent(ctx.logger, "info", `[workflow] manual entry removed (session=${sessionId}, section=${section2})`);
-                return { ok: true, section: section2, removed: removed.removed };
-              }
-              const from = String(args?.from ?? "");
-              const to = String(args?.to ?? "");
-              const renamed = await deps.repository.renameProjectTag({ workflowId: found.workflowId, from, to });
-              logEvent(ctx.logger, "info", `[workflow] manual tag renamed (session=${sessionId}, from=${from}, to=${to}, rewritten=${renamed.rewritten}, table=${renamed.tags.length})`);
-              return { ok: true, tags: renamed.tags, rewritten: renamed.rewritten };
-            } catch (error) {
-              logEvent(
-                ctx.logger,
-                "warn",
-                `[workflow] manual entry rejected (session=${sessionId}, action=${action}, section=${section2}): ${String(error?.message ?? error)}`
-              );
-              throw error;
-            }
-          }
-          if (action !== "replace_section") {
-            throw new Error("action \u53EA\u80FD\u662F read / replace_section / append_entry / update_entry / remove_entry / rename_tag");
-          }
-          const section = String(args?.section ?? "").trim();
-          const writable = WRITABLE_SECTIONS[target];
-          if (!writable.includes(section)) {
-            throw new Error(`\u300C${target}\u300D\u624B\u518C\u53EA\u80FD\u6539\u8FD9\u4E9B\u5C0F\u8282\uFF1A${writable.join(" / ")}\uFF1B${section === "\u5B9E\u65BD\u987A\u5E8F" ? "\u6E05\u5355\u8BF7\u7528 workflow_check \u52FE\u9009\u3002" : ""}`);
-          }
-          if (typeof args?.content !== "string" || args.content.trim() === "") throw new Error("content \u4E0D\u80FD\u4E3A\u7A7A");
-          if (target === "session" && section === "\u5B9E\u65BD\u987A\u5E8F") {
-            if (deps.getState(sessionId) === void 0) await deps.refreshState?.(sessionId);
-            const state = deps.getState(sessionId);
-            if (state === void 0) {
-              throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09\uFF1A\u5148\u8BA9\u5BBF\u4E3B\u5B8C\u6210\u8BA4\u9886\uFF0C\u518D\u5B9A\u4E49\u5B9E\u65BD\u987A\u5E8F\u3002");
-            }
-            if (state !== "discussing") {
-              throw new Error("\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u53EA\u80FD\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u5B9A\u4E49\uFF1B\u8FDB\u5165\u5B9E\u73B0\u4E2D\u4E4B\u540E\u8BF7\u7528 workflow_check \u9010\u6761\u52FE\u9009\uFF0C\u4E0D\u8981\u6539\u5199\u6761\u76EE\u3002");
-            }
-          }
-          let result;
-          try {
-            result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
-          } catch (error) {
-            if (error?.code === "manual-limit") {
-              logEvent(
-                ctx.logger,
-                "warn",
-                `[workflow] manual gate rejected (session=${sessionId}, target=${target}, section=${section}): ${String(error?.message ?? error)}`
-              );
-            }
-            throw error;
-          }
-          logEvent(ctx.logger, "info", `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
-          return { ok: true, bytes: result.bytes, section };
-        });
-      }
-    }, { when: whenWorkflow }));
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: "workflow_check",
-      description: "Check or uncheck ONE item in this workflow session's \u5B9E\u65BD\u987A\u5E8F checklist. The item text must match an existing line exactly \u2014 this tool never adds, rewords, or reorders items. Checking an item REQUIRES evidence: say how you verified this layer and what the result was; the evidence is written into the checklist line. Every item must be checked (with evidence) before the session can move to \u9A8C\u6536\u4E2D. Not available in \u8BA8\u8BBA\u4E2D.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["item", "done"],
-        properties: {
-          item: { type: "string", description: "Exact text of an existing checklist item." },
-          done: { type: "boolean", description: "true = checked, false = unchecked." },
-          evidence: { type: "string", description: "\u52FE\u9009\u65F6\u5FC5\u586B\uFF1A\u8FD9\u4E00\u5C42\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u662F\u4EC0\u4E48\uFF08\u81EA\u7531\u6587\u672C\uFF0C\u4F8B\uFF1A\u8DD1 node test.mjs\uFF0C12 \u9879\u5168\u8FC7\uFF09\u3002\u53D6\u6D88\u52FE\u9009\u53EF\u7701\u7565\u3002" }
-        }
-      },
-      output: {
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["items"],
-          properties: {
-            items: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["label", "done"],
-                properties: {
-                  label: { type: "string" },
-                  done: { type: "boolean" }
-                }
-              }
-            }
-          }
-        },
-        render: (_args, value) => [
-          { type: "text", text: `\u6E05\u5355\u8FDB\u5EA6\uFF1A${value.items.filter((item) => item.done).length}/${value.items.length}` }
-        ]
-      },
-      execute: async (args, exec) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument("workflow_check", sessionId, async () => {
-          const state = deps.getState(sessionId);
-          if (state === void 0) await deps.refreshState?.(sessionId);
-          const stateNow = deps.getState(sessionId);
-          if (stateNow === "discussing") throw new Error("\u300C\u8BA8\u8BBA\u4E2D\u300D\u8FD8\u4E0D\u52FE\u6E05\u5355\uFF1A\u5148\u628A\u65B9\u6848\u5199\u8FDB\u4F1A\u8BDD\u624B\u518C\uFF0C\u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\u518D\u52FE\u3002");
-          const found = await deps.repository.findBySession(sessionId);
-          if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
-          const label = String(args?.item ?? "").trim();
-          if (label === "") throw new Error("item \u4E0D\u80FD\u4E3A\u7A7A");
-          const items = await deps.repository.setChecklistItem({
-            workflowId: found.workflowId,
-            nodeId: found.nodeId,
-            label,
-            done: args?.done === true,
-            evidence: typeof args?.evidence === "string" ? args.evidence : ""
+          await deps.aliasStore.add(found.workflowId, entry);
+          record({
+            kind: "add",
+            session: sessionId,
+            workflow_id: found.workflowId,
+            name: entry.name,
+            trace,
+            base_tool: entry.base_tool,
+            version: entry.version,
+            decision: "allow",
+            state,
+            args: summarizeArgs({ fixed_args: fixedArgs }),
+            ms: Date.now() - startedAt
           });
-          return { items };
-        });
-      }
-    }, { when: whenWorkflow }));
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: "workflow_verify_report",
-      description: 'Submit a verification report for ONE of the seven \u9A8C\u6536\u9879 in the \u300C\u9A8C\u6536\u4E2D\u300D stage. The report must carry evidence anchors (file paths inside the workflow working directory, optional line numbers) \u2014 the program checks they exist, then sets the mark: result "pass" \u2192 \u2713, result "deferred" (found a problem but decided not to fix it this round) \u2192 \uFF1F. A deferred report REQUIRES findings (location / problem / why_not_fixed / impact). Without a report an item can never leave \u25CB. Every entry into \u300C\u9A8C\u6536\u4E2D\u300D starts a new round: old reports expire automatically, so re-verification must re-report. Not available outside \u300C\u9A8C\u6536\u4E2D\u300D.',
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["item", "result", "summary", "anchors"],
-        properties: {
-          item: { type: "string", description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0\uFF08\u4F8B\uFF1A3 \u6216\u300C\u6B7B\u4EE3\u7801\u626B\u63CF\u300D\uFF09" },
-          result: { type: "string", enum: ["pass", "deferred"], description: "pass = \u901A\u8FC7\uFF1Bdeferred = \u67E5\u51FA\u95EE\u9898\u4F46\u672C\u8F6E\u4E0D\u4FEE\uFF08\u8BB0 \uFF1F\uFF09" },
-          summary: { type: "string", description: "\u7ED3\u8BBA\u6458\u8981\uFF1A\u505A\u4E86\u4EC0\u4E48\u3001\u770B\u5230\u4EC0\u4E48\u7ED3\u679C\u3002" },
-          anchors: {
-            type: "array",
-            description: "\u8BC1\u636E\u951A\u70B9\uFF0C\u81F3\u5C11\u4E00\u6761\uFF1B\u6587\u4EF6\u5FC5\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\u3002",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["file"],
-              properties: {
-                file: { type: "string", description: "\u5DE5\u4F5C\u76EE\u5F55\u5185\u7684\u76F8\u5BF9\u8DEF\u5F84" },
-                line: { type: "number", description: "\u53EF\u9009\u884C\u53F7\uFF1B\u7A0B\u5E8F\u4F1A\u6838\u5BF9\u5B83\u4E0D\u8D85\u8FC7\u6587\u4EF6\u884C\u6570" }
-              }
-            }
-          },
-          command: { type: "string", description: "\u590D\u8DD1\u547D\u4EE4\uFF1B\u5951\u7EA6\u6D4B\u8BD5 / \u8FB9\u754C\u6D4B\u8BD5 / \u56DE\u5F52\u538B\u6D4B\u4E09\u9879\u5FC5\u586B\u3002" },
-          findings: {
-            type: "array",
-            description: "deferred \u65F6\u5FC5\u586B\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48\u3002",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["location", "problem", "why_not_fixed", "impact"],
-              properties: {
-                location: { type: "string" },
-                problem: { type: "string" },
-                why_not_fixed: { type: "string" },
-                impact: { type: "string" }
-              }
-            }
-          }
-        }
-      },
-      output: {
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["item", "progress"],
-          properties: {
-            item: {
-              type: "object",
-              additionalProperties: false,
-              required: ["id", "name", "mark"],
-              properties: {
-                id: { type: "number" },
-                name: { type: "string" },
-                mark: { type: "string" }
-              }
-            },
-            progress: {
-              type: "object",
-              additionalProperties: false,
-              required: ["pass", "deferred", "pending", "total"],
-              properties: {
-                pass: { type: "number" },
-                deferred: { type: "number" },
-                pending: { type: "number" },
-                total: { type: "number" }
-              }
-            }
-          }
-        },
-        render: (_args, value) => [
-          {
-            type: "text",
-            text: `\u9A8C\u6536\u9879 ${value.item.id} ${value.item.name} \u2192 ${verifyMarkSymbol(value.item.mark)}\uFF08\u901A\u8FC7 ${value.progress.pass} / \u95EE\u8BE2 ${value.progress.deferred} / \u5F85\u5904\u7406 ${value.progress.pending}\uFF09`
-          }
-        ]
-      },
-      execute: async (args, exec) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument("workflow_verify_report", sessionId, async () => {
-          const found = await requireVerifyingNode(deps, sessionId);
-          const itemId = resolveVerifyCheckId(args?.item);
-          const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
-          if (check === void 0) throw new Error(`\u6CA1\u6709 ${itemId} \u53F7\u9A8C\u6536\u9879`);
-          const report = validateVerifyReportInput(check, args);
-          const { state } = await deps.repository.submitVerifyReport({
-            workflowId: found.workflowId,
-            nodeId: found.nodeId,
-            itemId,
-            report
-          });
-          const progress = summarizeVerification(state);
-          const item = state.items.find((entry) => entry.id === itemId);
-          logEvent(
-            ctx.logger,
-            "info",
-            `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? "pending"}, round=${state.round}, pending=${progress.pending})`
-          );
-          deps.notify?.(sessionId, "verify");
+          await deps.stateContext?.refreshNow?.(sessionId);
+          const required = validation.parameters.required ?? [];
           return {
-            item: { id: itemId, name: check.name, mark: item?.mark ?? "pending" },
-            progress: {
-              pass: progress.pass,
-              deferred: progress.deferred,
-              pending: progress.pending,
-              total: progress.total
-            }
-          };
-        });
-      }
-    }, { when: whenWorkflow }));
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: "workflow_verify_check",
-      description: "Uncheck ONE item of the \u9A8C\u6536\u4E03\u9879 checklist (done=false only). AI has no permission to check an item directly: a mark can only be produced by workflow_verify_report. done=true is always rejected \u2014 if the item needs to be re-marked, submit a new report. Not available outside \u300C\u9A8C\u6536\u4E2D\u300D.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["item", "done"],
-        properties: {
-          item: { type: "string", description: "\u9A8C\u6536\u9879\uFF1Aid 1-7 \u6216\u540D\u79F0" },
-          done: { type: "boolean", description: "\u53EA\u80FD\u662F false\uFF08\u53D6\u6D88\u52FE\uFF09\u3002\u4F20 true \u4F1A\u88AB\u62D2\u3002" }
-        }
-      },
-      output: {
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["item", "progress"],
-          properties: {
-            item: {
-              type: "object",
-              additionalProperties: false,
-              required: ["id", "mark"],
-              properties: {
-                id: { type: "number" },
-                mark: { type: "string" }
-              }
-            },
-            progress: {
-              type: "object",
-              additionalProperties: false,
-              required: ["pass", "deferred", "pending", "total"],
-              properties: {
-                pass: { type: "number" },
-                deferred: { type: "number" },
-                pending: { type: "number" },
-                total: { type: "number" }
-              }
-            }
-          }
-        },
-        render: (_args, value) => [
-          { type: "text", text: `\u9A8C\u6536\u9879 ${value.item.id} \u5DF2\u53D6\u6D88\uFF08\u73B0\u4E3A ${verifyMarkSymbol(value.item.mark)}\uFF09` }
-        ]
-      },
-      execute: async (args, exec) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument("workflow_verify_check", sessionId, async () => {
-          if (args?.done !== false) {
-            throw new Error("AI \u4E0D\u80FD\u76F4\u63A5\u6253\u9A8C\u6536\u52FE\uFF1A\u5148\u8C03\u7528 workflow_verify_report \u63D0\u4EA4\u62A5\u5907\uFF0C\u6807\u8BB0\u7531\u62A5\u5907\u843D\u3002\u53D6\u6D88\u52FE\u8BF7\u4F20 done=false\u3002");
-          }
-          const found = await requireVerifyingNode(deps, sessionId);
-          const itemId = resolveVerifyCheckId(args?.item);
-          const { state, item } = await deps.repository.cancelVerifyMark({
-            workflowId: found.workflowId,
-            nodeId: found.nodeId,
-            itemId
-          });
-          const progress = summarizeVerification(state);
-          logEvent(
-            ctx.logger,
-            "info",
-            `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`
-          );
-          deps.notify?.(sessionId, "verify");
-          return {
-            item: { id: itemId, mark: item.mark },
-            progress: {
-              pass: progress.pass,
-              deferred: progress.deferred,
-              pending: progress.pending,
-              total: progress.total
-            }
+            ok: true,
+            entry: { name: entry.name, base_tool: entry.base_tool, allowed_states: entry.allowed_states, version: entry.version },
+            message: `\u5DF2\u767B\u8BB0\u300C${entry.name}\u300D\u2192 ${entry.base_tool}\uFF1B\u8C03\u7528\u65F6\u5FC5\u586B\uFF1A${required.length > 0 ? required.join(",") : "\u65E0"}\u3002`
           };
         });
       }
     }, { when: whenWorkflow }));
   });
+}
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+async function loadCatalog(deps, workflowId) {
+  const listing = await deps.aliasStore.list(workflowId);
+  if (listing.corrupt) {
+    logEvent(deps.logger, "warn", `[workflow] alias store corrupt (workflow=${workflowId})\uFF1A\u522B\u540D\u4E0D\u53EF\u7528\uFF0C\u57FA\u7840\u5DE5\u5177\u4E0D\u53D7\u5F71\u54CD`);
+  }
+  return mergeCatalog(BASE_TOOLS, listing.aliases);
+}
+async function currentStateOf(deps, sessionId) {
+  let state = deps.getState(sessionId);
+  if (state === void 0) {
+    await deps.refreshState?.(sessionId);
+    state = deps.getState(sessionId);
+  }
+  if (state === void 0) {
+    throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09\u3002\u5DF2\u89E6\u53D1\u540C\u6B65\uFF0C\u8BF7\u91CD\u8BD5\u4E00\u6B21\u3002");
+  }
+  return state;
+}
+async function invokeBaseTool(deps, baseTool, args, sessionId) {
+  switch (baseTool) {
+    case "workflow_advance":
+      return invokeAdvance(deps, sessionId, args);
+    case "workflow_manual":
+      return invokeManual(deps, sessionId, args);
+    case "workflow_check":
+      return invokeCheck(deps, sessionId, args);
+    case "workflow_verify_report":
+      return invokeVerifyReport(deps, sessionId, args);
+    case "workflow_verify_check":
+      return invokeVerifyCheck(deps, sessionId, args);
+    default:
+      throw new Error(`\u672A\u77E5\u7684\u57FA\u7840\u5DE5\u5177\uFF1A${baseTool}`);
+  }
+}
+async function invokeAdvance(deps, sessionId, args) {
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
+  const from = String(found.current_state);
+  const to = String(args?.to ?? "");
+  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new Error(`\u4E0D\u80FD\u4ECE\u300C${labelOf(from)}\u300D\u76F4\u63A5\u5230\u300C${labelOf(to)}\u300D\uFF1B\u5F53\u524D\u53EF\u53BB\uFF1A${allowed.map(labelOf).join(" / ")}`);
+  }
+  const backward = STATE_ORDER.indexOf(to) < STATE_ORDER.indexOf(from);
+  if (backward && (typeof args?.reason !== "string" || args.reason.trim() === "")) {
+    throw new Error("\u8FD4\u5DE5\u9700\u8981 reason\uFF1A\u8BF4\u660E\u4E0A\u4E00\u9636\u6BB5\u54EA\u91CC\u4E0D\u591F");
+  }
+  await assertAdvanceAllowed(deps.repository, found, from, to);
+  deps.requestAdvance({ sessionId, to, ...typeof args?.reason === "string" ? { reason: args.reason } : {} });
+  logEvent(deps.logger, "info", `[workflow] advance requested (session=${sessionId}, ${from}\u2192${to}${backward ? ", rework" : ""})`);
+  return {
+    requested: to,
+    status: "awaiting-approval",
+    message: `\u5DF2\u8BF7\u6C42\u4ECE\u300C${labelOf(from)}\u300D\u5207\u6362\u5230\u300C${labelOf(to)}\u300D\uFF0C\u7B49\u5F85\u7528\u6237\u5728\u4F1A\u8BDD\u91CC\u786E\u8BA4\uFF1B\u540C\u610F\u4E4B\u524D\u72B6\u6001\u4E0D\u4F1A\u53D8\u3002`
+  };
+}
+async function invokeManual(deps, sessionId, args) {
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
+  const target = String(args?.target ?? "");
+  if (target !== "session" && target !== "project") throw new Error("target \u53EA\u80FD\u662F session \u6216 project");
+  const action = String(args?.action ?? "");
+  const nodeId = target === "session" ? found.nodeId : null;
+  if (action === "read") {
+    const text = await deps.repository.readManual(found.workflowId, nodeId);
+    return { ok: true, text };
+  }
+  if (action === "append_entry" || action === "update_entry" || action === "remove_entry" || action === "rename_tag") {
+    if (target !== "project") {
+      throw new Error("\u6761\u76EE\u7EA7\u5199\u5165\u53EA\u5BF9\u9879\u76EE\u624B\u518C\uFF08target=project\uFF09\u53EF\u7528\uFF1B\u4F1A\u8BDD\u624B\u518C\u7528 replace_section \u5199\u65B9\u6848");
+    }
+    const section2 = String(args?.section ?? "").trim();
+    const tags = Array.isArray(args?.tags) ? args.tags.map((tag) => String(tag)) : [];
+    const entry = String(args?.entry ?? "").trim();
+    try {
+      if (action === "append_entry") {
+        const written = await deps.repository.appendProjectEntry({
+          workflowId: found.workflowId,
+          section: section2,
+          tags,
+          content: String(args?.content ?? "")
+        });
+        logEvent(deps.logger, "info", `[workflow] manual entry appended (session=${sessionId}, section=${section2}, table=${written.tags.length}, registered=${written.registered.length})`);
+        return { ok: true, section: section2, entry: written.entry, tags: written.tags, registered: written.registered };
+      }
+      if (action === "update_entry") {
+        const written = await deps.repository.updateProjectEntry({
+          workflowId: found.workflowId,
+          section: section2,
+          entry,
+          tags,
+          content: String(args?.content ?? "")
+        });
+        logEvent(deps.logger, "info", `[workflow] manual entry updated (session=${sessionId}, section=${section2}, tags=${written.tags.length})`);
+        return { ok: true, section: section2, entry: written.entry, tags: written.tags };
+      }
+      if (action === "remove_entry") {
+        const removed = await deps.repository.removeProjectEntry({ workflowId: found.workflowId, section: section2, entry });
+        logEvent(deps.logger, "info", `[workflow] manual entry removed (session=${sessionId}, section=${section2})`);
+        return { ok: true, section: section2, removed: removed.removed };
+      }
+      const from = String(args?.from ?? "");
+      const to = String(args?.to ?? "");
+      const renamed = await deps.repository.renameProjectTag({ workflowId: found.workflowId, from, to });
+      logEvent(deps.logger, "info", `[workflow] manual tag renamed (session=${sessionId}, from=${from}, to=${to}, rewritten=${renamed.rewritten}, table=${renamed.tags.length})`);
+      return { ok: true, tags: renamed.tags, rewritten: renamed.rewritten };
+    } catch (error) {
+      logEvent(
+        deps.logger,
+        "warn",
+        `[workflow] manual entry rejected (session=${sessionId}, action=${action}, section=${section2}): ${String(error?.message ?? error)}`
+      );
+      throw error;
+    }
+  }
+  if (action !== "replace_section") {
+    throw new Error("action \u53EA\u80FD\u662F read / replace_section / append_entry / update_entry / remove_entry / rename_tag");
+  }
+  const section = String(args?.section ?? "").trim();
+  const writable = WRITABLE_SECTIONS[target];
+  if (!writable.includes(section)) {
+    throw new Error(`\u300C${target}\u300D\u624B\u518C\u53EA\u80FD\u6539\u8FD9\u4E9B\u5C0F\u8282\uFF1A${writable.join(" / ")}\uFF1B${section === "\u5B9E\u65BD\u987A\u5E8F" ? "\u6E05\u5355\u8BF7\u7528 workflow_check \u52FE\u9009\u3002" : ""}`);
+  }
+  if (typeof args?.content !== "string" || args.content.trim() === "") throw new Error("content \u4E0D\u80FD\u4E3A\u7A7A");
+  if (target === "session" && section === "\u5B9E\u65BD\u987A\u5E8F") {
+    if (deps.getState(sessionId) === void 0) await deps.refreshState?.(sessionId);
+    const state = deps.getState(sessionId);
+    if (state === void 0) {
+      throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09\uFF1A\u5148\u8BA9\u5BBF\u4E3B\u5B8C\u6210\u8BA4\u9886\uFF0C\u518D\u5B9A\u4E49\u5B9E\u65BD\u987A\u5E8F\u3002");
+    }
+    if (state !== "discussing") {
+      throw new Error("\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u53EA\u80FD\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u5B9A\u4E49\uFF1B\u8FDB\u5165\u5B9E\u73B0\u4E2D\u4E4B\u540E\u8BF7\u7528 workflow_check \u9010\u6761\u52FE\u9009\uFF0C\u4E0D\u8981\u6539\u5199\u6761\u76EE\u3002");
+    }
+  }
+  let result;
+  try {
+    result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
+  } catch (error) {
+    if (error?.code === "manual-limit") {
+      logEvent(
+        deps.logger,
+        "warn",
+        `[workflow] manual gate rejected (session=${sessionId}, target=${target}, section=${section}): ${String(error?.message ?? error)}`
+      );
+    }
+    throw error;
+  }
+  logEvent(deps.logger, "info", `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
+  return { ok: true, bytes: result.bytes, section };
+}
+async function invokeCheck(deps, sessionId, args) {
+  const state = deps.getState(sessionId);
+  if (state === void 0) await deps.refreshState?.(sessionId);
+  const stateNow = deps.getState(sessionId);
+  if (stateNow === "discussing") throw new Error("\u300C\u8BA8\u8BBA\u4E2D\u300D\u8FD8\u4E0D\u52FE\u6E05\u5355\uFF1A\u5148\u628A\u65B9\u6848\u5199\u8FDB\u4F1A\u8BDD\u624B\u518C\uFF0C\u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\u518D\u52FE\u3002");
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
+  const label = String(args?.item ?? "").trim();
+  if (label === "") throw new Error("item \u4E0D\u80FD\u4E3A\u7A7A");
+  const items = await deps.repository.setChecklistItem({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    label,
+    done: args?.done === true,
+    evidence: typeof args?.evidence === "string" ? args.evidence : ""
+  });
+  return { items };
+}
+async function invokeVerifyReport(deps, sessionId, args) {
+  const found = await requireVerifyingNode(deps, sessionId);
+  const itemId = resolveVerifyCheckId(args?.item);
+  const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
+  if (check === void 0) throw new Error(`\u6CA1\u6709 ${itemId} \u53F7\u9A8C\u6536\u9879`);
+  const report = validateVerifyReportInput(check, args);
+  const { state } = await deps.repository.submitVerifyReport({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    itemId,
+    report
+  });
+  const progress = summarizeVerification(state);
+  const item = state.items.find((entry) => entry.id === itemId);
+  logEvent(
+    deps.logger,
+    "info",
+    `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? "pending"}, round=${state.round}, pending=${progress.pending})`
+  );
+  deps.notify?.(sessionId, "verify");
+  return {
+    item: { id: itemId, name: check.name, mark: item?.mark ?? "pending" },
+    progress: {
+      pass: progress.pass,
+      deferred: progress.deferred,
+      pending: progress.pending,
+      total: progress.total
+    }
+  };
+}
+async function invokeVerifyCheck(deps, sessionId, args) {
+  if (args?.done !== false) {
+    throw new Error("AI \u4E0D\u80FD\u76F4\u63A5\u6253\u9A8C\u6536\u52FE\uFF1A\u5148\u8C03\u7528 workflow_verify_report \u63D0\u4EA4\u62A5\u5907\uFF0C\u6807\u8BB0\u7531\u62A5\u5907\u843D\u3002\u53D6\u6D88\u52FE\u8BF7\u4F20 done=false\u3002");
+  }
+  const found = await requireVerifyingNode(deps, sessionId);
+  const itemId = resolveVerifyCheckId(args?.item);
+  const { state, item } = await deps.repository.cancelVerifyMark({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    itemId
+  });
+  const progress = summarizeVerification(state);
+  logEvent(
+    deps.logger,
+    "info",
+    `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`
+  );
+  deps.notify?.(sessionId, "verify");
+  return {
+    item: { id: itemId, mark: item.mark },
+    progress: {
+      pass: progress.pass,
+      deferred: progress.deferred,
+      pending: progress.pending,
+      total: progress.total
+    }
+  };
 }
 function requireSession(deps, exec) {
   const sessionId = exec?.agent?.session?.id;
@@ -2857,7 +3273,7 @@ async function assertAdvanceAllowed(repository, found, from, to) {
     const meta = await repository.getManualMeta(found.workflowId, found.nodeId);
     if (meta === null || meta.hasPlan !== true) {
       throw new Error(
-        '\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u8FD8\u662F\u7A7A\u7684\uFF1A\u5148\u7528 workflow_manual({ target: "session", action: "replace_section", section: "\u65B9\u6848", content: "..." }) \u5199\u5165\u65B9\u6848\uFF0C\u518D\u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\u3002'
+        '\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u8FD8\u662F\u7A7A\u7684\uFF1A\u5148\u7528 workflow_tool_call({ name: "workflow_manual", args: { target: "session", action: "replace_section", section: "\u65B9\u6848", content: "..." } }) \u5199\u5165\u65B9\u6848\uFF0C\u518D\u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\u3002'
       );
     }
   }
@@ -2922,6 +3338,120 @@ async function ensureClaimedSessionNode(deps, sessionId, trigger) {
   }
 }
 
+// src/host/tool-alias-store.ts
+import { promises as fs3 } from "node:fs";
+import { join as join3 } from "node:path";
+var FILE_VERSION = 1;
+function emptyFile() {
+  return { version: FILE_VERSION, byWorkflow: {} };
+}
+function isPlainObject2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function normalizeEntry(raw) {
+  if (!isPlainObject2(raw)) return null;
+  const toolId = typeof raw.tool_id === "string" ? raw.tool_id : "";
+  const name = typeof raw.name === "string" ? raw.name : "";
+  const description = typeof raw.description === "string" ? raw.description : "";
+  const baseTool = typeof raw.base_tool === "string" ? raw.base_tool : "";
+  const createdAt = typeof raw.created_at === "string" ? raw.created_at : "";
+  const version = typeof raw.version === "number" ? raw.version : 0;
+  const fixedArgs = isPlainObject2(raw.fixed_args) ? raw.fixed_args : {};
+  const states = Array.isArray(raw.allowed_states) ? raw.allowed_states.filter((state) => typeof state === "string" && ALL_STATES.includes(state)) : [];
+  if (toolId === "" || name === "" || description === "" || baseTool === "" || createdAt === "" || version <= 0) return null;
+  return {
+    tool_id: toolId,
+    name,
+    description,
+    base_tool: baseTool,
+    fixed_args: fixedArgs,
+    allowed_states: states,
+    created_at: createdAt,
+    version
+  };
+}
+function normalizeFile(raw) {
+  if (!isPlainObject2(raw) || !isPlainObject2(raw.byWorkflow)) return { file: emptyFile(), corrupt: true };
+  let corrupt = raw.version !== FILE_VERSION;
+  const byWorkflow = {};
+  for (const [workflowId, value] of Object.entries(raw.byWorkflow)) {
+    if (!Array.isArray(value)) {
+      corrupt = true;
+      continue;
+    }
+    const entries2 = [];
+    for (const item of value) {
+      const entry = normalizeEntry(item);
+      if (entry === null) corrupt = true;
+      else entries2.push(entry);
+    }
+    byWorkflow[workflowId] = entries2;
+  }
+  return { file: { version: FILE_VERSION, byWorkflow }, corrupt };
+}
+var ToolAliasStore = class {
+  constructor(baseDir) {
+    this.baseDir = baseDir;
+  }
+  /** 同一文件的读改写串行：并发 apply 不会互相覆盖。 */
+  chain = Promise.resolve();
+  filePath() {
+    return join3(this.baseDir, "tool-aliases.json");
+  }
+  serial(task) {
+    const run = this.chain.then(task, task);
+    this.chain = run.then(() => void 0, () => void 0);
+    return run;
+  }
+  async readFile() {
+    try {
+      const raw = JSON.parse(await fs3.readFile(this.filePath(), "utf8"));
+      return normalizeFile(raw);
+    } catch (error) {
+      if (error?.code === "ENOENT") return { file: emptyFile(), corrupt: false };
+      return { file: emptyFile(), corrupt: true };
+    }
+  }
+  async list(workflowId) {
+    const { file, corrupt } = await this.readFile();
+    return { aliases: file.byWorkflow[workflowId] ?? [], corrupt };
+  }
+  async add(workflowId, entry) {
+    return this.serial(async () => {
+      const { file } = await this.readFile();
+      const current = file.byWorkflow[workflowId] ?? [];
+      const next = [...current, entry];
+      const nextFile = {
+        version: FILE_VERSION,
+        byWorkflow: { ...file.byWorkflow, [workflowId]: next }
+      };
+      await fs3.mkdir(this.baseDir, { recursive: true });
+      const target = this.filePath();
+      const tmp = `${target}.tmp`;
+      await fs3.writeFile(tmp, JSON.stringify(nextFile, null, 2), "utf8");
+      await fs3.rename(tmp, target);
+      return next;
+    });
+  }
+  async snapshot() {
+    const { file, corrupt } = await this.readFile();
+    return { byWorkflow: file.byWorkflow, corrupt };
+  }
+};
+
+// src/host/tool-ledger.ts
+var MAX_EVENTS2 = 100;
+var entries = [];
+function recordToolEvent(input) {
+  const entry = { at: (/* @__PURE__ */ new Date()).toISOString(), ...input };
+  entries.push(entry);
+  if (entries.length > MAX_EVENTS2) entries.splice(0, entries.length - MAX_EVENTS2);
+}
+function recentToolEvents(limit = 50) {
+  const n = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), MAX_EVENTS2) : 50;
+  return entries.slice(-n);
+}
+
 // src/engine/plan-sections.ts
 var SECTION_HEADING = /^###\s+(\d+)\.\s*(.+?)\s*$/;
 var HINT_BLOCK = /<!--([\s\S]*?)-->/;
@@ -2954,8 +3484,8 @@ function plan_sections_from_template(template) {
 var inject = [];
 function resolveDataDir() {
   const profileDir = process.env.DSH_PROFILE_DIR;
-  const base = profileDir && profileDir.trim() !== "" ? profileDir : join3(homedir(), ".dsh");
-  return join3(base, "dsh-agent-workflow");
+  const base = profileDir && profileDir.trim() !== "" ? profileDir : join4(homedir(), ".dsh");
+  return join4(base, "dsh-agent-workflow");
 }
 function isLoopbackRequest(req) {
   try {
@@ -3153,7 +3683,13 @@ function apply(ctx) {
     }
     return presetSessions.has(sessionId);
   };
-  const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession);
+  const aliasStore = new ToolAliasStore(resolveDataDir());
+  const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession, {
+    catalogTextOf: async (workflowId) => {
+      const listing = await aliasStore.list(workflowId);
+      return renderCatalogText(mergeCatalog(BASE_TOOLS, listing.aliases));
+    }
+  });
   const workflowPresetNow = (sessionId) => {
     try {
       const registry = ctx.get("agentPresets");
@@ -3202,6 +3738,8 @@ function apply(ctx) {
   const toolsDeps = {
     repository,
     stateContext,
+    aliasStore,
+    recordToolEvent,
     isPresetSession,
     getState: (sessionId) => sessionState.get(sessionId),
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
@@ -3413,7 +3951,7 @@ function apply(ctx) {
       path: "/dsh-agent-workflow/profiles-export",
       handler: makeHandler(ctx, repository, "POST", async (_body, _query, traceId) => {
         const exported = await repository.exportActiveProfile();
-        spawn("explorer.exe", [join3(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
+        spawn("explorer.exe", [join4(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] profiles-export ok (name=${exported.name})`, traceId);
         return exported;
       })
@@ -3529,6 +4067,34 @@ function apply(ctx) {
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const rawLimit = Number(query.get("limit") ?? "100");
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/tools",
+      handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
+        const startedAt = Date.now();
+        const snapshot = await aliasStore.snapshot();
+        const aliasCount = Object.values(snapshot.byWorkflow).reduce((sum, items) => sum + items.length, 0);
+        logEvent(
+          ctx.logger,
+          "info",
+          `[workflow] tools ok (base=${BASE_TOOLS.length}, aliases=${aliasCount}, corrupt=${String(snapshot.corrupt)}, ${Date.now() - startedAt}ms)`,
+          traceId
+        );
+        return {
+          base: BASE_TOOLS.map((entry) => ({
+            name: entry.name,
+            summary: entry.summary,
+            description: entry.description,
+            allowed_states: entry.allowed_states,
+            side_effect: entry.side_effect,
+            parameters: entry.parameters
+          })),
+          aliases: snapshot.byWorkflow,
+          corrupt: snapshot.corrupt,
+          events: recentToolEvents(50)
+        };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({

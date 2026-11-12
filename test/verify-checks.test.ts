@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowTools } from '../src/host/workflow-tools';
+import { ToolAliasStore } from '../src/host/tool-alias-store';
+import { recordToolEvent } from '../src/host/tool-ledger';
 import {
   assertAnchorPathShape,
   resolveVerifyCheckId,
@@ -31,6 +33,9 @@ function makeRuntime(repository: WorkflowRepository, stateRef: { value: string |
   };
   registerWorkflowTools(ctx as any, {
     repository,
+    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-verify-alias-unused')),
+    recordToolEvent,
+    stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,
     getState: () => stateRef.value,
     refreshState: async () => {},
@@ -40,7 +45,14 @@ function makeRuntime(repository: WorkflowRepository, stateRef: { value: string |
     pendingAdvanceOf: () => null,
     clearPendingAdvance: () => {},
   } as any);
-  return { tool: (name: string) => tools.get(name), requests };
+  // 五个基础工具现在只能经网关调用：这里给测试保留「按名字执行」的薄壳。
+  const gateway = tools.get('workflow_tool_call');
+  return {
+    tool: (name: string) => ({
+      execute: (args: any, execArg: any) => gateway.execute({ name, args }, execArg),
+    }),
+    requests,
+  };
 }
 
 const exec = { agent: { session: { id: SESSION } } } as any;
@@ -198,8 +210,8 @@ describe('验收七项：规则与门禁', () => {
         anchors: [{ file: 'evidence.md', line: 1 }],
         command: 'node test.mjs',
       }, exec);
-      expect(value.item).toMatchObject({ id: 1, mark: 'pass' });
-      expect(value.progress.pending).toBe(6);
+      expect(value.value.item).toMatchObject({ id: 1, mark: 'pass' });
+      expect(value.value.progress.pending).toBe(6);
       expect(node.nodeId).toBeTruthy();
     });
 
@@ -216,7 +228,7 @@ describe('验收七项：规则与门禁', () => {
         report: { result: 'pass', summary: '通过', anchors: [{ file: 'evidence.md' }] },
       });
       const value = await tool('workflow_verify_check').execute({ item: 1, done: false }, exec);
-      expect(value.item.mark).toBe('pending');
+      expect(value.value.item.mark).toBe('pending');
     });
 
     it('不在「验收中」时拒绝报备', async () => {
@@ -225,7 +237,7 @@ describe('验收七项：规则与门禁', () => {
       const { tool } = makeRuntime(repo, stateRef);
       await expect(tool('workflow_verify_report').execute({
         item: 1, result: 'pass', summary: 'x', anchors: [{ file: 'evidence.md' }], command: 'node x',
-      }, exec)).rejects.toThrow(/只能在「验收中」/);
+      }, exec)).rejects.toThrow(/不允许调用|只能在「验收中」/);
     });
 
     it('七项没处理完不能进「已完结」，全处理后放行', async () => {
@@ -237,7 +249,7 @@ describe('验收七项：规则与门禁', () => {
 
       await reportAll(node.workflowId, node.nodeId);
       const value = await tool('workflow_advance').execute({ to: 'completed' }, exec);
-      expect(value.requested).toBe('completed');
+      expect(value.value.requested).toBe('completed');
       expect(requests[0]).toMatchObject({ sessionId: SESSION, to: 'completed' });
     });
   });

@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowTools } from '../src/host/workflow-tools';
+import { ToolAliasStore } from '../src/host/tool-alias-store';
 
 const SESSION = 'session-back-test';
+const EXEC = { agent: { session: { id: SESSION } } } as any;
 
-/** 只装 workflow_advance 的最小运行环境：记录工具定义与"请求推进"的入参。 */
+/** 最小运行环境：装网关，记下"请求推进"的入参；五个基础工具经 workflow_tool_call 调用。 */
 function makeToolRuntime(repository: WorkflowRepository) {
   const tools: any[] = [];
   const requests: Array<{ sessionId: string; to: string; reason?: string }> = [];
@@ -24,6 +26,9 @@ function makeToolRuntime(repository: WorkflowRepository) {
   };
   registerWorkflowTools(ctx as any, {
     repository,
+    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-back-alias-unused')),
+    recordToolEvent: () => {},
+    stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,
     getState: (sessionId: string) => (sessionId === SESSION ? 'completed' : undefined),
     refreshState: async () => {},
@@ -33,7 +38,11 @@ function makeToolRuntime(repository: WorkflowRepository) {
     pendingAdvanceOf: () => null,
     clearPendingAdvance: () => {},
   } as any);
-  return { advanceTool: tools.find((tool) => tool.name === 'workflow_advance'), requests };
+  const gateway = tools.find((tool) => tool.name === 'workflow_tool_call');
+  return {
+    advance: (args: any) => gateway.execute({ name: 'workflow_advance', args }, EXEC),
+    requests,
+  };
 }
 
 describe('状态迁移：已完结可以退回验收中 / 讨论中', () => {
@@ -62,42 +71,30 @@ describe('状态迁移：已完结可以退回验收中 / 讨论中', () => {
 
   it('已完结 → 验收中：允许，且不要求清单勾完', async () => {
     await seedAt('completed');
-    const { advanceTool, requests } = makeToolRuntime(repo);
+    const { advance, requests } = makeToolRuntime(repo);
     // 模板里的实施顺序是 4 条未勾选；退回验收中不该被"没勾完"挡住。
-    const value = await advanceTool.execute(
-      { to: 'verifying', reason: '验收漏了边界情况' },
-      { agent: { session: { id: SESSION } } },
-    );
-    expect(value.requested).toBe('verifying');
+    const value = await advance({ to: 'verifying', reason: '验收漏了边界情况' });
+    expect(value.value.requested).toBe('verifying');
     expect(requests[0]).toMatchObject({ sessionId: SESSION, to: 'verifying', reason: '验收漏了边界情况' });
   });
 
   it('已完结 → 讨论中：允许', async () => {
     await seedAt('completed');
-    const { advanceTool, requests } = makeToolRuntime(repo);
-    const value = await advanceTool.execute(
-      { to: 'discussing', reason: '方案方向要重定' },
-      { agent: { session: { id: SESSION } } },
-    );
-    expect(value.requested).toBe('discussing');
+    const { advance, requests } = makeToolRuntime(repo);
+    const value = await advance({ to: 'discussing', reason: '方案方向要重定' });
+    expect(value.value.requested).toBe('discussing');
     expect(requests[0]?.to).toBe('discussing');
   });
 
   it('正向 实现中 → 验收中：清单没勾完仍被拒', async () => {
     await seedAt('implementing');
-    const { advanceTool } = makeToolRuntime(repo);
-    await expect(advanceTool.execute(
-      { to: 'verifying' },
-      { agent: { session: { id: SESSION } } },
-    )).rejects.toThrow(/没勾完/);
+    const { advance } = makeToolRuntime(repo);
+    await expect(advance({ to: 'verifying' })).rejects.toThrow(/没勾完/);
   });
 
   it('返工不带 reason 被拒', async () => {
     await seedAt('completed');
-    const { advanceTool } = makeToolRuntime(repo);
-    await expect(advanceTool.execute(
-      { to: 'verifying' },
-      { agent: { session: { id: SESSION } } },
-    )).rejects.toThrow(/返工需要 reason/);
+    const { advance } = makeToolRuntime(repo);
+    await expect(advance({ to: 'verifying' })).rejects.toThrow(/返工需要 reason/);
   });
 });

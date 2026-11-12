@@ -1,20 +1,26 @@
 // @ts-nocheck
 /**
- * 工作流的硬机制：写操作门禁 + 三个模型专用工具。
+ * 工作流的硬机制：写操作门禁 + 工具网关（两个模型工具）。
  *
- * 为什么不是提示词：状态机是硬约束，文字约束不住模型。这里用 DSH 现成能力把约束做成机制：
- *   1) `tools.guard(fn)`：派发前执行，返回理由即拒绝，理由会作为错误结果回给模型；
- *   2) `tools.register(def, { when })`：只在工作流会话里出现，不污染标准模式。
+ * 为什么是网关：模型不再直接看到 5 个基础工具，只能：
+ *   1) `workflow_tool_call`：按目录里的名字调用，目录外 / 阶段不符 / 参数不符一律拒；
+ *   2) `workflow_tool_add`：把基础工具 + 固定参数登记成别名，只写目录、不执行。
  *
- * 策略（2026-11-11 定稿）：
- *   - 只有「讨论中」禁止改代码；实现中 / 验收中 / 已完结都放行。
- *   - 手册与勾选走专用工具，不经过 write，因此不受门禁影响。
+ * 判定全部走 engine/tool-policy 的纯函数；这里只做「取数据 → 判定 → 执行 → 记账」。
+ *
+ * 策略（2026-11-13 定稿）：
+ *   - 只有「讨论中」禁止宿主写工具；实现中 / 验收中 / 已完结放行。
+ *   - 手册与勾选走网关，不经过 write，因此不受门禁影响。
  *   - 「分步绝对」落在推进前置上：方案没写不能进实现中，清单没勾完不能进验收中。
  */
+import { randomUUID } from 'node:crypto';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
 import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
-import { logEvent } from './event-log';
+import { logEvent, newTraceId } from './event-log';
+import { BASE_TOOL_NAMES, BASE_TOOLS, type ToolAliasEntry, type ToolCatalogEntry } from '../schema/tool-catalog';
+import { decideToolCall, mergeArgs, mergeCatalog, summarizeArgs, validateAliasInput } from '../engine/tool-policy';
+import type { ToolLedgerInput } from './tool-ledger';
 
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
@@ -37,6 +43,15 @@ const WRITABLE_SECTIONS = {
 
 export interface WorkflowToolsDeps {
   repository: any;
+  /** 推进 / 报备后立刻重算系统提示（别名登记后目录也要跟着变）。 */
+  stateContext?: { refreshNow?: (sessionId: string) => Promise<string> };
+  /** 别名目录：按 workflow 分组持久化。 */
+  aliasStore: {
+    list: (workflowId: string) => Promise<{ aliases: ToolAliasEntry[]; corrupt: boolean }>;
+    add: (workflowId: string, entry: ToolAliasEntry) => Promise<ToolAliasEntry[]>;
+  };
+  /** 审计账：每次 tool.call / tool.add 一条。 */
+  recordToolEvent?: (entry: ToolLedgerInput) => void;
   isPresetSession: (sessionId: unknown) => boolean;
   getState: (sessionId: string) => string | undefined;
   /** 状态表缺条时补一次（异步、可读盘）；门禁与工具都靠它自愈。 */
@@ -51,7 +66,7 @@ export interface WorkflowToolsDeps {
    * 通知前端「这个会话变了」。
    *
    * 报备 / 撤勾都不改状态，但徽标上的 n/7 会变；不推的话聊过的会话没有轮询，
-   * 只能等页面刷新才看得到——验收时会被当成「没打勾」。
+   * 只能等页面刷新才看得见——验收时会被当成「没打勾」。
    */
   notify?: (sessionId: string, reason: string) => void;
 }
@@ -63,7 +78,7 @@ function labelOf(state: string): string {
 /** 拒绝理由：只有「讨论中」拦写操作。 */
 function denialFor(state: string, toolName: string): string | undefined {
   if (state !== 'discussing') return undefined;
-  return `当前状态是「讨论中」，不允许执行 ${toolName}：讨论阶段只出方案、不改代码。先调用 workflow_advance({ to: "implementing" }) 推进到「实现中」（需要先把方案写进会话手册），或请用户点状态胶囊的 →。`;
+  return `当前状态是「讨论中」，不允许执行 ${toolName}：讨论阶段只出方案、不改代码。先调用 workflow_tool_call({ name: "workflow_advance", args: { to: "implementing" } }) 推进到「实现中」（需要先把方案写进会话手册），或请用户点状态胶囊的 →。`;
 }
 
 /** 注册门禁：只在「讨论中」拦截写操作。 */
@@ -91,505 +106,478 @@ export function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void {
   });
 }
 
-/** 注册三个模型专用工具：推进 / 写手册 / 勾选清单。 */
+/**
+ * 注册两个模型工具：网关调用与别名申请。
+ *
+ * 两个工具都只在工作流会话里出现（`when`），不污染标准模式。
+ */
 export function registerWorkflowTools(ctx: any, deps: WorkflowToolsDeps): void {
   ctx.inject(['tools'], (toolCtx: any) => {
     const whenWorkflow = (context: any) => deps.isPresetSession(context?.agent?.session?.id);
 
-    /** 统一的工具埋点：成功/失败各一条，带耗时与会话，失败直接抛回模型。 */
-    const instrument = async (toolName: string, sessionId: string, run: () => Promise<any>): Promise<any> => {
+    /** 统一的工具埋点：成功/失败各一条，带 trace/耗时/会话，失败直接抛回模型。 */
+    const instrument = async (toolName: string, sessionId: string, trace: string, run: () => Promise<any>): Promise<any> => {
       const startedAt = Date.now();
       try {
         const value = await run();
-        logEvent(ctx.logger, 'info', `[workflow] tool ${toolName} ok (session=${sessionId}, ${Date.now() - startedAt}ms)`);
+        logEvent(ctx.logger, 'info', `[workflow] tool ${toolName} ok (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms)`);
         return value;
       } catch (error) {
         const message = String((error as Error)?.message ?? error);
-        logEvent(ctx.logger, 'warn', `[workflow] tool ${toolName} failed (session=${sessionId}, ${Date.now() - startedAt}ms): ${message}`);
+        logEvent(ctx.logger, 'warn', `[workflow] tool ${toolName} failed (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms): ${message}`);
         throw error;
       }
     };
 
-    // —— 1. 推进状态 ——
+    const record = (input: ToolLedgerInput): void => deps.recordToolEvent?.(input);
+
+    // —— 1. 调用目录里的工具（模型唯一的调用入口） ——
     toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_advance',
+      name: 'workflow_tool_call',
       description:
-        'Request a stage change for this workflow session. This tool does NOT change the stage: it validates the preconditions and leaves a request the user must approve in the session UI (a 同意 / 拒绝 control appears next to the state badge). Call it when the user agrees to move on: 讨论中→实现中 before writing any code (the session manual must contain a plan), 实现中→验收中 when every checklist item is checked. Only available in sessions using the workflow preset. When wrapping up (reaching 已完结 or ending a session), write the four takeaways into 项目手册 via workflow_manual: ① new or overturned decisions (决策记录) ② pitfalls as 现象 → 根因 → 防线 → 自查 (坑与防线) ③ write 「无」 if neither ④ whether the docs still match the implementation, and what you changed if not; then sync 会话手册 (方案 / 实施顺序).',
+        '调用工具目录里的工具：name 是目录里的工具名，args 是它的参数。目录在系统提示里（基础 5 个 + 本工作区登记的别名）。'
+        + '目录外名字、当前阶段不可用、参数不符、覆盖固定参数都会被拒，拒绝理由会原样返回；新增工具用 workflow_tool_add。',
       parameters: {
         type: 'object',
         additionalProperties: false,
-        required: ['to'],
+        required: ['name', 'args'],
         properties: {
-          to: {
-            type: 'string',
-            enum: ['discussing', 'implementing', 'verifying', 'completed'],
-            description: 'Requested stage. Forward = normal progression; backward = rework.',
-          },
-          reason: {
-            type: 'string',
-            description: 'Required when moving backward (rework): why the previous stage was insufficient.',
-          },
+          name: { type: 'string', description: '目录里的工具名（例：workflow_manual / workflow_verify_report / 别名）。' },
+          args: { type: 'object', description: '该工具的参数对象；按目录里的必填项与参数说明传。', additionalProperties: true },
         },
       },
       output: {
         schema: {
           type: 'object',
           additionalProperties: false,
-          required: ['requested', 'status', 'message'],
+          required: ['ok', 'name', 'base_tool', 'value'],
           properties: {
-            requested: { type: 'string' },
-            status: { type: 'string' },
+            ok: { type: 'boolean' },
+            name: { type: 'string' },
+            base_tool: { type: 'string' },
+            value: { type: 'object' },
+          },
+        },
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: `已调用 ${value.name}${value.value?.message ? `：${value.value.message}` : ''}`,
+        }],
+      },
+      execute: async (args: any, exec: any) => {
+        const sessionId = requireSession(deps, exec);
+        const trace = newTraceId();
+        return instrument('workflow_tool_call', sessionId, trace, async () => {
+          const found = await deps.repository.findBySession(sessionId);
+          if (found === null) throw new Error('当前会话还没有 workflow 节点');
+          const name = typeof args?.name === 'string' ? args.name : '';
+          const catalog = await loadCatalog(deps, found.workflowId);
+          const state = await currentStateOf(deps, sessionId);
+          const startedAt = Date.now();
+          const entry = catalog.find((item) => item.name === name);
+          if (entry === undefined) {
+            const message = `工具目录里没有「${name}」：只能调用目录里的工具；要新增请用 workflow_tool_add。`;
+            record({
+              kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+              decision: 'deny', code: 'unknown-tool', state, args: summarizeArgs(args?.args), message,
+            });
+            throw new Error(message);
+          }
+          const decision = decideToolCall({ state, entry, args: args?.args });
+          if (!decision.allow) {
+            record({
+              kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+              base_tool: entry.base_tool, version: entry.version, decision: 'deny', code: decision.code, state,
+              args: summarizeArgs(args?.args), message: decision.message,
+            });
+            throw new Error(decision.message);
+          }
+          const merged = mergeArgs(entry.fixed_args, args?.args);
+          let value: any;
+          try {
+            value = await invokeBaseTool(deps, entry.base_tool, merged, sessionId);
+          } catch (error) {
+            const message = String((error as Error)?.message ?? error);
+            record({
+              kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+              base_tool: entry.base_tool, version: entry.version, decision: 'error', code: 'execution-failed', state,
+              args: summarizeArgs(args?.args), ms: Date.now() - startedAt, message,
+            });
+            throw error;
+          }
+          record({
+            kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+            base_tool: entry.base_tool, version: entry.version, decision: 'allow', state,
+            args: summarizeArgs(args?.args), ms: Date.now() - startedAt,
+          });
+          return { ok: true, name: entry.name, base_tool: entry.base_tool, value };
+        });
+      },
+    }, { when: whenWorkflow }));
+
+    // —— 2. 申请登记一个别名（只写目录，不执行） ——
+    toolCtx.effect(() => toolCtx.tools.register({
+      name: 'workflow_tool_add',
+      description:
+        '登记一个新的工具别名（模型只有申请权，没有直接注册权）：只能把五个基础工具之一加上固定参数，不能挂别名（禁止链式）。'
+        + '登记时自动过四关：基础工具白名单、名字/描述/固定参数/阶段继承的静态校验、sample_args 参数校验、副作用继承；'
+        + '全过就写入本工作区目录、立即可用，不执行任何业务。只能在讨论中 / 实现中登记；验收中 / 已完结会被拒。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'description', 'base_tool', 'sample_args'],
+        properties: {
+          name: { type: 'string', description: '新工具名：3~41 位小写字母/数字/下划线，以字母开头（例：note_decision）。' },
+          description: { type: 'string', description: '一句话说明：做什么、什么时候用（≤200 字）。' },
+          base_tool: {
+            type: 'string',
+            enum: BASE_TOOL_NAMES,
+            description: '基础工具：别名只能在它们之上加固定参数。',
+          },
+          fixed_args: { type: 'object', description: '预置参数：调用时不能再传这些键。', additionalProperties: true },
+          allowed_states: {
+            type: 'array',
+            items: { type: 'string', enum: ['discussing', 'implementing', 'verifying', 'completed'] },
+            description: '可选：收窄可用阶段，必须是基础工具允许阶段的子集；不传则继承全部。',
+          },
+          sample_args: { type: 'object', description: '必填：一个能跑通的示例参数（不含固定参数），登记时用它校验参数形状。', additionalProperties: true },
+        },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['ok', 'entry', 'message'],
+          properties: {
+            ok: { type: 'boolean' },
+            entry: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['name', 'base_tool', 'allowed_states', 'version'],
+              properties: {
+                name: { type: 'string' },
+                base_tool: { type: 'string' },
+                allowed_states: { type: 'array', items: { type: 'string' } },
+                version: { type: 'number' },
+              },
+            },
             message: { type: 'string' },
           },
         },
-        render: (_args: any, value: any) => [
-          { type: 'text', text: `已请求切换到「${labelOf(value.requested)}」，等待用户确认。` },
-        ],
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: `已登记「${value.entry?.name ?? '?'}」→ ${value.entry?.base_tool ?? '?'}，现在可以通过 workflow_tool_call 调用。`,
+        }],
       },
       execute: async (args: any, exec: any) => {
         const sessionId = requireSession(deps, exec);
-        return instrument('workflow_advance', sessionId, async () => {
-        const found = await deps.repository.findBySession(sessionId);
-        if (found === null) throw new Error('当前会话还没有 workflow 节点');
-        const from = String(found.current_state);
-        const to = String(args?.to ?? '');
-        const allowed = ALLOWED_TRANSITIONS[from] ?? [];
-        if (!allowed.includes(to)) {
-          throw new Error(`不能从「${labelOf(from)}」直接到「${labelOf(to)}」；当前可去：${allowed.map(labelOf).join(' / ')}`);
-        }
-        const backward = STATE_ORDER.indexOf(to) < STATE_ORDER.indexOf(from);
-        if (backward && (typeof args?.reason !== 'string' || args.reason.trim() === '')) {
-          throw new Error('返工需要 reason：说明上一阶段哪里不够');
-        }
-        await assertAdvanceAllowed(deps.repository, found, from, to);
-        // 只登记请求，不改状态：切换由用户在界面上点「同意」完成。
-        deps.requestAdvance({ sessionId, to, ...(typeof args?.reason === 'string' ? { reason: args.reason } : {}) });
-        logEvent(ctx.logger, 'info', `[workflow] advance requested (session=${sessionId}, ${from}→${to}${backward ? ', rework' : ''})`);
-        return {
-          requested: to,
-          status: 'awaiting-approval',
-          message: `已请求从「${labelOf(from)}」切换到「${labelOf(to)}」，等待用户在会话里确认；同意之前状态不会变。`,
-        };
-        });
-      },
-    }, { when: whenWorkflow }));
-
-    // —— 2. 读写手册（会话手册 / 项目手册）——
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_manual',
-      description:
-        'Read or update this workflow session\'s manual. target=session edits 会话手册 (writable section: 方案); target=project edits 项目手册 (writable sections: 项目总览 / 决策记录 / 约束 / 坑与防线). Replaces one section body only — headings and other sections are preserved, and the 实施顺序 checklist cannot be edited here (use workflow_check). Section bodies are capped by character count (约束 300, 方案 1200, 会话手册整本 2000; checklist evidence 「｜ 自检：」 is not counted) — over-limit writes are rejected with current / limit / over numbers, so trim before retrying. Allowed in every stage.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['target', 'action'],
-        properties: {
-          target: { type: 'string', enum: ['session', 'project'], description: 'Which manual to touch.' },
-          action: {
-            type: 'string',
-            enum: ['read', 'replace_section', 'append_entry', 'update_entry', 'remove_entry', 'rename_tag'],
-            description: 'read returns text; replace_section rewrites a whole section (session 方案 / project 标签表); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it.',
-          },
-          section: { type: 'string', description: 'Section name (e.g. 方案 / 项目总览 / 决策记录 / 约束 / 坑与防线 / 标签表).' },
-          content: { type: 'string', description: 'Entry text (append_entry / update_entry) or new section body (replace_section).' },
-          tags: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Required for append_entry / update_entry: 1+ tags, each ≤12 chars, no brackets or ｜. Pick from the injected 标签表 (or a real file name in this project); unknown tags get registered automatically until the table is full.',
-          },
-          entry: { type: 'string', description: 'update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix).' },
-          from: { type: 'string', description: 'rename_tag: the tag to replace.' },
-          to: { type: 'string', description: 'rename_tag: the tag to keep. Use this to merge synonyms when 标签表 is full.' },
-        },
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['ok'],
-          properties: {
-            ok: { type: 'boolean' },
-            text: { type: 'string' },
-            bytes: { type: 'integer' },
-            section: { type: 'string' },
-            tags: { type: 'array', items: { type: 'string' } },
-            registered: { type: 'array', items: { type: 'string' } },
-            entry: { type: 'string' },
-            rewritten: { type: 'integer' },
-            removed: { type: 'string' },
-          },
-        },
-        render: (args: any, value: any) => {
-          if (args?.action === 'read') return [{ type: 'text', text: `手册共 ${value.text?.length ?? 0} 字` }];
-          if (args?.action === 'rename_tag') return [{ type: 'text', text: `已合并标签，改写 ${value.rewritten ?? 0} 条` }];
-          if (args?.action === 'remove_entry') return [{ type: 'text', text: '已删除一条' }];
-          if (args?.action === 'append_entry' || args?.action === 'update_entry') {
-            const registered = Array.isArray(value.registered) && value.registered.length > 0
-              ? `，新登记标签：${value.registered.join(' / ')}`
-              : '';
-            return [{ type: 'text', text: `已写入「${value.section}」一条${registered}` }];
+        const trace = newTraceId();
+        const startedAt = Date.now();
+        return instrument('workflow_tool_add', sessionId, trace, async () => {
+          const found = await deps.repository.findBySession(sessionId);
+          if (found === null) throw new Error('当前会话还没有 workflow 节点');
+          const state = await currentStateOf(deps, sessionId);
+          if (state !== 'discussing' && state !== 'implementing') {
+            const message = `当前状态「${labelOf(state)}」不能新增工具：工具变更会污染验收结论，等回到讨论中 / 实现中再登记。`;
+            record({
+              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: String(args?.name ?? ''), trace,
+              decision: 'deny', code: 'stage-denied', state, message,
+            });
+            throw new Error(message);
           }
-          return [{ type: 'text', text: `已更新「${value.section}」小节（${value.bytes} 字节）` }];
-        },
-      },
-      execute: async (args: any, exec: any) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument('workflow_manual', sessionId, async () => {
-        const found = await deps.repository.findBySession(sessionId);
-        if (found === null) throw new Error('当前会话还没有 workflow 节点');
-        const target = String(args?.target ?? '');
-        if (target !== 'session' && target !== 'project') throw new Error('target 只能是 session 或 project');
-        const action = String(args?.action ?? '');
-        const nodeId = target === 'session' ? found.nodeId : null;
-        if (action === 'read') {
-          const text = await deps.repository.readManual(found.workflowId, nodeId);
-          return { ok: true, text };
-        }
-        // —— 项目手册的条目级写口：一条一写，必须带标签 ——
-        if (action === 'append_entry' || action === 'update_entry' || action === 'remove_entry' || action === 'rename_tag') {
-          if (target !== 'project') {
-            throw new Error('条目级写入只对项目手册（target=project）可用；会话手册用 replace_section 写方案');
+          const listing = await deps.aliasStore.list(found.workflowId);
+          if (listing.corrupt) {
+            logEvent(deps.logger, 'warn', `[workflow] alias store corrupt (workflow=${found.workflowId})：别名不可用，基础工具不受影响`);
           }
-          const section = String(args?.section ?? '').trim();
-          const tags = Array.isArray(args?.tags) ? args.tags.map((tag: unknown) => String(tag)) : [];
-          const entry = String(args?.entry ?? '').trim();
-          try {
-            if (action === 'append_entry') {
-              const written = await deps.repository.appendProjectEntry({
-                workflowId: found.workflowId, section, tags, content: String(args?.content ?? ''),
-              });
-              logEvent(ctx.logger, 'info', `[workflow] manual entry appended (session=${sessionId}, section=${section}, table=${written.tags.length}, registered=${written.registered.length})`);
-              return { ok: true, section, entry: written.entry, tags: written.tags, registered: written.registered };
-            }
-            if (action === 'update_entry') {
-              const written = await deps.repository.updateProjectEntry({
-                workflowId: found.workflowId, section, entry, tags, content: String(args?.content ?? ''),
-              });
-              logEvent(ctx.logger, 'info', `[workflow] manual entry updated (session=${sessionId}, section=${section}, tags=${written.tags.length})`);
-              return { ok: true, section, entry: written.entry, tags: written.tags };
-            }
-            if (action === 'remove_entry') {
-              const removed = await deps.repository.removeProjectEntry({ workflowId: found.workflowId, section, entry });
-              logEvent(ctx.logger, 'info', `[workflow] manual entry removed (session=${sessionId}, section=${section})`);
-              return { ok: true, section, removed: removed.removed };
-            }
-            const from = String(args?.from ?? '');
-            const to = String(args?.to ?? '');
-            const renamed = await deps.repository.renameProjectTag({ workflowId: found.workflowId, from, to });
-            logEvent(ctx.logger, 'info', `[workflow] manual tag renamed (session=${sessionId}, from=${from}, to=${to}, rewritten=${renamed.rewritten}, table=${renamed.tags.length})`);
-            return { ok: true, tags: renamed.tags, rewritten: renamed.rewritten };
-          } catch (error) {
-            // 被标签规则拒（缺标签 / 表满 / 匹配不到）也是"正常拒绝"：单独记一条，别和程序错混在一起。
-            logEvent(
-              ctx.logger,
-              'warn',
-              `[workflow] manual entry rejected (session=${sessionId}, action=${action}, section=${section}): ${String((error as Error)?.message ?? error)}`,
-            );
-            throw error;
-          }
-        }
-        if (action !== 'replace_section') {
-          throw new Error('action 只能是 read / replace_section / append_entry / update_entry / remove_entry / rename_tag');
-        }
-        const section = String(args?.section ?? '').trim();
-        const writable = WRITABLE_SECTIONS[target];
-        if (!writable.includes(section)) {
-          throw new Error(`「${target}」手册只能改这些小节：${writable.join(' / ')}；${section === '实施顺序' ? '清单请用 workflow_check 勾选。' : ''}`);
-        }
-        if (typeof args?.content !== 'string' || args.content.trim() === '') throw new Error('content 不能为空');
-        // 「实施顺序」只在讨论中定义；进入实现中之后只能勾选，不能重排或改写条目。
-        if (target === 'session' && section === '实施顺序') {
-          // 状态表可能还没回填（认领早于绑节点）：先补一次，否则"讨论中"会被误判。
-          if (deps.getState(sessionId) === undefined) await deps.refreshState?.(sessionId);
-          const state = deps.getState(sessionId);
-          if (state === undefined) {
-            throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）：先让宿主完成认领，再定义实施顺序。');
-          }
-          if (state !== 'discussing') {
-            throw new Error('「实施顺序」只能在「讨论中」定义；进入实现中之后请用 workflow_check 逐条勾选，不要改写条目。');
-          }
-        }
-        let result: { bytes: number; section: string; chars: number };
-        try {
-          result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
-        } catch (error) {
-          // 被字数闸门拒是一种"正常的拒绝"，不是程序错：单独记一条，排查时不必去猜参数错还是超限。
-          if ((error as any)?.code === 'manual-limit') {
-            logEvent(
-              ctx.logger,
-              'warn',
-              `[workflow] manual gate rejected (session=${sessionId}, target=${target}, section=${section}): ${String((error as Error)?.message ?? error)}`,
-            );
-          }
-          throw error;
-        }
-        logEvent(ctx.logger, 'info', `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
-        return { ok: true, bytes: result.bytes, section };
-        });
-      },
-    }, { when: whenWorkflow }));
-
-    // —— 3. 勾选实施顺序 ——
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_check',
-      description:
-        'Check or uncheck ONE item in this workflow session\'s 实施顺序 checklist. The item text must match an existing line exactly — this tool never adds, rewords, or reorders items. Checking an item REQUIRES evidence: say how you verified this layer and what the result was; the evidence is written into the checklist line. Every item must be checked (with evidence) before the session can move to 验收中. Not available in 讨论中.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['item', 'done'],
-        properties: {
-          item: { type: 'string', description: 'Exact text of an existing checklist item.' },
-          done: { type: 'boolean', description: 'true = checked, false = unchecked.' },
-          evidence: { type: 'string', description: '勾选时必填：这一层怎么验的、结果是什么（自由文本，例：跑 node test.mjs，12 项全过）。取消勾选可省略。' },
-        },
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['items'],
-          properties: {
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['label', 'done'],
-                properties: {
-                  label: { type: 'string' },
-                  done: { type: 'boolean' },
-                },
-              },
-            },
-          },
-        },
-        render: (_args: any, value: any) => [
-          { type: 'text', text: `清单进度：${value.items.filter((item: any) => item.done).length}/${value.items.length}` },
-        ],
-      },
-      execute: async (args: any, exec: any) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument('workflow_check', sessionId, async () => {
-        const state = deps.getState(sessionId);
-        if (state === undefined) await deps.refreshState?.(sessionId);
-        const stateNow = deps.getState(sessionId);
-        if (stateNow === 'discussing') throw new Error('「讨论中」还不勾清单：先把方案写进会话手册，推进到「实现中」再勾。');
-        const found = await deps.repository.findBySession(sessionId);
-        if (found === null) throw new Error('当前会话还没有 workflow 节点');
-        const label = String(args?.item ?? '').trim();
-        if (label === '') throw new Error('item 不能为空');
-        const items = await deps.repository.setChecklistItem({
-          workflowId: found.workflowId,
-          nodeId: found.nodeId,
-          label,
-          done: args?.done === true,
-          evidence: typeof args?.evidence === 'string' ? args.evidence : '',
-        });
-        return { items };
-        });
-      },
-    }, { when: whenWorkflow }));
-
-    // —— 4. 提交验收报备（七项中的一项） ——
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_verify_report',
-      description:
-        'Submit a verification report for ONE of the seven 验收项 in the 「验收中」 stage. The report must carry evidence anchors (file paths inside the workflow working directory, optional line numbers) — the program checks they exist, then sets the mark: result "pass" → ✓, result "deferred" (found a problem but decided not to fix it this round) → ？. A deferred report REQUIRES findings (location / problem / why_not_fixed / impact). Without a report an item can never leave ○. Every entry into 「验收中」 starts a new round: old reports expire automatically, so re-verification must re-report. Not available outside 「验收中」.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['item', 'result', 'summary', 'anchors'],
-        properties: {
-          item: { type: 'string', description: '验收项：id 1-7 或名称（例：3 或「死代码扫描」）' },
-          result: { type: 'string', enum: ['pass', 'deferred'], description: 'pass = 通过；deferred = 查出问题但本轮不修（记 ？）' },
-          summary: { type: 'string', description: '结论摘要：做了什么、看到什么结果。' },
-          anchors: {
-            type: 'array',
-            description: '证据锚点，至少一条；文件必须在工作目录内。',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['file'],
-              properties: {
-                file: { type: 'string', description: '工作目录内的相对路径' },
-                line: { type: 'number', description: '可选行号；程序会核对它不超过文件行数' },
-              },
-            },
-          },
-          command: { type: 'string', description: '复跑命令；契约测试 / 边界测试 / 回归压测三项必填。' },
-          findings: {
-            type: 'array',
-            description: 'deferred 时必填：每条写清 位置 / 问题 / 为什么不修 / 影响什么。',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['location', 'problem', 'why_not_fixed', 'impact'],
-              properties: {
-                location: { type: 'string' },
-                problem: { type: 'string' },
-                why_not_fixed: { type: 'string' },
-                impact: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['item', 'progress'],
-          properties: {
-            item: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['id', 'name', 'mark'],
-              properties: {
-                id: { type: 'number' },
-                name: { type: 'string' },
-                mark: { type: 'string' },
-              },
-            },
-            progress: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['pass', 'deferred', 'pending', 'total'],
-              properties: {
-                pass: { type: 'number' },
-                deferred: { type: 'number' },
-                pending: { type: 'number' },
-                total: { type: 'number' },
-              },
-            },
-          },
-        },
-        render: (_args: any, value: any) => [
-          {
-            type: 'text',
-            text: `验收项 ${value.item.id} ${value.item.name} → ${verifyMarkSymbol(value.item.mark)}`
-              + `（通过 ${value.progress.pass} / 问询 ${value.progress.deferred} / 待处理 ${value.progress.pending}）`,
-          },
-        ],
-      },
-      execute: async (args: any, exec: any) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument('workflow_verify_report', sessionId, async () => {
-          const found = await requireVerifyingNode(deps, sessionId);
-          const itemId = resolveVerifyCheckId(args?.item);
-          const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
-          if (check === undefined) throw new Error(`没有 ${itemId} 号验收项`);
-          const report = validateVerifyReportInput(check, args);
-          const { state } = await deps.repository.submitVerifyReport({
-            workflowId: found.workflowId,
-            nodeId: found.nodeId,
-            itemId,
-            report,
+          const validation = validateAliasInput({
+            name: args?.name,
+            description: args?.description,
+            baseTool: args?.base_tool,
+            fixedArgs: args?.fixed_args,
+            allowedStates: args?.allowed_states,
+            sampleArgs: args?.sample_args,
+            existingNames: [...BASE_TOOL_NAMES, ...listing.aliases.map((entry) => entry.name)],
           });
-          const progress = summarizeVerification(state);
-          const item = state.items.find((entry) => entry.id === itemId);
-          // 报备成功必须留「哪一项、什么标记、第几轮」：否则日志只能证明工具调过，
-          // 答不上「这一项是刚被标上的，还是上一轮遗留的」——验收排查第一跳就断。
-          logEvent(
-            ctx.logger,
-            'info',
-            `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`,
-          );
-          // 徽标上的 n/7 变了：推一次，别让页面等刷新才看见勾。
-          deps.notify?.(sessionId, 'verify');
-          return {
-            item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
-            progress: {
-              pass: progress.pass,
-              deferred: progress.deferred,
-              pending: progress.pending,
-              total: progress.total,
-            },
+          const requestedName = String(args?.name ?? '').trim();
+          if (!validation.ok) {
+            record({
+              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
+              base_tool: String(args?.base_tool ?? ''), decision: 'deny', code: validation.code, state,
+              message: validation.message,
+            });
+            throw new Error(validation.message);
+          }
+          const fixedArgs = isPlainRecord(args?.fixed_args) ? args.fixed_args : {};
+          const entry: ToolAliasEntry = {
+            tool_id: randomUUID(),
+            name: requestedName,
+            description: String(args.description).trim(),
+            base_tool: String(args.base_tool),
+            fixed_args: fixedArgs,
+            allowed_states: validation.allowedStates,
+            created_at: new Date().toISOString(),
+            version: 1,
           };
-        });
-      },
-    }, { when: whenWorkflow }));
-
-    // —— 5. 取消验收标记（AI 只能取消，不能直接打勾） ——
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_verify_check',
-      description:
-        'Uncheck ONE item of the 验收七项 checklist (done=false only). AI has no permission to check an item directly: a mark can only be produced by workflow_verify_report. done=true is always rejected — if the item needs to be re-marked, submit a new report. Not available outside 「验收中」.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['item', 'done'],
-        properties: {
-          item: { type: 'string', description: '验收项：id 1-7 或名称' },
-          done: { type: 'boolean', description: '只能是 false（取消勾）。传 true 会被拒。' },
-        },
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['item', 'progress'],
-          properties: {
-            item: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['id', 'mark'],
-              properties: {
-                id: { type: 'number' },
-                mark: { type: 'string' },
-              },
-            },
-            progress: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['pass', 'deferred', 'pending', 'total'],
-              properties: {
-                pass: { type: 'number' },
-                deferred: { type: 'number' },
-                pending: { type: 'number' },
-                total: { type: 'number' },
-              },
-            },
-          },
-        },
-        render: (_args: any, value: any) => [
-          { type: 'text', text: `验收项 ${value.item.id} 已取消（现为 ${verifyMarkSymbol(value.item.mark)}）` },
-        ],
-      },
-      execute: async (args: any, exec: any) => {
-        const sessionId = requireSession(deps, exec);
-        return instrument('workflow_verify_check', sessionId, async () => {
-          if (args?.done !== false) {
-            throw new Error('AI 不能直接打验收勾：先调用 workflow_verify_report 提交报备，标记由报备落。取消勾请传 done=false。');
-          }
-          const found = await requireVerifyingNode(deps, sessionId);
-          const itemId = resolveVerifyCheckId(args?.item);
-          const { state, item } = await deps.repository.cancelVerifyMark({
-            workflowId: found.workflowId,
-            nodeId: found.nodeId,
-            itemId,
+          await deps.aliasStore.add(found.workflowId, entry);
+          record({
+            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: entry.name, trace,
+            base_tool: entry.base_tool, version: entry.version, decision: 'allow', state,
+            args: summarizeArgs({ fixed_args: fixedArgs }), ms: Date.now() - startedAt,
           });
-          const progress = summarizeVerification(state);
-          logEvent(
-            ctx.logger,
-            'info',
-            `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`,
-          );
-          // 撤勾也改徽标，同样要推。
-          deps.notify?.(sessionId, 'verify');
+          // 目录变了：下一轮系统提示要立刻带上新别名。
+          await deps.stateContext?.refreshNow?.(sessionId);
+          const required = validation.parameters.required ?? [];
           return {
-            item: { id: itemId, mark: item.mark },
-            progress: {
-              pass: progress.pass,
-              deferred: progress.deferred,
-              pending: progress.pending,
-              total: progress.total,
-            },
+            ok: true,
+            entry: { name: entry.name, base_tool: entry.base_tool, allowed_states: entry.allowed_states, version: entry.version },
+            message: `已登记「${entry.name}」→ ${entry.base_tool}；调用时必填：${required.length > 0 ? required.join(',') : '无'}。`,
           };
         });
       },
     }, { when: whenWorkflow }));
   });
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 目录 = 基础 5 条 + 本工作区别名；文件坏时只丢别名，基础工具照常。 */
+async function loadCatalog(deps: WorkflowToolsDeps, workflowId: string): Promise<ToolCatalogEntry[]> {
+  const listing = await deps.aliasStore.list(workflowId);
+  if (listing.corrupt) {
+    logEvent(deps.logger, 'warn', `[workflow] alias store corrupt (workflow=${workflowId})：别名不可用，基础工具不受影响`);
+  }
+  return mergeCatalog(BASE_TOOLS, listing.aliases);
+}
+
+/** 取当前状态；缺条先补一次，补不到就明确拒绝（不能拿 undefined 当"允许"）。 */
+async function currentStateOf(deps: WorkflowToolsDeps, sessionId: string): Promise<string> {
+  let state = deps.getState(sessionId);
+  if (state === undefined) {
+    await deps.refreshState?.(sessionId);
+    state = deps.getState(sessionId);
+  }
+  if (state === undefined) {
+    throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）。已触发同步，请重试一次。');
+  }
+  return state;
+}
+
+/** 按基础工具名分发到实现函数：网关只做转发，不在这里写业务。 */
+async function invokeBaseTool(deps: WorkflowToolsDeps, baseTool: string, args: any, sessionId: string): Promise<any> {
+  switch (baseTool) {
+    case 'workflow_advance': return invokeAdvance(deps, sessionId, args);
+    case 'workflow_manual': return invokeManual(deps, sessionId, args);
+    case 'workflow_check': return invokeCheck(deps, sessionId, args);
+    case 'workflow_verify_report': return invokeVerifyReport(deps, sessionId, args);
+    case 'workflow_verify_check': return invokeVerifyCheck(deps, sessionId, args);
+    default: throw new Error(`未知的基础工具：${baseTool}`);
+  }
+}
+
+/** 1. 推进状态：只登记请求，不改状态。 */
+async function invokeAdvance(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error('当前会话还没有 workflow 节点');
+  const from = String(found.current_state);
+  const to = String(args?.to ?? '');
+  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new Error(`不能从「${labelOf(from)}」直接到「${labelOf(to)}」；当前可去：${allowed.map(labelOf).join(' / ')}`);
+  }
+  const backward = STATE_ORDER.indexOf(to) < STATE_ORDER.indexOf(from);
+  if (backward && (typeof args?.reason !== 'string' || args.reason.trim() === '')) {
+    throw new Error('返工需要 reason：说明上一阶段哪里不够');
+  }
+  await assertAdvanceAllowed(deps.repository, found, from, to);
+  // 只登记请求，不改状态：切换由用户在界面上点「同意」完成。
+  deps.requestAdvance({ sessionId, to, ...(typeof args?.reason === 'string' ? { reason: args.reason } : {}) });
+  logEvent(deps.logger, 'info', `[workflow] advance requested (session=${sessionId}, ${from}→${to}${backward ? ', rework' : ''})`);
+  return {
+    requested: to,
+    status: 'awaiting-approval',
+    message: `已请求从「${labelOf(from)}」切换到「${labelOf(to)}」，等待用户在会话里确认；同意之前状态不会变。`,
+  };
+}
+
+/** 2. 读写手册（会话手册 / 项目手册）。 */
+async function invokeManual(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error('当前会话还没有 workflow 节点');
+  const target = String(args?.target ?? '');
+  if (target !== 'session' && target !== 'project') throw new Error('target 只能是 session 或 project');
+  const action = String(args?.action ?? '');
+  const nodeId = target === 'session' ? found.nodeId : null;
+  if (action === 'read') {
+    const text = await deps.repository.readManual(found.workflowId, nodeId);
+    return { ok: true, text };
+  }
+  // —— 项目手册的条目级写口：一条一写，必须带标签 ——
+  if (action === 'append_entry' || action === 'update_entry' || action === 'remove_entry' || action === 'rename_tag') {
+    if (target !== 'project') {
+      throw new Error('条目级写入只对项目手册（target=project）可用；会话手册用 replace_section 写方案');
+    }
+    const section = String(args?.section ?? '').trim();
+    const tags = Array.isArray(args?.tags) ? args.tags.map((tag: unknown) => String(tag)) : [];
+    const entry = String(args?.entry ?? '').trim();
+    try {
+      if (action === 'append_entry') {
+        const written = await deps.repository.appendProjectEntry({
+          workflowId: found.workflowId, section, tags, content: String(args?.content ?? ''),
+        });
+        logEvent(deps.logger, 'info', `[workflow] manual entry appended (session=${sessionId}, section=${section}, table=${written.tags.length}, registered=${written.registered.length})`);
+        return { ok: true, section, entry: written.entry, tags: written.tags, registered: written.registered };
+      }
+      if (action === 'update_entry') {
+        const written = await deps.repository.updateProjectEntry({
+          workflowId: found.workflowId, section, entry, tags, content: String(args?.content ?? ''),
+        });
+        logEvent(deps.logger, 'info', `[workflow] manual entry updated (session=${sessionId}, section=${section}, tags=${written.tags.length})`);
+        return { ok: true, section, entry: written.entry, tags: written.tags };
+      }
+      if (action === 'remove_entry') {
+        const removed = await deps.repository.removeProjectEntry({ workflowId: found.workflowId, section, entry });
+        logEvent(deps.logger, 'info', `[workflow] manual entry removed (session=${sessionId}, section=${section})`);
+        return { ok: true, section, removed: removed.removed };
+      }
+      const from = String(args?.from ?? '');
+      const to = String(args?.to ?? '');
+      const renamed = await deps.repository.renameProjectTag({ workflowId: found.workflowId, from, to });
+      logEvent(deps.logger, 'info', `[workflow] manual tag renamed (session=${sessionId}, from=${from}, to=${to}, rewritten=${renamed.rewritten}, table=${renamed.tags.length})`);
+      return { ok: true, tags: renamed.tags, rewritten: renamed.rewritten };
+    } catch (error) {
+      // 被标签规则拒（缺标签 / 表满 / 匹配不到）也是"正常拒绝"：单独记一条，别和程序错混在一起。
+      logEvent(
+        deps.logger,
+        'warn',
+        `[workflow] manual entry rejected (session=${sessionId}, action=${action}, section=${section}): ${String((error as Error)?.message ?? error)}`,
+      );
+      throw error;
+    }
+  }
+  if (action !== 'replace_section') {
+    throw new Error('action 只能是 read / replace_section / append_entry / update_entry / remove_entry / rename_tag');
+  }
+  const section = String(args?.section ?? '').trim();
+  const writable = WRITABLE_SECTIONS[target];
+  if (!writable.includes(section)) {
+    throw new Error(`「${target}」手册只能改这些小节：${writable.join(' / ')}；${section === '实施顺序' ? '清单请用 workflow_check 勾选。' : ''}`);
+  }
+  if (typeof args?.content !== 'string' || args.content.trim() === '') throw new Error('content 不能为空');
+  // 「实施顺序」只在讨论中定义；进入实现中之后只能勾选，不能重排或改写条目。
+  if (target === 'session' && section === '实施顺序') {
+    // 状态表可能还没回填（认领早于绑节点）：先补一次，否则"讨论中"会被误判。
+    if (deps.getState(sessionId) === undefined) await deps.refreshState?.(sessionId);
+    const state = deps.getState(sessionId);
+    if (state === undefined) {
+      throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）：先让宿主完成认领，再定义实施顺序。');
+    }
+    if (state !== 'discussing') {
+      throw new Error('「实施顺序」只能在「讨论中」定义；进入实现中之后请用 workflow_check 逐条勾选，不要改写条目。');
+    }
+  }
+  let result: { bytes: number; section: string; chars: number };
+  try {
+    result = await deps.repository.replaceManualSection({ workflowId: found.workflowId, nodeId, section, content: args.content });
+  } catch (error) {
+    // 被字数闸门拒是一种"正常的拒绝"，不是程序错：单独记一条，排查时不必去猜参数错还是超限。
+    if ((error as any)?.code === 'manual-limit') {
+      logEvent(
+        deps.logger,
+        'warn',
+        `[workflow] manual gate rejected (session=${sessionId}, target=${target}, section=${section}): ${String((error as Error)?.message ?? error)}`,
+      );
+    }
+    throw error;
+  }
+  logEvent(deps.logger, 'info', `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
+  return { ok: true, bytes: result.bytes, section };
+}
+
+/** 3. 勾选实施顺序。 */
+async function invokeCheck(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
+  const state = deps.getState(sessionId);
+  if (state === undefined) await deps.refreshState?.(sessionId);
+  const stateNow = deps.getState(sessionId);
+  if (stateNow === 'discussing') throw new Error('「讨论中」还不勾清单：先把方案写进会话手册，推进到「实现中」再勾。');
+  const found = await deps.repository.findBySession(sessionId);
+  if (found === null) throw new Error('当前会话还没有 workflow 节点');
+  const label = String(args?.item ?? '').trim();
+  if (label === '') throw new Error('item 不能为空');
+  const items = await deps.repository.setChecklistItem({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    label,
+    done: args?.done === true,
+    evidence: typeof args?.evidence === 'string' ? args.evidence : '',
+  });
+  return { items };
+}
+
+/** 4. 提交验收报备（七项中的一项）。 */
+async function invokeVerifyReport(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
+  const found = await requireVerifyingNode(deps, sessionId);
+  const itemId = resolveVerifyCheckId(args?.item);
+  const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
+  if (check === undefined) throw new Error(`没有 ${itemId} 号验收项`);
+  const report = validateVerifyReportInput(check, args);
+  const { state } = await deps.repository.submitVerifyReport({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    itemId,
+    report,
+  });
+  const progress = summarizeVerification(state);
+  const item = state.items.find((entry: any) => entry.id === itemId);
+  // 报备成功必须留「哪一项、什么标记、第几轮」：否则日志只能证明工具调过，
+  // 答不上「这一项是刚被标上的，还是上一轮遗留的」——验收排查第一跳就断。
+  logEvent(
+    deps.logger,
+    'info',
+    `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`,
+  );
+  // 徽标上的 n/7 变了：推一次，别让页面等刷新才看见勾。
+  deps.notify?.(sessionId, 'verify');
+  return {
+    item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
+    progress: {
+      pass: progress.pass,
+      deferred: progress.deferred,
+      pending: progress.pending,
+      total: progress.total,
+    },
+  };
+}
+
+/** 5. 取消验收标记（AI 只能取消，不能直接打勾）。 */
+async function invokeVerifyCheck(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
+  if (args?.done !== false) {
+    throw new Error('AI 不能直接打验收勾：先调用 workflow_verify_report 提交报备，标记由报备落。取消勾请传 done=false。');
+  }
+  const found = await requireVerifyingNode(deps, sessionId);
+  const itemId = resolveVerifyCheckId(args?.item);
+  const { state, item } = await deps.repository.cancelVerifyMark({
+    workflowId: found.workflowId,
+    nodeId: found.nodeId,
+    itemId,
+  });
+  const progress = summarizeVerification(state);
+  logEvent(
+    deps.logger,
+    'info',
+    `[workflow] verify cancel (session=${sessionId}, item=${itemId}, round=${state.round}, pending=${progress.pending})`,
+  );
+  // 撤勾也改徽标，同样要推。
+  deps.notify?.(sessionId, 'verify');
+  return {
+    item: { id: itemId, mark: item.mark },
+    progress: {
+      pass: progress.pass,
+      deferred: progress.deferred,
+      pending: progress.pending,
+      total: progress.total,
+    },
+  };
 }
 
 /** 取当前会话，并确认它归本插件管。 */
@@ -625,7 +613,7 @@ export async function assertAdvanceAllowed(repository: any, found: any, from: st
     const meta = await repository.getManualMeta(found.workflowId, found.nodeId);
     if (meta === null || meta.hasPlan !== true) {
       throw new Error(
-        '会话手册的「方案」还是空的：先用 workflow_manual({ target: "session", action: "replace_section", section: "方案", content: "..." }) 写入方案，再推进到「实现中」。',
+        '会话手册的「方案」还是空的：先用 workflow_tool_call({ name: "workflow_manual", args: { target: "session", action: "replace_section", section: "方案", content: "..." } }) 写入方案，再推进到「实现中」。',
       );
     }
   }
