@@ -1,19 +1,4 @@
 import { z } from 'zod';
-/** 硬规则：插件层强制的阶段约束，不随「操作细节」一起编辑；可覆盖但需警告。 */
-export declare const HardRules: z.ZodObject<{
-    discussing: z.ZodOptional<z.ZodString>;
-    implementing: z.ZodOptional<z.ZodString>;
-    verifying: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    discussing?: string | undefined;
-    implementing?: string | undefined;
-    verifying?: string | undefined;
-}, {
-    discussing?: string | undefined;
-    implementing?: string | undefined;
-    verifying?: string | undefined;
-}>;
-export type HardRules = z.infer<typeof HardRules>;
 /** 全局操作细节 = A（公共）+ B/C/D（三态专属）+ 硬规则覆盖，只在设置里改。 */
 export declare const GlobalOperationDetail: z.ZodObject<{
     shared_detail: z.ZodString;
@@ -101,9 +86,6 @@ export declare const GlobalOperationDetail: z.ZodObject<{
     } | undefined;
 }>;
 export type GlobalOperationDetail = z.infer<typeof GlobalOperationDetail>;
-/** 父节点状态聚合方式。 */
-export declare const AggregationMode: z.ZodEnum<["manual", "all_complete", "any_active"]>;
-export type AggregationMode = z.infer<typeof AggregationMode>;
 /** 全局设置（跨工作区默认）。 */
 export declare const WorkflowSettings: z.ZodObject<{
     global_operation_detail: z.ZodObject<{

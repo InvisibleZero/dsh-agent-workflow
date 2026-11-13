@@ -9,7 +9,7 @@ import { pickVerification } from '../engine/verify-rules';
 import { headingText, parseChecklist, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
 import { TAG_TABLE_MAX, TAG_TABLE_SECTION, dedupeTags, findEntryLineIndexes, normalizeTag, parseTagTable, renderEntryLine, renderTagTable, rewriteEntryTag, } from '../engine/manual-tags';
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
-export const BUILTIN_PROFILE_NAME = '默认存档';
+const BUILTIN_PROFILE_NAME = '默认存档';
 /** 旧版扁平设置文件迁移成的存档名。 */
 const MIGRATED_PROFILE_NAME = '我的存档';
 /** 造一个合法的根节点（workspace 类型，parent_id 为 null，初始态 discussing）。 */
@@ -218,13 +218,20 @@ async function appendGitignore(workingDir) {
 }
 export class WorkflowRepository {
     baseDir;
+    settingsDir;
     storage;
     /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
     manualMetaCache = new Map();
     /** 每个工作区的写队列（串行化读-改-写，避免并发覆盖丢更新）。 */
     writeQueues = new Map();
-    constructor(baseDir) {
+    /**
+     * @param baseDir     运行数据目录（workflows / trash / exports）：留在用户目录。
+     * @param settingsDir 设置目录（global-settings / app-settings）：默认随插件走，
+     *                    进 git；运行时数据不写这里，避免把用户工作流混进仓库。
+     */
+    constructor(baseDir, settingsDir = baseDir) {
         this.baseDir = baseDir;
+        this.settingsDir = settingsDir;
         this.storage = new JsonStorageAdapter(baseDir);
     }
     /**
@@ -315,9 +322,9 @@ export class WorkflowRepository {
     profilesDir() {
         return join(this.baseDir, 'exports');
     }
-    /** 当前生效存档的指针：只存一个名字，存在 <baseDir>/global-settings.json。 */
+    /** 当前生效存档的指针：只存一个名字，存在 <settingsDir>/global-settings.json。 */
     activePointerPath() {
-        return join(this.baseDir, 'global-settings.json');
+        return join(this.settingsDir, 'global-settings.json');
     }
     /** 存档名 → 文件名：去掉路径分隔符等非法字符并限长，防止写到目录外。 */
     profileFileName(name) {
@@ -1037,10 +1044,10 @@ export class WorkflowRepository {
     }
     /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
-     * 存在 <baseDir>/app-settings.json。
+     * 存在 <settingsDir>/app-settings.json。
      */
     appSettingsPath() {
-        return join(this.baseDir, 'app-settings.json');
+        return join(this.settingsDir, 'app-settings.json');
     }
     async getAppSettings() {
         try {

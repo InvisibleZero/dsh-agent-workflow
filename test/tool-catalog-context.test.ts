@@ -6,7 +6,7 @@ import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowStateContext } from '../src/host/workflow-state-context';
 
 /**
- * 工具目录这一层：内容由宿主半现算（基础 5 条 + 别名），注入走 systemPrompt.context。
+ * 工具目录这一层：内容由宿主半现算（内置 + 登记，按当前状态过滤），注入走 systemPrompt.context。
  * 读目录失败不能把整轮注入拖垮——目录缺了也要继续，但要留 warn。
  */
 function makeRuntime() {
@@ -46,7 +46,7 @@ describe('工具目录注入层', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  async function mount(catalogTextOf?: (workflowId: string) => Promise<string>) {
+  async function mount(catalogTextOf?: (state: string) => Promise<string>) {
     const runtime = makeRuntime();
     const api = registerWorkflowStateContext(runtime.ctx, repo, () => true, { catalogTextOf });
     const scopedSpecs: any[] = [];
@@ -56,12 +56,19 @@ describe('工具目录注入层', () => {
     return { runtime, scopedSpecs };
   }
 
-  it('目录文本原样挂进 tool-catalog 层', async () => {
-    const { scopedSpecs } = await mount(async () => '【工具目录】\n- workflow_advance（必填：to）');
+  it('目录文本原样挂进 tool-catalog 层，并带上当前状态', async () => {
+    const seenStates: string[] = [];
+    const { scopedSpecs } = await mount(async (state) => {
+      seenStates.push(state);
+      return '【工具目录】\n- workflow_advance（必填：to）';
+    });
     const spec = scopedSpecs.find((item) => item.name === 'workflow:tool-catalog');
     expect(spec).toBeDefined();
     expect(spec.text()).toContain('workflow_advance');
     expect(spec.text()).toContain('【工具目录】');
+    // 目录文本可能被算多次（刷新 + 注入各一次），只要求每次都带当前状态。
+    expect(seenStates.length).toBeGreaterThan(0);
+    expect(seenStates.every((state) => state === 'discussing')).toBe(true);
   });
 
   it('没有 provider 时这一层为空（不占预算）', async () => {

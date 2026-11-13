@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AgentNode } from './node';
 import { StateDetail } from './node-state';
 /** 硬规则：插件层强制的阶段约束，不随「操作细节」一起编辑；可覆盖但需警告。 */
-export const HardRules = z.object({
+const HardRules = z.object({
     discussing: z.string().optional(),
     implementing: z.string().optional(),
     verifying: z.string().optional(),
@@ -17,7 +17,7 @@ export const GlobalOperationDetail = z.object({
     hard_rules: HardRules.optional(),
 });
 /** 父节点状态聚合方式。 */
-export const AggregationMode = z.enum(['manual', 'all_complete', 'any_active']);
+const AggregationMode = z.enum(['manual', 'all_complete', 'any_active']);
 /** 全局设置（跨工作区默认）。 */
 export const WorkflowSettings = z.object({
     global_operation_detail: GlobalOperationDetail,
@@ -60,7 +60,9 @@ export const DEFAULT_GLOBAL_OPERATION_DETAIL = {
 ② 数据流向：改前谁写谁读、改后谁写谁读、哪条写入被切断或新增；「内部逻辑调整了一下」＝不合格；
 ③ 给 1~3 个真实的坑 + 怎么复核（看哪里、看哪个值）；「应该没问题」＝不合格。
 
-提建议必附「已知可优化但没做」：逐条写 是什么现象 / 能省多少 / 代价或风险 / 这次为什么没做；宁可多列一条被否掉。`,
+提建议必附「已知可优化但没做」：逐条写 是什么现象 / 能省多少 / 代价或风险 / 这次为什么没做；宁可多列一条被否掉。
+
+表达口径：英文标识符是稳定锚点，长对话优先用它锁死说法；英文标识符和「工具 / 系统 / 管理 / 数据」这类模糊词，第一次出现必须紧跟括号解释，解释落到使用场景（它当前指什么、干什么用），不是同义词翻译；首次解释后可复用，不必每句重复。`,
     // B —— 讨论中
     discussing: {
         operation_detail: `本阶段只讨论，不动手改代码或文件。

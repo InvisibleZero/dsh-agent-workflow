@@ -1,19 +1,48 @@
-import { type ToolAliasEntry } from '../schema/tool-catalog';
+import { type ToolEntry } from '../schema/tool-catalog';
 import type { ToolLedgerInput } from './tool-ledger';
 export interface WorkflowToolsDeps {
     repository: any;
-    /** 推进 / 报备后立刻重算系统提示（别名登记后目录也要跟着变）。 */
+    /** 推进 / 报备后立刻重算系统提示（工具登记后目录也要跟着变）。 */
     stateContext?: {
         refreshNow?: (sessionId: string) => Promise<string>;
     };
-    /** 别名目录：按 workflow 分组持久化。 */
-    aliasStore: {
-        list: (workflowId: string) => Promise<{
-            aliases: ToolAliasEntry[];
+    /** 扩展工具表：全局一份，不分工作区。 */
+    registryStore: {
+        list: () => Promise<{
+            entries: ToolEntry[];
             corrupt: boolean;
         }>;
-        add: (workflowId: string, entry: ToolAliasEntry) => Promise<ToolAliasEntry[]>;
+        save: (entry: ToolEntry) => Promise<ToolEntry[]>;
+        update: (entry: ToolEntry) => Promise<ToolEntry[]>;
     };
+    /** 插件自带的工具脚本目录：扩展工具的 script 相对这里解析。 */
+    /** 插件 node_modules/.bin 的绝对路径：检查器跑命令时加进 PATH，让命令用插件自带的工具、不触发 npx 下载。 */
+    nodeModulesBin?: string;
+    /** 检查器跑命令的执行器：测试注入用，默认是真跑。 */
+    runCommand?: (input: {
+        cwd: string;
+        command: string;
+        timeoutMs?: number;
+        binDir?: string;
+    }) => Promise<{
+        ok: boolean;
+        exit_code: number | null;
+        timed_out: boolean;
+        ms: number;
+        tail: string;
+    }>;
+    /**
+     * 宿主审批：登记 / 更新工具前问一次用户。
+     *
+     * 返回 ApprovalOutcome（allowed-once / rejected / cancelled / unavailable）。
+     * 没接这个依赖、或它答不上来时，调用方按 'unavailable' 处理，即拒绝——fail-closed。
+     */
+    requestApproval?: (input: {
+        sessionId: string;
+        agent: any;
+        toolName: string;
+        reason: string;
+    }) => Promise<string>;
     /** 审计账：每次 tool.call / tool.add 一条。 */
     recordToolEvent?: (entry: ToolLedgerInput) => void;
     isPresetSession: (sessionId: unknown) => boolean;
@@ -44,7 +73,7 @@ export interface WorkflowToolsDeps {
 /** 注册门禁：只在「讨论中」拦截写操作。 */
 export declare function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void;
 /**
- * 注册两个模型工具：网关调用与别名申请。
+ * 注册两个模型工具：网关调用与工具登记。
  *
  * 两个工具都只在工作流会话里出现（`when`），不污染标准模式。
  */

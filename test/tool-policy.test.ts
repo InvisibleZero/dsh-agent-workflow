@@ -1,31 +1,48 @@
 import { describe, expect, it } from 'vitest';
-import { BASE_TOOLS, type ToolCatalogEntry } from '../src/schema/tool-catalog';
+import { BASE_TOOLS, TOOL_KIND, type ToolEntry } from '../src/schema/tool-catalog';
 import {
+  TOOL_LIMIT_BY_KIND,
+  countVisibleByKind,
   decideToolCall,
-  deriveAliasParameters,
-  mergeArgs,
   mergeCatalog,
   renderCatalogText,
   summarizeArgs,
-  validateAliasInput,
+  summarizeDescription,
+  validateToolRegistration,
+  visibleTools,
 } from '../src/engine/tool-policy';
 
 const VERIFY_REPORT = BASE_TOOLS.find((entry) => entry.name === 'workflow_verify_report')!;
 const MANUAL = BASE_TOOLS.find((entry) => entry.name === 'workflow_manual')!;
-const FIXED = { target: 'project', action: 'append_entry', section: '决策记录' };
 
-function aliasEntry(overrides: Partial<ToolCatalogEntry> = {}): ToolCatalogEntry {
+function extensionTool(overrides: Partial<ToolEntry> = {}): ToolEntry {
   return {
-    name: 'note_decision',
-    summary: '记一条决策',
-    description: '记一条决策',
-    base_tool: 'workflow_manual',
-    fixed_args: { ...FIXED },
-    parameters: deriveAliasParameters(MANUAL.parameters, FIXED),
-    allowed_states: ['discussing', 'implementing', 'verifying', 'completed'],
-    side_effect: 'write',
-    alias: true,
+    name: 'check_deps_extra',
+    description: '跑依赖检查。读 depcruise 产物。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'deps' },
+    allowed_states: ['verifying'],
+    effect: 'exec',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
     version: 1,
+    created_at: '2026-11-13T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function registration(overrides: Record<string, unknown> = {}) {
+  return {
+    name: 'check_deps_extra',
+    description: '跑依赖检查。读 depcruise 产物。',
+    run: { kind: 'checker', checker: 'deps' },
+    effect: 'exec',
+    allowedStates: ['verifying'],
+    parameters: MANUAL.parameters,
+    parametersGiven: false,
+    sampleArgs: {},
+    existingNames: BASE_TOOLS.map((entry) => entry.name),
+    verifyingCounts: { base: 0, extension: 0 },
+    mode: 'create' as const,
     ...overrides,
   };
 }
@@ -59,130 +76,177 @@ describe('decideToolCall：调用判定的唯一入口', () => {
     if (!decision.allow) expect(decision.code).toBe('arguments-invalid');
   });
 
-  it('覆盖固定参数：别名调用里又传了 target', () => {
-    const decision = decideToolCall({ state: 'discussing', entry: aliasEntry(), args: { target: 'session', content: 'x', tags: ['决策'] } });
-    expect(decision.allow).toBe(false);
-    if (!decision.allow) {
-      expect(decision.code).toBe('arguments-override');
-      expect(decision.message).toContain('target');
-    }
-  });
-
-  it('合法调用：别名只补剩余字段', () => {
-    const decision = decideToolCall({ state: 'discussing', entry: aliasEntry(), args: { content: '决定 A', tags: ['决策'] } });
+  it('扩展工具：宽松 schema，传空参数就过', () => {
+    const decision = decideToolCall({ state: 'verifying', entry: extensionTool(), args: {} });
     expect(decision.allow).toBe(true);
   });
-});
 
-describe('deriveAliasParameters / mergeArgs', () => {
-  it('固定键从 properties 与 required 里一起消失', () => {
-    const derived = deriveAliasParameters(MANUAL.parameters, FIXED);
-    expect(Object.keys(derived.properties)).not.toContain('target');
-    expect(Object.keys(derived.properties)).not.toContain('action');
-    expect(Object.keys(derived.properties)).not.toContain('section');
-    expect(derived.required ?? []).toEqual(['target', 'action'].filter((key) => !(key in FIXED)));
-    expect(Object.keys(derived.properties)).toEqual(expect.arrayContaining(['content', 'tags']));
-  });
-
-  it('固定值优先：调用参数里同名的键不会覆盖它', () => {
-    expect(mergeArgs(FIXED, { content: 'x', target: 'session' })).toMatchObject({ target: 'project', content: 'x' });
+  it('扩展工具：阶段不符也拒', () => {
+    const decision = decideToolCall({ state: 'discussing', entry: extensionTool(), args: {} });
+    expect(decision.allow).toBe(false);
+    if (!decision.allow) expect(decision.code).toBe('stage-denied');
   });
 });
 
-describe('validateAliasInput：四关校验', () => {
-  const existing = BASE_TOOLS.map((entry) => entry.name);
-
+describe('validateToolRegistration：登记校验（产物只能是扩展工具）', () => {
   it('名字必须是 3~41 位小写字母/数字/下划线', () => {
     for (const name of ['x', 'Note', '带中文', 'a-b']) {
-      const result = validateAliasInput({ name, description: 'x', baseTool: 'workflow_manual', fixedArgs: {}, allowedStates: null, sampleArgs: { target: 'session', action: 'read' }, existingNames: existing });
+      const result = validateToolRegistration(registration({ name }));
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.code).toBe('name-invalid');
     }
   });
 
-  it('重名被拒（基础工具名也不能占用）', () => {
-    const result = validateAliasInput({ name: 'workflow_manual', description: 'x', baseTool: 'workflow_manual', fixedArgs: {}, allowedStates: null, sampleArgs: { target: 'session', action: 'read' }, existingNames: existing });
+  it('重名被拒（基础工具名不能被占用）', () => {
+    const result = validateToolRegistration(registration({ name: 'workflow_manual' }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('name-duplicate');
   });
 
-  it('别名不能挂别名（禁止链式）', () => {
-    const result = validateAliasInput({ name: 'note_decision', description: 'x', baseTool: 'note_decision', fixedArgs: {}, allowedStates: null, sampleArgs: {}, existingNames: existing });
+  it('run.kind 只能是 checker：脚本型登记已彻底移除', () => {
+    const result = validateToolRegistration(registration({ run: { kind: 'action', action: 'manual' } }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('base-tool-invalid');
+    if (!result.ok) expect(result.code).toBe('run-invalid');
   });
 
-  it('固定参数必须是基础工具的参数', () => {
-    const result = validateAliasInput({ name: 'note_decision', description: 'x', baseTool: 'workflow_manual', fixedArgs: { nope: 1 }, allowedStates: null, sampleArgs: { target: 'session', action: 'read' }, existingNames: existing });
+  it('checker 必须是注册表里的 id', () => {
+    const result = validateToolRegistration(registration({ run: { kind: 'checker', checker: 'nope' } }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('fixed-args-invalid');
+    if (!result.ok) {
+      expect(result.code).toBe('run-invalid');
+      expect(result.message).toContain('可用的是');
+    }
   });
 
-  it('阶段不能放宽：报备只在验收中，别名不能声明讨论中可用', () => {
-    const result = validateAliasInput({ name: 'early_report', description: 'x', baseTool: 'workflow_verify_report', fixedArgs: {}, allowedStates: ['discussing'], sampleArgs: { item: '1', result: 'pass', summary: 'x', anchors: [{ file: 'a.md' }] }, existingNames: existing });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('states-invalid');
+  it('合法 checker：原样写进条目', () => {
+    const result = validateToolRegistration(registration({ run: { kind: 'checker', checker: 'deps' } }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.entry.run).toEqual({ kind: 'checker', checker: 'deps' });
   });
 
-  it('样例参数必须满足基础工具的 schema', () => {
-    const result = validateAliasInput({ name: 'note_decision', description: 'x', baseTool: 'workflow_manual', fixedArgs: { target: 'project' }, allowedStates: null, sampleArgs: { action: 'bogus' }, existingNames: existing });
+  it('effect 只能是三档之一', () => {
+    const result = validateToolRegistration(registration({ effect: 'danger' }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('effect-invalid');
+  });
+
+  it('allowed_states 不能为空、不能有未知状态', () => {
+    for (const allowedStates of [[], ['doing']]) {
+      const result = validateToolRegistration(registration({ allowedStates }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe('states-invalid');
+    }
+  });
+
+  it('扩展工具可以不声明 parameters：缺省宽松 schema', () => {
+    const result = validateToolRegistration(registration({ parametersGiven: false }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.entry.parameters).toEqual({ type: 'object', properties: {}, additionalProperties: true });
+      expect(result.entry.kind).toBe(TOOL_KIND.extension);
+    }
+  });
+
+  it('声明了 parameters 就按它校验 sample_args', () => {
+    const result = validateToolRegistration(registration({
+      parametersGiven: true,
+      sampleArgs: { need: 'x' },
+    }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('sample-args-invalid');
   });
 
-  it('全过：返回去掉固定键后的参数与继承的阶段', () => {
-    const result = validateAliasInput({ name: 'note_decision', description: '记一条决策', baseTool: 'workflow_manual', fixedArgs: { ...FIXED }, allowedStates: null, sampleArgs: { content: '决定 A', tags: ['决策'] }, existingNames: existing });
+  it(`扩展工具配额 ${TOOL_LIMIT_BY_KIND.extension}：新增超了就拒`, () => {
+    const result = validateToolRegistration(registration({
+      verifyingCounts: { base: 0, extension: TOOL_LIMIT_BY_KIND.extension },
+    }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('quota-exceeded');
+  });
+
+  it('两套配额独立：基础满了不影响扩展工具登记', () => {
+    const result = validateToolRegistration(registration({
+      verifyingCounts: { base: TOOL_LIMIT_BY_KIND.base, extension: 0 },
+    }));
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.allowedStates).toEqual(MANUAL.allowed_states);
-      expect(Object.keys(result.parameters.properties)).not.toContain('target');
-    }
+  });
+
+  it('配额只卡新增：update 不增加条数，满了也能改', () => {
+    const result = validateToolRegistration(registration({
+      verifyingCounts: { base: 0, extension: TOOL_LIMIT_BY_KIND.extension },
+      mode: 'update',
+    }));
+    expect(result.ok).toBe(true);
+  });
+
+  it('配额只管验收中：只挂讨论中的扩展工具不受限', () => {
+    const result = validateToolRegistration(registration({
+      allowedStates: ['discussing'],
+      verifyingCounts: { base: 0, extension: TOOL_LIMIT_BY_KIND.extension },
+    }));
+    expect(result.ok).toBe(true);
   });
 });
 
-describe('mergeCatalog / renderCatalogText / summarizeArgs', () => {
-  it('目录合并：别名挂到基础工具上，脏别名丢弃', () => {
-    const alias = {
-      tool_id: 't1',
-      name: 'note_decision',
-      description: '记一条决策',
-      base_tool: 'workflow_manual',
-      fixed_args: { ...FIXED },
-      allowed_states: ['discussing' as const],
-      created_at: '2026-11-13T00:00:00.000Z',
-      version: 1,
-    };
-    const orphan = { ...alias, tool_id: 't2', name: 'orphan', base_tool: 'missing_tool' };
-    const catalog = mergeCatalog(BASE_TOOLS, [alias, orphan]);
-    expect(catalog.map((entry) => entry.name)).toContain('note_decision');
-    expect(catalog.map((entry) => entry.name)).not.toContain('orphan');
-    const merged = catalog.find((entry) => entry.name === 'note_decision')!;
-    expect(merged.alias).toBe(true);
-    expect(merged.side_effect).toBe('write');
-    expect(merged.allowed_states).toEqual(['discussing']);
+describe('mergeCatalog / visibleTools / countVisibleByKind', () => {
+  it('目录合并：扩展工具接在基础工具之后；与基础工具重名的丢掉', () => {
+    const fake = extensionTool();
+    const clash = extensionTool({ name: 'workflow_manual' });
+    const catalog = mergeCatalog(BASE_TOOLS, [fake, clash]);
+    expect(catalog.map((entry) => entry.name)).toContain('check_deps_extra');
+    expect(catalog.filter((entry) => entry.name === 'workflow_manual')).toHaveLength(1);
   });
 
-  it('注入文本：包含基础工具、必填参数与别名', () => {
-    const alias = {
-      tool_id: 't1',
-      name: 'note_decision',
-      description: '记一条决策',
-      base_tool: 'workflow_manual',
-      fixed_args: { ...FIXED },
-      allowed_states: ['discussing' as const],
-      created_at: '2026-11-13T00:00:00.000Z',
-      version: 1,
-    };
-    const text = renderCatalogText(mergeCatalog(BASE_TOOLS, [alias]));
+  it('按状态过滤：验收中看不到只在讨论中可用的工具', () => {
+    const onlyDiscussing = extensionTool({ name: 'draft_note', allowed_states: ['discussing'] });
+    const catalog = mergeCatalog(BASE_TOOLS, [onlyDiscussing, extensionTool()]);
+    const verifying = visibleTools(catalog, 'verifying').map((entry) => entry.name);
+    expect(verifying).toContain('check_deps_extra');
+    expect(verifying).not.toContain('draft_note');
+    const discussing = visibleTools(catalog, 'discussing').map((entry) => entry.name);
+    expect(discussing).not.toContain('workflow_check');
+    expect(discussing).not.toContain('check_deps_extra');
+  });
+
+  it('按 kind 计数：两类各自独立', () => {
+    const catalog = mergeCatalog(BASE_TOOLS, [
+      extensionTool(),
+      extensionTool({ name: 'check_naming' }),
+    ]);
+    const counts = countVisibleByKind(catalog, 'verifying');
+    expect(counts.extension).toBe(2);
+    // 验收中可见的基础工具：advance / manual / check / verify_report / verify_check
+    expect(counts.base).toBe(5);
+  });
+});
+
+describe('renderCatalogText', () => {
+  it('注入文本：一张表，不标类别、不分段', () => {
+    const catalog = mergeCatalog(BASE_TOOLS, [extensionTool()]);
+    const text = renderCatalogText(catalog, 'verifying');
     expect(text).toContain('workflow_advance');
     expect(text).toContain('必填：to');
-    expect(text).toContain('note_decision');
-    expect(text).toContain('别名');
+    expect(text).toContain('check_deps_extra');
+    expect(text).not.toContain('[登记]');
+    expect(text).not.toContain('别名');
+  });
+
+  it('按状态变化：讨论中看不到报备工具', () => {
+    const text = renderCatalogText(BASE_TOOLS, 'discussing');
+    expect(text).not.toContain('workflow_verify_report');
+    expect(text).toContain('workflow_manual');
   });
 
   it('参数摘要截断', () => {
     const text = summarizeArgs({ content: 'x'.repeat(500) }, 40);
     expect(text.length).toBeLessThanOrEqual(41);
     expect(text.endsWith('…')).toBe(true);
+  });
+
+  it('描述只取第一句，超长加省略号', () => {
+    expect(summarizeDescription('第一句。第二句。')).toBe('第一句。');
+    const long = summarizeDescription('啊'.repeat(200));
+    expect(Array.from(long).length).toBeLessThanOrEqual(91);
+    expect(long.endsWith('…')).toBe(true);
   });
 });

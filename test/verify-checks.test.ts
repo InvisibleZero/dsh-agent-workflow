@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowTools } from '../src/host/workflow-tools';
-import { ToolAliasStore } from '../src/host/tool-alias-store';
+import { ToolRegistryStore } from '../src/host/tool-registry';
 import { recordToolEvent } from '../src/host/tool-ledger';
 import {
   assertAnchorPathShape,
@@ -33,7 +33,7 @@ function makeRuntime(repository: WorkflowRepository, stateRef: { value: string |
   };
   registerWorkflowTools(ctx as any, {
     repository,
-    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-verify-alias-unused')),
+    registryStore: new ToolRegistryStore(join(tmpdir(), 'wf-verify-registry-unused')),
     recordToolEvent,
     stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,

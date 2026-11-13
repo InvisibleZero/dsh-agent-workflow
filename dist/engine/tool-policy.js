@@ -1,12 +1,27 @@
 /**
- * 工具治理的纯规则层：目录合并、调用判定、别名校验、参数合并与摘要。
+ * 工具治理的纯规则层：目录合并与过滤、调用判定、登记校验、参数摘要。
  *
  * 这一层不读盘、不碰 DOM、不写日志——网关与测试都只依赖这些函数，
  * 规则改了先在这里失败，而不是等真机调用才发现。
+ *
+ * 2026-11-13 起工具分两类：基础工具（代码定义，5 个）与扩展工具（登记而来，执行体只能是脚本）。
+ * 两类同型 ToolEntry，靠 kind 区分；分类名只读 TOOL_KIND_LABEL，本文件不写死字面量。
  */
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
-import { ALL_STATES, BASE_TOOL_NAMES, BASE_TOOLS, } from '../schema/tool-catalog';
-const BASE_TOOLS_BY_NAME = new Map(BASE_TOOLS.map((entry) => [entry.name, entry]));
+import { ALL_STATES, BASE_TOOLS, EXTENSION_TOOLS, TOOL_KIND, TOOL_KIND_LABEL, } from '../schema/tool-catalog';
+import { CHECKER_IDS } from './checkers';
+/** 每类工具的条数上限：只卡「验收中」这一档，两类各自独立计数。 */
+export const TOOL_LIMIT_BY_KIND = {
+    base: 6,
+    extension: 8,
+};
+/** 出厂工具名（基础 + 扩展）：登记工具不能重名（挡住"覆盖出厂工具"这条路）。 */
+export const FACTORY_TOOL_NAMES = [...BASE_TOOLS, ...EXTENSION_TOOLS].map((entry) => entry.name);
+/** 完整出厂目录：5 个基础工具 + 5 个扩展工具，不读盘。 */
+export const FACTORY_TOOLS = [...BASE_TOOLS, ...EXTENSION_TOOLS];
+const EFFECTS = ['read-state', 'write-state', 'exec'];
+/** 扩展工具不声明参数时的默认 schema：收任何参数，不校验。 */
+const LOOSE_PARAMETERS = { type: 'object', properties: {}, additionalProperties: true };
 function deny(code, message) {
     return { allow: false, code, message };
 }
@@ -22,72 +37,32 @@ function stateLabel(state) {
 function statesText(states) {
     return states.map(stateLabel).join(' / ');
 }
-function cloneSchema(schema) {
-    const cloned = { type: schema.type };
-    if (schema.description !== undefined)
-        cloned.description = schema.description;
-    if (schema.enum !== undefined)
-        cloned.enum = [...schema.enum];
-    if (schema.anyOf !== undefined)
-        cloned.anyOf = schema.anyOf.map(cloneSchema);
-    if (schema.items !== undefined)
-        cloned.items = cloneSchema(schema.items);
-    if (schema.properties !== undefined) {
-        cloned.properties = {};
-        for (const [key, value] of Object.entries(schema.properties))
-            cloned.properties[key] = cloneSchema(value);
-    }
-    if (schema.required !== undefined)
-        cloned.required = [...schema.required];
-    if (schema.additionalProperties !== undefined)
-        cloned.additionalProperties = schema.additionalProperties;
-    return cloned;
-}
-/**
- * 别名可见的参数 = 基础参数去掉固定键。
- * 固定键从 properties 里整个删掉：调用时传了它会被 additionalProperties=false 挡下，
- * 同时 decideToolCall 还会先给一个更明确的 arguments-override。
- */
-export function deriveAliasParameters(base, fixedArgs) {
-    const fixedKeys = new Set(Object.keys(fixedArgs));
-    const properties = {};
-    for (const [key, value] of Object.entries(base.properties)) {
-        if (!fixedKeys.has(key))
-            properties[key] = cloneSchema(value);
-    }
-    const required = (base.required ?? []).filter((key) => !fixedKeys.has(key));
-    return {
-        type: 'object',
-        properties,
-        ...(required.length > 0 ? { required } : {}),
-        additionalProperties: base.additionalProperties === true,
-    };
-}
-/** 基础目录 + 本工作区别名 = 模型这次能看到的目录；基础工具不存在的脏别名直接丢弃。 */
-export function mergeCatalog(base, aliases) {
-    const baseByName = new Map(base.map((entry) => [entry.name, entry]));
+/** 内置 + 登记 = 完整目录；与基础工具同名的登记条目直接丢掉（登记时已挡，这里兜底）。 */
+export function mergeCatalog(base, registered) {
+    const taken = new Set(base.map((entry) => entry.name));
     const merged = [...base];
-    for (const alias of aliases) {
-        const baseEntry = baseByName.get(alias.base_tool);
-        if (baseEntry === undefined)
+    for (const entry of registered) {
+        if (taken.has(entry.name))
             continue;
-        const fixed = isPlainObject(alias.fixed_args) ? alias.fixed_args : {};
-        const allowedStates = alias.allowed_states.filter((state) => ALL_STATES.includes(state));
-        merged.push({
-            name: alias.name,
-            summary: alias.description,
-            description: alias.description,
-            base_tool: baseEntry.name,
-            fixed_args: fixed,
-            parameters: deriveAliasParameters(baseEntry.parameters, fixed),
-            allowed_states: allowedStates.length > 0 ? allowedStates : [...baseEntry.allowed_states],
-            side_effect: baseEntry.side_effect,
-            alias: true,
-            version: alias.version,
-            created_at: alias.created_at,
-        });
+        taken.add(entry.name);
+        merged.push(entry);
     }
     return merged;
+}
+/** 当前状态能看到的工具：目录按 allowed_states 过滤，不做任何分组。 */
+export function visibleTools(entries, state) {
+    return entries.filter((entry) => entry.allowed_states.includes(state));
+}
+/** 按 kind 统计某状态下的可见条数：两类配额各自独立，就是靠这个计数。 */
+export function countVisibleByKind(entries, state) {
+    const counts = { base: 0, extension: 0 };
+    for (const entry of visibleTools(entries, state)) {
+        if (entry.kind === TOOL_KIND.base)
+            counts.base += 1;
+        else
+            counts.extension += 1;
+    }
+    return counts;
 }
 /** 值校验：返回错误描述；通过返回 undefined。 */
 function validateValue(schema, value, path) {
@@ -154,13 +129,13 @@ function validateValue(schema, value, path) {
     }
     return undefined;
 }
-/** 参数校验：args 必须是对象，且满足目录条目的 schema。 */
-export function validateToolArgs(schema, args) {
+/** 参数校验：args 必须是对象，且满足工具声明的 schema。 */
+function validateToolArgs(schema, args) {
     if (!isPlainObject(args))
         return 'args 必须是对象';
     return validateValue({ ...schema, type: 'object' }, args, 'args');
 }
-/** 网关调用前的唯一判定点：阶段 → 固定值覆盖 → 参数。 */
+/** 网关调用前的唯一判定点：阶段 → 参数。 */
 export function decideToolCall(input) {
     const { entry } = input;
     if (!entry.allowed_states.includes(input.state)) {
@@ -169,21 +144,10 @@ export function decideToolCall(input) {
     const args = input.args === undefined || input.args === null ? {} : input.args;
     if (!isPlainObject(args))
         return deny('arguments-invalid', `${entry.name} 的 args 必须是对象。`);
-    for (const key of Object.keys(entry.fixed_args)) {
-        if (Object.prototype.hasOwnProperty.call(args, key)) {
-            return deny('arguments-override', `${entry.name} 的 ${key} 是固定参数，不能在调用时覆盖。`);
-        }
-    }
     const problem = validateToolArgs(entry.parameters, args);
     if (problem !== undefined)
         return deny('arguments-invalid', `${entry.name} 参数不符：${problem}。`);
     return { allow: true };
-}
-/** 合并固定参数：调用参数只能补剩余字段（判定已挡掉覆盖，这里固定值仍然优先）。 */
-export function mergeArgs(fixed, call) {
-    const fixedArgs = isPlainObject(fixed) ? fixed : {};
-    const callArgs = isPlainObject(call) ? call : {};
-    return { ...callArgs, ...fixedArgs };
 }
 /** 参数摘要进审计账：截断 + 去掉换行，避免一条日志占满整个事件环。 */
 export function summarizeArgs(args, maxChars = 240) {
@@ -197,93 +161,119 @@ export function summarizeArgs(args, maxChars = 240) {
     const flat = text.replace(/\s+/g, ' ');
     return flat.length > maxChars ? `${flat.slice(0, maxChars)}…` : flat;
 }
-/** 别名校验：四关里除「账」以外的全部规则（类型 / 静态 / 样例 / 阶段继承）。 */
-export function validateAliasInput(input) {
+/** 执行方式收窄：扩展工具只能指向一个已登记的检查器。 */
+function parseRun(raw) {
+    if (!isPlainObject(raw)) {
+        return { problem: 'run 必须是对象：{kind:"checker", checker:"deps"}', code: 'run-invalid' };
+    }
+    if (raw.kind !== 'checker') {
+        return { problem: 'run.kind 只能是 checker：扩展工具必须指向一个内置检查器，不能是脚本', code: 'run-invalid' };
+    }
+    const checker = typeof raw.checker === 'string' ? raw.checker.trim() : '';
+    if (checker === '')
+        return { problem: 'run.checker 不能为空', code: 'run-invalid' };
+    if (!CHECKER_IDS.includes(checker)) {
+        return { problem: `没有叫「${checker}」的检查器：可用的是 ${CHECKER_IDS.join(' / ')}`, code: 'run-invalid' };
+    }
+    return { run: { kind: 'checker', checker } };
+}
+/**
+ * 登记校验：新增与更新共用，产物一律是扩展工具。
+ *
+ * 和调用的区别：登记是「造工具」，所以校验 run / effect / 配额 / 样例参数；
+ * 调用只校验「这个状态能不能用、参数对不对」。
+ *
+ * parameters：基础工具必填，扩展工具可选（不传就是宽松 schema）。
+ * 配额：只卡验收中，且按 kind 分别计数——两类工具各自的上限互不挤占。
+ */
+export function validateToolRegistration(input) {
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (!/^[a-z][a-z0-9_]{2,40}$/.test(name)) {
-        return fail('name-invalid', '工具名必须是 3~41 位小写字母/数字/下划线，且以字母开头（例：note_decision）。');
+        return fail('name-invalid', '工具名必须是 3~41 位小写字母/数字/下划线，且以字母开头（例：check_deps）。');
     }
     if (input.existingNames.includes(name)) {
-        return fail('name-duplicate', `已经有叫「${name}」的工具：换一个名字，或直接调用已有的。`);
+        return fail('name-duplicate', `已经有叫「${name}」的工具：换一个名字，或走更新（update）。`);
     }
     const description = typeof input.description === 'string' ? input.description.trim() : '';
-    if (description === '' || Array.from(description).length > 200) {
-        return fail('description-invalid', '描述不能为空，且不超过 200 字：写清这个工具做什么、什么时候用。');
+    if (description === '' || Array.from(description).length > 400) {
+        return fail('description-invalid', '描述不能为空，且不超过 400 字：第一句要能独立说明什么时候用它。');
     }
-    const baseTool = typeof input.baseTool === 'string' ? input.baseTool : '';
-    if (!BASE_TOOL_NAMES.includes(baseTool)) {
-        return fail('base-tool-invalid', `基础工具只能是：${BASE_TOOL_NAMES.join(' / ')}；别名不能再挂别名（禁止链式）。`);
+    const parsedRun = parseRun(input.run);
+    if ('problem' in parsedRun)
+        return fail(parsedRun.code, parsedRun.problem);
+    const run = parsedRun.run;
+    const effect = typeof input.effect === 'string' && EFFECTS.includes(input.effect)
+        ? input.effect
+        : null;
+    if (effect === null)
+        return fail('effect-invalid', `effect 只能是：${EFFECTS.join(' / ')}。`);
+    const rawStates = input.allowedStates;
+    if (!Array.isArray(rawStates) || rawStates.length === 0) {
+        return fail('states-invalid', 'allowed_states 必须是非空数组：写清这个工具在哪些阶段能用。');
     }
-    const base = BASE_TOOLS_BY_NAME.get(baseTool);
-    const fixed = input.fixedArgs === undefined || input.fixedArgs === null ? {} : input.fixedArgs;
-    if (!isPlainObject(fixed))
-        return fail('fixed-args-invalid', 'fixed_args 必须是对象。');
-    for (const [key, value] of Object.entries(fixed)) {
-        const property = base.parameters.properties[key];
-        if (property === undefined)
-            return fail('fixed-args-invalid', `fixed_args.${key} 不是 ${baseTool} 的参数。`);
-        const problem = validateValue(property, value, `fixed_args.${key}`);
-        if (problem !== undefined)
-            return fail('fixed-args-invalid', problem);
-    }
-    let allowedStates = [...base.allowed_states];
-    if (input.allowedStates !== undefined && input.allowedStates !== null) {
-        if (!Array.isArray(input.allowedStates) || input.allowedStates.length === 0) {
-            return fail('states-invalid', 'allowed_states 必须是非空数组（不传则继承基础工具的全部状态）。');
+    const states = [];
+    for (const candidate of rawStates) {
+        if (typeof candidate !== 'string' || !ALL_STATES.includes(candidate)) {
+            return fail('states-invalid', `allowed_states 里有未知状态：${String(candidate)}。`);
         }
-        const picked = [];
-        for (const candidate of input.allowedStates) {
-            if (typeof candidate !== 'string' || !ALL_STATES.includes(candidate)) {
-                return fail('states-invalid', `allowed_states 里有未知状态：${String(candidate)}。`);
-            }
-            if (!base.allowed_states.includes(candidate)) {
-                return fail('states-invalid', `${baseTool} 本身在「${stateLabel(String(candidate))}」不可用，别名不能放宽。`);
-            }
-            if (!picked.includes(candidate))
-                picked.push(candidate);
-        }
-        if (picked.length === 0)
-            return fail('states-invalid', 'allowed_states 不能为空。');
-        allowedStates = picked;
+        if (!states.includes(candidate))
+            states.push(candidate);
+    }
+    // 参数 schema：扩展工具可不传，不传就是宽松 schema（脚本本来不收调用参数）。
+    let parameters = LOOSE_PARAMETERS;
+    if (input.parametersGiven) {
+        if (!isPlainObject(input.parameters))
+            return fail('arguments-invalid', 'parameters 必须是 JSON Schema 对象。');
+        parameters = input.parameters;
     }
     if (input.sampleArgs === undefined || input.sampleArgs === null) {
         return fail('sample-args-invalid', 'sample_args 必填：给一个能跑通的示例参数，登记时会用它校验。');
     }
     if (!isPlainObject(input.sampleArgs))
         return fail('sample-args-invalid', 'sample_args 必须是对象。');
-    for (const key of Object.keys(fixed)) {
-        if (Object.prototype.hasOwnProperty.call(input.sampleArgs, key)) {
-            return fail('sample-args-invalid', `sample_args 里不要再写固定参数 ${key}。`);
-        }
-    }
-    const mergedSample = { ...input.sampleArgs, ...fixed };
-    const sampleProblem = validateToolArgs(base.parameters, mergedSample);
+    const sampleProblem = validateToolArgs(parameters, input.sampleArgs);
     if (sampleProblem !== undefined) {
-        return fail('sample-args-invalid', `sample_args 不满足 ${baseTool} 的参数要求：${sampleProblem}。`);
+        return fail('sample-args-invalid', `sample_args 不满足参数要求：${sampleProblem}。`);
+    }
+    // 配额：只卡验收中，且按 kind 分别计数。
+    const kind = TOOL_KIND.extension;
+    if (input.mode === 'create' && states.includes('verifying')
+        && input.verifyingCounts[kind] >= TOOL_LIMIT_BY_KIND[kind]) {
+        return fail('quota-exceeded', `「验收中」可见的${TOOL_KIND_LABEL[kind]}已达上限 ${TOOL_LIMIT_BY_KIND[kind]} 条，不能再登记新的；`
+            + `先让已有工具缩小 allowed_states（${TOOL_KIND_LABEL.base}另有独立的 ${TOOL_LIMIT_BY_KIND.base} 条上限）。`);
     }
     return {
         ok: true,
-        parameters: deriveAliasParameters(base.parameters, fixed),
-        allowedStates,
+        entry: {
+            name,
+            description,
+            kind,
+            run,
+            allowed_states: states,
+            effect,
+            parameters,
+        },
     };
 }
-/** 注入给模型的目录文本：名字 + 可用阶段 + 必填参数 + 一句话说明。 */
-export function renderCatalogText(entries) {
-    const base = entries.filter((entry) => entry.alias !== true);
-    const aliases = entries.filter((entry) => entry.alias === true);
-    const lines = ['【工具目录】模型只能通过 workflow_tool_call({name,args}) 调用下列工具；新增工具用 workflow_tool_add（只登记、不执行）。'];
-    const lineOf = (entry) => {
+/** 描述第一句：注入只留这一句，长描述留给设置页。 */
+export function summarizeDescription(description, maxChars = 90) {
+    const firstSentence = description.split('。')[0]?.trim() ?? '';
+    const text = firstSentence === '' ? description.trim() : `${firstSentence}。`;
+    return Array.from(text).length > maxChars ? `${Array.from(text).slice(0, maxChars).join('')}…` : text;
+}
+/**
+ * 注入给模型的目录文本：当前状态能看到的工具，一张表，不分段、不标类别。
+ * 名字 + 可用阶段 + 必填参数 + 一句话说明。
+ */
+export function renderCatalogText(entries, state) {
+    const lines = [
+        '【工具目录】模型只能通过 workflow_tool_call({name,args}) 调用下列工具；'
+            + '新增工具用 workflow_tool_add（登记与更新都要用户同意后才生效）。',
+    ];
+    for (const entry of visibleTools(entries, state)) {
         const required = entry.parameters.required ?? [];
         const requiredText = required.length > 0 ? `必填：${required.join(',')}` : '无必填参数';
-        const summary = entry.alias === true ? entry.description : entry.summary ?? entry.description;
-        return `- ${entry.name}（${statesText(entry.allowed_states)}可用；${requiredText}）${summary}`;
-    };
-    for (const entry of base)
-        lines.push(lineOf(entry));
-    if (aliases.length > 0) {
-        lines.push('别名（workflow_tool_add 登记的固定参数版本）：');
-        for (const alias of aliases)
-            lines.push(lineOf(alias));
+        lines.push(`- ${entry.name}（${statesText(entry.allowed_states)}可用；${requiredText}）${summarizeDescription(entry.description)}`);
     }
     return lines.join('\n');
 }

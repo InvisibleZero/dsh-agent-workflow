@@ -33,11 +33,6 @@ export declare function countManualChars(text: string): number;
 export declare function stripManualEvidence(text: string): string;
 /** 把外部传入的上限收成合法值：缺省用默认、非整数四舍五入、越界夹到区间内。 */
 export declare function sanitizeManualLimits(raw: unknown): ManualLimits;
-/** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */
-export declare class ManualLimitError extends Error {
-    readonly code = "manual-limit";
-    constructor(message: string);
-}
 /**
  * 写入前的硬校验：超了直接抛错。
  * @returns 实际计入的字数（已剥离勾选证据）。

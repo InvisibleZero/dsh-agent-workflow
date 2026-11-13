@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
+import { TOOL_KIND_LABEL } from '../schema/tool-kind';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { DEFAULT_MANUAL_LIMITS, MANUAL_LIMIT_MAX_CHARS, MANUAL_LIMIT_MIN_CHARS } from '../schema/manual-limits';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
@@ -125,32 +126,33 @@ const APPENDIX_TAB = { id: 'appendix', label: '附表' };
 /** 只读「工具」页签：目录与最近调用/拒绝。 */
 const TOOLS_TAB = { id: 'tools', label: '工具' };
 
-interface ToolsBaseItem {
+interface ToolsCatalogItem {
   name: string;
-  summary: string;
+  /** 基础工具 / 扩展工具：分组标题读 TOOL_KIND_LABEL，不在这里写死文案。 */
+  kind?: string;
+  /** 一句「干什么」：宿主按 description 第一句截出来，设置页只显示这个。 */
+  summary?: string;
   description: string;
+  run?: { kind?: string; script?: string };
   allowed_states: string[];
-  side_effect: string;
+  effect: string;
+  version?: number;
   parameters: { required?: string[]; properties?: Record<string, unknown> };
-}
-
-interface ToolsAliasItem {
-  name: string;
-  description: string;
-  base_tool: string;
-  allowed_states: string[];
-  version: number;
-  created_at: string;
 }
 
 interface ToolsEventItem {
   at: string;
   kind: string;
   name: string;
+  run?: string;
   decision: string;
   code?: string;
   state?: string;
   ms?: number;
+  checker?: string;
+  ok?: boolean;
+  findings?: number;
+  approval?: string;
   message?: string;
 }
 
@@ -159,16 +161,30 @@ function toolStatesText(states: unknown): string {
   return states.map((state) => NODE_STATE_LABEL[state as keyof typeof NODE_STATE_LABEL] ?? String(state)).join(' / ');
 }
 
+/** 执行方式压成一句：扩展工具显示它指向哪个内置检查器；基础工具没有 run。 */
+function toolRunText(run: unknown): string {
+  if (typeof run !== 'object' || run === null) return '';
+  const parsed = run as { kind?: string; checker?: string };
+  return parsed.kind === 'checker' ? `检查器 ${parsed.checker ?? '?'}` : '';
+}
+
+/** 副作用分级：登记审批时提示的就是这三档。 */
+function toolEffectText(effect: unknown): string {
+  if (effect === 'exec') return '跑进程';
+  if (effect === 'write-state') return '会改状态';
+  return '只读';
+}
+
 /**
- * 设置页里的只读「工具」页签：目录（基础 + 别名）+ 最近调用/拒绝。
+ * 设置页里的只读「工具」页签：目录（内置 + 登记）+ 最近调用/登记。
  *
  * 和附表一样：点开才取，读失败给重试，绝不用空清单冒充「目录是空的」。
  */
 function ToolsPanel() {
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [base, setBase] = useState<ToolsBaseItem[]>([]);
-  const [aliases, setAliases] = useState<Record<string, ToolsAliasItem[]>>({});
+  const [base, setBase] = useState<ToolsCatalogItem[]>([]);
+  const [extension, setExtension] = useState<ToolsCatalogItem[]>([]);
   const [events, setEvents] = useState<ToolsEventItem[]>([]);
   const [corrupt, setCorrupt] = useState(false);
   const [error, setError] = useState('');
@@ -190,12 +206,12 @@ function ToolsPanel() {
           return;
         }
         setBase(Array.isArray(body.base) ? body.base : []);
-        setAliases(body.aliases !== null && typeof body.aliases === 'object' ? body.aliases : {});
+        setExtension(Array.isArray(body.extension) ? body.extension : []);
         setEvents(Array.isArray(body.events) ? body.events : []);
         setCorrupt(body.corrupt === true);
         setStatus('ready');
         // 成功也留一跳：服务端只证明「返回了」，这条才证明「页面拿到了」。
-        void reportClientEvent('info', `[tools] 已取回 基础 ${Array.isArray(body.base) ? body.base.length : 0} 条`);
+        void reportClientEvent('info', `[tools] 已取回 ${TOOL_KIND_LABEL.base} ${Array.isArray(body.base) ? body.base.length : 0} 条`);
       } catch (reason) {
         if (!cancelled) {
           setStatus('error');
@@ -231,48 +247,41 @@ function ToolsPanel() {
     );
   }
 
-  const aliasGroups = Object.entries(aliases).filter(([, items]) => Array.isArray(items) && items.length > 0);
+  const row = (item: ToolsCatalogItem, key: string, isBase: boolean) => (
+    <div key={key} style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: 12, fontWeight: 600 }}>
+        {item.name}
+        <span style={{ marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
+          {toolStatesText(item.allowed_states)} · {toolRunText(item.run)} · {toolEffectText(item.effect)}
+          {isBase ? '' : ` · v${item.version ?? '?'}`}
+        </span>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }}>
+        {item.summary ?? item.description}
+      </div>
+    </div>
+  );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', minHeight: 0 }}>
       {corrupt ? (
         <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1.5 }}>
-          别名文件损坏：别名暂时不可用，基础工具不受影响。
+          工具表损坏：扩展工具暂时不可用，基础工具不受影响。
         </div>
       ) : null}
       <div>
-        <div style={LABEL_STYLE}>基础工具（{base.length}）</div>
-        {base.map((item) => (
-          <div key={item.name} style={{ marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>
-              {item.name}
-              <span style={{ marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
-                {toolStatesText(item.allowed_states)} · {item.side_effect === 'write' ? '会改状态' : '只读'}
-              </span>
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }}>{item.summary}</div>
-          </div>
-        ))}
+        <div style={LABEL_STYLE}>{TOOL_KIND_LABEL.base}（{base.length}）</div>
+        {base.map((item) => row(item, `base-${item.name}`, true))}
       </div>
       <div>
-        <div style={LABEL_STYLE}>别名（按工作区分组；模型用 workflow_tool_add 申请，只登记不执行）</div>
-        {aliasGroups.length === 0 ? (
-          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }}>还没有别名</div>
-        ) : aliasGroups.map(([workflowId, items]) => (
-          <div key={workflowId} style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>工作区 {workflowId}</div>
-            {items.map((item) => (
-              <div key={item.name} style={{ fontSize: 12, lineHeight: 1.6 }}>
-                {item.name} → {item.base_tool}
-                <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>
-                  {toolStatesText(item.allowed_states)}
-                </span>
-              </div>
-            ))}
+        <div style={LABEL_STYLE}>{TOOL_KIND_LABEL.extension}（{extension.length}）</div>
+        {extension.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }}>
+            还没有{TOOL_KIND_LABEL.extension}：模型用 workflow_tool_add 申请，经你同意后才生效。
           </div>
-        ))}
+        ) : extension.map((item) => row(item, `ext-${item.name}`, false))}
       </div>
       <div>
-        <div style={LABEL_STYLE}>最近调用 / 拒绝（最多 50 条）</div>
+        <div style={LABEL_STYLE}>最近调用 / 登记（最多 50 条）</div>
         {events.length === 0 ? (
           <div style={{ fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }}>还没有记录</div>
         ) : events.slice().reverse().map((item, index) => (
@@ -286,6 +295,9 @@ function ToolsPanel() {
           >
             {item.at.slice(11, 19)} {item.kind === 'add' ? '登记' : '调用'} {item.name} · {item.decision}
             {item.code ? `（${item.code}）` : ''}{item.ms !== undefined ? ` · ${item.ms}ms` : ''}
+            {item.checker ? ` · ${item.checker}` : ''}
+            {item.findings !== undefined ? ` · ${item.findings} 项不合格` : ''}
+            {item.approval ? ` · 审批 ${item.approval}` : ''}
           </div>
         ))}
       </div>

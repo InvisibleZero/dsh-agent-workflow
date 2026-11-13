@@ -15,4 +15,3 @@ export const DEFAULT_HARD_RULES = {
 - 没报备的项停在 ○；七项全非 ○ 才能进「已完结」；每次进「验收中」轮次 +1，旧报备自动失效。`,
 } as const;
 
-export type HardRuleKey = keyof typeof DEFAULT_HARD_RULES;

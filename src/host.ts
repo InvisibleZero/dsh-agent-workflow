@@ -8,7 +8,8 @@
  */
 
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { WorkflowRepository } from './host/workflow-repository';
 import { readSidebarNodes } from './host/sidebar-nodes';
@@ -17,20 +18,27 @@ import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
 import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host/session-claim';
 import { logEvent, newTraceId, recentEvents } from './host/event-log';
-import { ToolAliasStore } from './host/tool-alias-store';
+import { ToolRegistryStore } from './host/tool-registry';
 import { recordToolEvent, recentToolEvents } from './host/tool-ledger';
-import { BASE_TOOLS } from './schema/tool-catalog';
-import { mergeCatalog, renderCatalogText } from './engine/tool-policy';
+import { BASE_TOOLS, EXTENSION_TOOLS } from './schema/tool-catalog';
+import { FACTORY_TOOLS, mergeCatalog, renderCatalogText, summarizeDescription } from './engine/tool-policy';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 import { VERIFY_CHECKS } from './schema/verify-checks';
+import { resolveVerifyCheckId, validateVerifyReportInput } from './engine/verify-rules';
 import { plan_sections_from_template } from './engine/plan-sections';
 
 export const inject = [];
 
+/** 运行数据目录（workflows / 快照 / 回收站 / 导出）：留在用户目录，不随插件。 */
 function resolveDataDir(): string {
   const profileDir = process.env.DSH_PROFILE_DIR;
   const base = profileDir && profileDir.trim() !== '' ? profileDir : join(homedir(), '.dsh');
   return join(base, 'dsh-agent-workflow');
+}
+
+/** 插件包根：dist/host.js 的上一级；设置与工具脚本都放这里，跟着仓库进 git。 */
+function resolvePackageRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), '..');
 }
 
 /** 只允许本机页面读写，避免把 workflow 数据接口暴露到局域网。 */
@@ -127,7 +135,13 @@ function makeHandler(
 }
 
 export function apply(ctx: any) {
-  const repository = new WorkflowRepository(resolveDataDir());
+  /** 设置与工具随插件（进 git）；运行数据留在用户目录。 */
+  const packageRoot = resolvePackageRoot();
+  const settingsDir = join(packageRoot, 'settings');
+  const toolsDir = join(packageRoot, 'tools');
+  // 插件自带的工具二进制目录：检查器跑命令时加进 PATH，让命令直接用插件 node_modules 里的工具、不触发 npx 下载。
+  const nodeModulesBin = join(packageRoot, 'node_modules', '.bin');
+  const repository = new WorkflowRepository(resolveDataDir(), settingsDir);
 
   /**
    * 推送通道：把「这个会话变了」主动告诉浏览器半，代替每 3 秒轮询。
@@ -319,14 +333,14 @@ export function apply(ctx: any) {
     return presetSessions.has(sessionId);
   };
 
-  // 别名目录：基础 5 条在代码里，别名按 workflow 落 tool-aliases.json。
-  const aliasStore = new ToolAliasStore(resolveDataDir());
+  // 工具表：基础工具 5 条在代码里，扩展工具全局一份落 tools/tool-registry.json（随插件进 git）。
+  const registryStore = new ToolRegistryStore(toolsDir);
 
   // 按状态注入操作细节（系统提示里的动态上下文，不写会话记录）；只对本预设接管的会话生效。
   const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession, {
-    catalogTextOf: async (workflowId: string) => {
-      const listing = await aliasStore.list(workflowId);
-      return renderCatalogText(mergeCatalog(BASE_TOOLS, listing.aliases));
+    catalogTextOf: async (state: string) => {
+      const listing = await registryStore.list();
+      return renderCatalogText(mergeCatalog(FACTORY_TOOLS, listing.entries), state);
     },
   });
 
@@ -400,9 +414,35 @@ export function apply(ctx: any) {
   const toolsDeps = {
     repository,
     stateContext,
-    aliasStore,
+    registryStore,
+    nodeModulesBin,
     recordToolEvent,
     isPresetSession,
+    /**
+     * 登记 / 更新工具前的宿主审批。
+     *
+     * 拿不到审批服务、或它抛错，一律返回 'unavailable'——调用方按拒绝处理（fail-closed）。
+     * 审批只挂「造工具」这一个动作，workflow_tool_call 不走这里。
+     */
+    requestApproval: async (input: { sessionId: string; agent: any; toolName: string; reason: string }) => {
+      try {
+        const approval = ctx.get('approval');
+        if (approval === undefined || typeof approval.request !== 'function') return 'unavailable';
+        const outcome = await approval.request({
+          agent: input.agent,
+          toolName: input.toolName,
+          reason: input.reason,
+        });
+        return typeof outcome === 'string' ? outcome : 'unavailable';
+      } catch (error) {
+        logEvent(
+          ctx.logger,
+          'warn',
+          `[workflow] approval request failed (session=${input.sessionId}, tool=${input.toolName}): ${String((error as Error)?.message ?? error)}`,
+        );
+        return 'unavailable';
+      }
+    },
     getState: (sessionId: string) => sessionState.get(sessionId),
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
     refreshState: (sessionId: string) => refreshSessionState(sessionId),
@@ -762,24 +802,31 @@ export function apply(ctx: any) {
       path: '/dsh-agent-workflow/tools',
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
-        const snapshot = await aliasStore.snapshot();
-        const aliasCount = Object.values(snapshot.byWorkflow).reduce((sum, items) => sum + items.length, 0);
+        const snapshot = await registryStore.snapshot();
+        // 扩展工具 = 出厂 5 个（代码里）+ 开发期额外登记的（tool-registry.json）。
+        const extensionTools = [...EXTENSION_TOOLS, ...snapshot.entries];
+        const extensionCount = extensionTools.length;
         logEvent(
           ctx.logger,
           'info',
-          `[workflow] tools ok (base=${BASE_TOOLS.length}, aliases=${aliasCount}, corrupt=${String(snapshot.corrupt)}, ${Date.now() - startedAt}ms)`,
+          `[workflow] tools ok (base=${BASE_TOOLS.length}, extension=${extensionCount}, corrupt=${String(snapshot.corrupt)}, ${Date.now() - startedAt}ms)`,
           traceId,
         );
+        // 设置页只要一句「干什么」；完整 description 是给模型看的「怎么做」，留在体内不展示。
+        const withSummary = (entry: any) => ({
+          name: entry.name,
+          kind: entry.kind,
+          summary: summarizeDescription(String(entry.description ?? '')),
+          description: entry.description,
+          run: entry.run,
+          allowed_states: entry.allowed_states,
+          effect: entry.effect,
+          parameters: entry.parameters,
+          version: entry.version,
+        });
         return {
-          base: BASE_TOOLS.map((entry) => ({
-            name: entry.name,
-            summary: entry.summary,
-            description: entry.description,
-            allowed_states: entry.allowed_states,
-            side_effect: entry.side_effect,
-            parameters: entry.parameters,
-          })),
-          aliases: snapshot.byWorkflow,
+          base: BASE_TOOLS.map(withSummary),
+          extension: extensionTools.map(withSummary),
           corrupt: snapshot.corrupt,
           events: recentToolEvents(50),
         };
@@ -977,6 +1024,33 @@ export function apply(ctx: any) {
         if (typeof target !== 'string' || target.trim() === '') throw new Error('缺少 path');
         spawn('explorer.exe', [target.trim()], { stdio: 'ignore', detached: true }).unref();
         return { opened: true };
+      }),
+    }));
+    // 验收报备的 HTTP 入口：给 e2e 脚本用（模型走 workflow_verify_report 工具，不经过这里）。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/verify-report',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
+        const itemId = resolveVerifyCheckId(body?.item);
+        const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
+        if (check === undefined) throw new Error(`没有 ${itemId} 号验收项`);
+        const startedAt = Date.now();
+        const report = validateVerifyReportInput(check, body);
+        const { state, item } = await repository.submitVerifyReport({
+          workflowId: body.id,
+          nodeId: body.nodeId,
+          itemId,
+          report,
+        });
+        logEvent(
+          ctx.logger,
+          'info',
+          `[workflow] verify report via http (node=${body.nodeId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, ${Date.now() - startedAt}ms)`,
+          traceId,
+        );
+        return { item: { id: itemId, mark: item?.mark ?? 'pending' }, round: state.round };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({

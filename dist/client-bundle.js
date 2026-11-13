@@ -587,6 +587,7 @@ window.__ModuleLoader__.load({
      */
     const react_1 = require("react");
     const node_state_label_1 = __req("schema/node-state-label.js");
+    const tool_kind_1 = __req("schema/tool-kind.js");
     const hard_rules_1 = __req("schema/hard-rules.js");
     const manual_limits_1 = __req("schema/manual-limits.js");
     const node_state_color_1 = __req("client/node-state-color.js");
@@ -678,8 +679,23 @@ window.__ModuleLoader__.load({
             return '';
         return states.map((state) => node_state_label_1.NODE_STATE_LABEL[state] ?? String(state)).join(' / ');
     }
+    /** 执行方式压成一句：扩展工具显示它指向哪个内置检查器；基础工具没有 run。 */
+    function toolRunText(run) {
+        if (typeof run !== 'object' || run === null)
+            return '';
+        const parsed = run;
+        return parsed.kind === 'checker' ? `检查器 ${parsed.checker ?? '?'}` : '';
+    }
+    /** 副作用分级：登记审批时提示的就是这三档。 */
+    function toolEffectText(effect) {
+        if (effect === 'exec')
+            return '跑进程';
+        if (effect === 'write-state')
+            return '会改状态';
+        return '只读';
+    }
     /**
-     * 设置页里的只读「工具」页签：目录（基础 + 别名）+ 最近调用/拒绝。
+     * 设置页里的只读「工具」页签：目录（内置 + 登记）+ 最近调用/登记。
      *
      * 和附表一样：点开才取，读失败给重试，绝不用空清单冒充「目录是空的」。
      */
@@ -687,7 +703,7 @@ window.__ModuleLoader__.load({
         const [attempt, setAttempt] = (0, react_1.useState)(0);
         const [status, setStatus] = (0, react_1.useState)('loading');
         const [base, setBase] = (0, react_1.useState)([]);
-        const [aliases, setAliases] = (0, react_1.useState)({});
+        const [extension, setExtension] = (0, react_1.useState)([]);
         const [events, setEvents] = (0, react_1.useState)([]);
         const [corrupt, setCorrupt] = (0, react_1.useState)(false);
         const [error, setError] = (0, react_1.useState)('');
@@ -709,12 +725,12 @@ window.__ModuleLoader__.load({
                         return;
                     }
                     setBase(Array.isArray(body.base) ? body.base : []);
-                    setAliases(body.aliases !== null && typeof body.aliases === 'object' ? body.aliases : {});
+                    setExtension(Array.isArray(body.extension) ? body.extension : []);
                     setEvents(Array.isArray(body.events) ? body.events : []);
                     setCorrupt(body.corrupt === true);
                     setStatus('ready');
                     // 成功也留一跳：服务端只证明「返回了」，这条才证明「页面拿到了」。
-                    void (0, client_log_1.reportClientEvent)('info', `[tools] 已取回 基础 ${Array.isArray(body.base) ? body.base.length : 0} 条`);
+                    void (0, client_log_1.reportClientEvent)('info', `[tools] 已取回 ${tool_kind_1.TOOL_KIND_LABEL.base} ${Array.isArray(body.base) ? body.base.length : 0} 条`);
                 }
                 catch (reason) {
                     if (!cancelled) {
@@ -740,12 +756,12 @@ window.__ModuleLoader__.load({
                             fontSize: 12,
                         }, children: "\u91CD\u8BD5" })] }));
         }
-        const aliasGroups = Object.entries(aliases).filter(([, items]) => Array.isArray(items) && items.length > 0);
-        return ((0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', minHeight: 0 }, children: [corrupt ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1.5 }, children: "\u522B\u540D\u6587\u4EF6\u635F\u574F\uFF1A\u522B\u540D\u6682\u65F6\u4E0D\u53EF\u7528\uFF0C\u57FA\u7840\u5DE5\u5177\u4E0D\u53D7\u5F71\u54CD\u3002" })) : null, (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { style: LABEL_STYLE, children: ["\u57FA\u7840\u5DE5\u5177\uFF08", base.length, "\uFF09"] }), base.map((item) => ((0, jsx_runtime_1.jsxs)("div", { style: { marginBottom: 6 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, fontWeight: 600 }, children: [item.name, (0, jsx_runtime_1.jsxs)("span", { style: { marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: [toolStatesText(item.allowed_states), " \u00B7 ", item.side_effect === 'write' ? '会改状态' : '只读'] })] }), (0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }, children: item.summary })] }, item.name)))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("div", { style: LABEL_STYLE, children: "\u522B\u540D\uFF08\u6309\u5DE5\u4F5C\u533A\u5206\u7EC4\uFF1B\u6A21\u578B\u7528 workflow_tool_add \u7533\u8BF7\uFF0C\u53EA\u767B\u8BB0\u4E0D\u6267\u884C\uFF09" }), aliasGroups.length === 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD8\u6CA1\u6709\u522B\u540D" })) : aliasGroups.map(([workflowId, items]) => ((0, jsx_runtime_1.jsxs)("div", { style: { marginBottom: 8 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u5DE5\u4F5C\u533A ", workflowId] }), items.map((item) => ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, lineHeight: 1.6 }, children: [item.name, " \u2192 ", item.base_tool, (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: toolStatesText(item.allowed_states) })] }, item.name)))] }, workflowId)))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("div", { style: LABEL_STYLE, children: "\u6700\u8FD1\u8C03\u7528 / \u62D2\u7EDD\uFF08\u6700\u591A 50 \u6761\uFF09" }), events.length === 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD8\u6CA1\u6709\u8BB0\u5F55" })) : events.slice().reverse().map((item, index) => ((0, jsx_runtime_1.jsxs)("div", { style: {
+        const row = (item, key, isBase) => ((0, jsx_runtime_1.jsxs)("div", { style: { marginBottom: 6 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, fontWeight: 600 }, children: [item.name, (0, jsx_runtime_1.jsxs)("span", { style: { marginLeft: 6, fontWeight: 400, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }, children: [toolStatesText(item.allowed_states), " \u00B7 ", toolRunText(item.run), " \u00B7 ", toolEffectText(item.effect), isBase ? '' : ` · v${item.version ?? '?'}`] })] }), (0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 }, children: item.summary ?? item.description })] }, key));
+        return ((0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', minHeight: 0 }, children: [corrupt ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-state-warn-primary)', lineHeight: 1.5 }, children: "\u5DE5\u5177\u8868\u635F\u574F\uFF1A\u6269\u5C55\u5DE5\u5177\u6682\u65F6\u4E0D\u53EF\u7528\uFF0C\u57FA\u7840\u5DE5\u5177\u4E0D\u53D7\u5F71\u54CD\u3002" })) : null, (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { style: LABEL_STYLE, children: [tool_kind_1.TOOL_KIND_LABEL.base, "\uFF08", base.length, "\uFF09"] }), base.map((item) => row(item, `base-${item.name}`, true))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { style: LABEL_STYLE, children: [tool_kind_1.TOOL_KIND_LABEL.extension, "\uFF08", extension.length, "\uFF09"] }), extension.length === 0 ? ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u8FD8\u6CA1\u6709", tool_kind_1.TOOL_KIND_LABEL.extension, "\uFF1A\u6A21\u578B\u7528 workflow_tool_add \u7533\u8BF7\uFF0C\u7ECF\u4F60\u540C\u610F\u540E\u624D\u751F\u6548\u3002"] })) : extension.map((item) => row(item, `ext-${item.name}`, false))] }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("div", { style: LABEL_STYLE, children: "\u6700\u8FD1\u8C03\u7528 / \u767B\u8BB0\uFF08\u6700\u591A 50 \u6761\uFF09" }), events.length === 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, children: "\u8FD8\u6CA1\u6709\u8BB0\u5F55" })) : events.slice().reverse().map((item, index) => ((0, jsx_runtime_1.jsxs)("div", { style: {
                                 fontSize: 11.5,
                                 lineHeight: 1.6,
                                 color: item.decision === 'allow' ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-state-error-primary)',
-                            }, children: [item.at.slice(11, 19), " ", item.kind === 'add' ? '登记' : '调用', " ", item.name, " \u00B7 ", item.decision, item.code ? `（${item.code}）` : '', item.ms !== undefined ? ` · ${item.ms}ms` : ''] }, `${item.at}-${index}`)))] })] }));
+                            }, children: [item.at.slice(11, 19), " ", item.kind === 'add' ? '登记' : '调用', " ", item.name, " \u00B7 ", item.decision, item.code ? `（${item.code}）` : '', item.ms !== undefined ? ` · ${item.ms}ms` : '', item.checker ? ` · ${item.checker}` : '', item.findings !== undefined ? ` · ${item.findings} 项不合格` : '', item.approval ? ` · 审批 ${item.approval}` : ''] }, `${item.at}-${index}`)))] })] }));
     }
     /**
      * 附表：设置页里的只读清单。
@@ -1378,6 +1394,23 @@ window.__ModuleLoader__.load({
     }
     //# sourceMappingURL=workflow-dialogs.js.map
     },
+    "schema/tool-kind.js": function(__req, module, exports) {
+    "use strict";
+    /**
+     * 工具分类：分类名只在这里定义，别处读标签表，不写死字面量。
+     *
+     * 单独成文件是为了客户端包瘦身：客户端只需要标签表，
+     * 不需要为了它把整份工具目录（含 10 条工具描述）打进去。
+     */
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.TOOL_KIND_LABEL = exports.TOOL_KIND = void 0;
+    exports.TOOL_KIND = { base: 'base', extension: 'extension' };
+    exports.TOOL_KIND_LABEL = {
+        base: '基础工具',
+        extension: '扩展工具',
+    };
+    //# sourceMappingURL=tool-kind.js.map
+    },
     "schema/hard-rules.js": function(__req, module, exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -1412,7 +1445,7 @@ window.__ModuleLoader__.load({
      * 客户端设置页还要显示默认值；不能把 zod 或仓储实现带进客户端包。
      */
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.ManualLimitError = exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
+    exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
     exports.countManualChars = countManualChars;
     exports.stripManualEvidence = stripManualEvidence;
     exports.sanitizeManualLimits = sanitizeManualLimits;
@@ -1481,7 +1514,6 @@ window.__ModuleLoader__.load({
             this.name = 'ManualLimitError';
         }
     }
-    exports.ManualLimitError = ManualLimitError;
     /**
      * 写入前的硬校验：超了直接抛错。
      * @returns 实际计入的字数（已剥离勾选证据）。

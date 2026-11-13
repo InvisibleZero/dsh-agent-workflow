@@ -6,11 +6,26 @@
  *
  * 本文件必须保持**无运行时依赖**：客户端半的 tsconfig 也会编译 src/schema，
  * 这里不能引 zod、不能引 node 内置模块。
+ *
+ * 2026-11-13 起工具集分两类：基础工具（代码定义）与扩展工具（登记而来，执行体只能是脚本）。
+ * 两类同型（ToolEntry），靠 kind 区分；分类名只在这里定义，别处一律读标签表。
  */
 
 export type ToolState = 'discussing' | 'implementing' | 'verifying' | 'completed';
 
-export type ToolSideEffect = 'read' | 'write';
+/** 工具分类：定义在 tool-kind.ts（客户端只引那一份），这里 re-export 方便宿主侧使用。 */
+export { TOOL_KIND, TOOL_KIND_LABEL } from './tool-kind';
+export type { ToolKind } from './tool-kind';
+import { TOOL_KIND, type ToolKind } from './tool-kind';
+
+/**
+ * 扩展工具的执行方式：交给哪个内置检查器。
+ * checker 必须是 `engine/checkers` 注册表里的 id——插件不执行外部脚本。
+ */
+export type ToolRun = { kind: 'checker'; checker: string };
+
+/** 副作用分级：审批界面按它排序，exec 最危险。 */
+export type ToolEffect = 'read-state' | 'write-state' | 'exec';
 
 /** 参数值的最小 JSON Schema 子集：够校验五类工具的参数，不引入第三方校验器。 */
 export interface ToolValueSchema {
@@ -32,35 +47,22 @@ export interface ToolParameterSchema {
   additionalProperties?: boolean;
 }
 
-/** 目录条目：基础工具与别名在网关眼里是同一种东西，靠 base_tool 区分执行入口。 */
-export interface ToolCatalogEntry {
+/**
+ * 一条工具。
+ *
+ * 基础工具由代码定义、不可被登记覆盖；扩展工具带 run / version / created_at。
+ * parameters 是给模型看的 JSON Schema：基础工具必填，扩展工具可以是宽松 schema。
+ */
+export interface ToolEntry {
   name: string;
-  /** 进系统提示的一句话说明（短）；长说明放 description，只给设置页看。 */
-  summary: string;
   description: string;
-  /** 真正执行的基础工具名；基础条目等于自身。 */
-  base_tool: string;
-  /** 预置参数：调用参数只能补剩余字段，不能覆盖这里的键。 */
-  fixed_args: Record<string, unknown>;
+  kind: ToolKind;
+  /** 扩展工具必须带；基础工具没有（由 name 分派到内置 handler）。 */
+  run?: ToolRun;  allowed_states: ToolState[];
+  effect: ToolEffect;
   parameters: ToolParameterSchema;
-  allowed_states: ToolState[];
-  side_effect: ToolSideEffect;
-  /** 别名条目标记为 true；基础条目省略。 */
-  alias?: boolean;
   version?: number;
   created_at?: string;
-}
-
-/** 别名条目：持久化在 <baseDir>/tool-aliases.json，按 workflow_id 分组。 */
-export interface ToolAliasEntry {
-  tool_id: string;
-  name: string;
-  description: string;
-  base_tool: string;
-  fixed_args: Record<string, unknown>;
-  allowed_states: ToolState[];
-  created_at: string;
-  version: number;
 }
 
 export const ALL_STATES: ToolState[] = ['discussing', 'implementing', 'verifying', 'completed'];
@@ -88,19 +90,20 @@ const FINDING_SCHEMA: ToolValueSchema = {
 };
 
 /**
- * 五个基础工具：参数 schema 与原 tools.register 的定义保持一致，
- * 只把描述压缩到注入预算内（关键规则一条不丢）。
+ * 五个基础工具：name 就是分派键，parameters 是给模型的参数 schema。
+ * description 的第一句会被注入系统提示（见 tool-policy 的 summarizeDescription），
+ * 所以第一句必须能独立说明「什么时候用」。
  */
-export const BASE_TOOLS: ToolCatalogEntry[] = [
+export const BASE_TOOLS: ToolEntry[] = [
   {
     name: 'workflow_advance',
-    summary: '请求切阶段，只登记、需用户点同意；返工必须给 reason。',
-    description:
-      '请求把当前工作流会话切换阶段。它只登记请求、不改变阶段：用户必须在界面上点「同意」才生效（5 分钟未处理作废）。'
+    description: '请求把工作流推进到下一阶段，需要你点同意。'
+      + '只登记请求、不改状态：用户必须在界面上点「同意」才生效（5 分钟未处理作废）；返工（向后）必须给 reason。'
       + '讨论中→实现中前方案必须已写入会话手册；实现中→验收中前实施顺序必须全部勾选；验收中→已完结前七项必须全部报备。'
-      + '返工（向后）必须给 reason。收尾时把四件事写进项目手册（新决策 / 新坑 / 都没有写「无」 / 文档与实现是否一致），再同步会话手册。',
-    base_tool: 'workflow_advance',
-    fixed_args: {},
+      + '收尾时把四件事写进项目手册（新决策 / 新坑 / 都没有写「无」 / 文档与实现是否一致），再同步会话手册。',
+    kind: TOOL_KIND.base,
+    allowed_states: [...ALL_STATES],
+    effect: 'write-state',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -114,19 +117,16 @@ export const BASE_TOOLS: ToolCatalogEntry[] = [
         reason: { type: 'string', description: 'Required when moving backward (rework): why the previous stage was insufficient.' },
       },
     },
-    allowed_states: [...ALL_STATES],
-    side_effect: 'write',
   },
   {
     name: 'workflow_manual',
-    summary: '读写手册；会话手册只能改方案/实施顺序（后者仅讨论中）；条目必须带标签。',
-    description:
-      '读写会话手册 / 项目手册。target=session 可写「方案」「实施顺序」（实施顺序只在讨论中可定义，之后只能勾选）；'
-      + 'target=project 可写 项目总览 / 决策记录 / 约束 / 坑与防线 / 标签表。replace_section 只替换一个小节正文；'
-      + '项目手册条目用 append_entry / update_entry（必须带 1 个以上标签）、remove_entry 删除、rename_tag 合并标签。'
+    description: '读写会话手册与项目手册。'
+      + '会话手册只能改「方案」和「实施顺序」（后者仅讨论中，之后只能勾选）；项目手册条目用 append_entry / update_entry 写，必须带 1 个以上标签。'
+      + 'replace_section 只替换一个小节正文；remove_entry 删除条目、rename_tag 合并标签。'
       + '方案上限 1200 字、约束 300 字、会话手册整本 2000 字，超了拒写；勾选证据不计入。',
-    base_tool: 'workflow_manual',
-    fixed_args: {},
+    kind: TOOL_KIND.base,
+    allowed_states: [...ALL_STATES],
+    effect: 'write-state',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -150,17 +150,15 @@ export const BASE_TOOLS: ToolCatalogEntry[] = [
         to: { type: 'string', description: 'rename_tag: the tag to keep. Use this to merge synonyms when the table is full.' },
       },
     },
-    allowed_states: [...ALL_STATES],
-    side_effect: 'write',
   },
   {
     name: 'workflow_check',
-    summary: '勾选/取消实施顺序已有条目；勾选必须带 evidence；讨论中不可用。',
-    description:
-      '勾选或取消「实施顺序」里的一个已有条目：条目文本必须完全一致，不能新增、改写或重排。'
-      + '勾选必须带 evidence（怎么验的、结果如何），证据写进清单行；全部勾完才能进「验收中」。讨论中不可用。',
-    base_tool: 'workflow_check',
-    fixed_args: {},
+    description: '勾选或取消实施顺序里的条目，勾选必须带证据。'
+      + '条目文本必须完全一致，不能新增、改写或重排；讨论中不可用；全部勾完才能进「验收中」。'
+      + '证据写进清单行，例：跑 node test.mjs，12 项全过。',
+    kind: TOOL_KIND.base,
+    allowed_states: ['implementing', 'verifying', 'completed'],
+    effect: 'write-state',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -171,18 +169,15 @@ export const BASE_TOOLS: ToolCatalogEntry[] = [
         evidence: { type: 'string', description: '勾选时必填：这一层怎么验的、结果是什么（自由文本，例：跑 node test.mjs，12 项全过）。取消勾选可省略。' },
       },
     },
-    allowed_states: ['implementing', 'verifying', 'completed'],
-    side_effect: 'write',
   },
   {
     name: 'workflow_verify_report',
-    summary: '验收报备一项：pass→✓ / deferred→？；锚点须在工作目录内；1/4/7 项带命令。',
-    description:
-      '在「验收中」为七项中的一项提交报备：pass→✓，deferred（查出问题本轮不修）→？。'
-      + '必须带至少一个工作目录内真实存在的锚点（文件 + 可选行号）；deferred 还必须写 findings（位置/问题/为什么不修/影响）。'
+    description: '为七项验收中的一项提交报备：通过记 ✓，查出问题不修记 ？。'
+      + '必须带至少一个工作目录内真实存在的锚点（文件 + 可选行号）；deferred 还要写 findings（位置/问题/为什么不修/影响）。'
       + '第 1/4/7 项必须带复跑命令。每次进入验收中轮次 +1，旧报备自动失效。',
-    base_tool: 'workflow_verify_report',
-    fixed_args: {},
+    kind: TOOL_KIND.base,
+    allowed_states: ['verifying'],
+    effect: 'write-state',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -196,16 +191,14 @@ export const BASE_TOOLS: ToolCatalogEntry[] = [
         findings: { type: 'array', items: FINDING_SCHEMA, description: 'deferred 时必填：每条写清 位置 / 问题 / 为什么不修 / 影响什么。' },
       },
     },
-    allowed_states: ['verifying'],
-    side_effect: 'write',
   },
   {
     name: 'workflow_verify_check',
-    summary: '只能撤验收勾（done=false）；打勾只能靠 report。',
-    description:
-      '只能取消验收勾（done=false）。AI 不能直接打勾：标记只能由 workflow_verify_report 产生；需要重新打勾就重新报备。只能在「验收中」用。',
-    base_tool: 'workflow_verify_check',
-    fixed_args: {},
+    description: '撤回某项验收标记（只能撤，不能打勾）。'
+      + '标记只能由 workflow_verify_report 产生；需要重新打勾就重新报备。只能在「验收中」用。',
+    kind: TOOL_KIND.base,
+    allowed_states: ['verifying'],
+    effect: 'write-state',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -215,10 +208,64 @@ export const BASE_TOOLS: ToolCatalogEntry[] = [
         done: { type: 'boolean', description: '只能是 false（取消勾）。传 true 会被拒。' },
       },
     },
-    allowed_states: ['verifying'],
-    side_effect: 'write',
   },
 ];
 
-/** 基础工具名集合：别名只能挂在这五个上，不能挂别名（禁止链式）。 */
-export const BASE_TOOL_NAMES: string[] = BASE_TOOLS.map((entry) => entry.name);
+/**
+ * 出厂扩展工具：全部指向 `src/engine/checkers` 里的检查器，随代码分发。
+ *
+ * 为什么在代码里而不是 JSON：checker 的实现也在代码里，定义和实现分开两处迟早对不上。
+ * 开发期仍可用 `workflow_tool_add` 往 `tools/tool-registry.json` 加额外工具，那是增量，不在这里。
+ */
+export const EXTENSION_TOOLS: ToolEntry[] = [
+  {
+    name: 'check_contract',
+    description: '跑契约测试并判结果。先执行 vitest run test 生成证据，再判用例数与失败数：0 个用例、有失败都报不合格。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'contract' },
+    allowed_states: ['verifying'],
+    effect: 'read-state',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
+  {
+    name: 'check_deps',
+    description: '跑依赖边界检查并判结果。先执行 dependency-cruiser 扫描 src，再把循环依赖与跨层引用报成不合格。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'deps' },
+    allowed_states: ['verifying'],
+    effect: 'read-state',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
+  {
+    name: 'check_deadcode',
+    description: '跑死代码扫描并判结果。先执行 knip，再把未使用的文件 / 导出 / 依赖报成不合格。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'deadcode' },
+    allowed_states: ['verifying'],
+    effect: 'read-state',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
+  {
+    name: 'check_boundary',
+    description: '跑边界测试并判结果。先执行 vitest run test/boundary 生成证据，再判用例数与失败数，与契约测试分开取证据。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'boundary' },
+    allowed_states: ['verifying'],
+    effect: 'read-state',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
+  {
+    name: 'check_regression',
+    description: '检查回归与压测证据（不自动跑，压测目标由项目自己定）。读 .workflow/evidence/regression.json，判用例数与失败数，耗时随结果返回。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'regression' },
+    allowed_states: ['verifying'],
+    effect: 'read-state',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
+];

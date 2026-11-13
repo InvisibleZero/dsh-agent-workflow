@@ -9,3 +9,4 @@ coverage/
 *.tsbuildinfo
 workflows/
 logs/
+.acl-recovery/

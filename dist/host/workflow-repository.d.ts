@@ -3,8 +3,6 @@ import { type ManualLimits } from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
 import { type VerificationState, type VerifyItem } from '../schema/verify-checks';
 import { type VerifyReportInput } from '../engine/verify-rules';
-/** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
-export declare const BUILTIN_PROFILE_NAME = "\u9ED8\u8BA4\u5B58\u6863";
 /**
  * workflow 工作区的持久化仓库：一份快照文件 = 一个 workflow 工作区。
  * 存储目录：<baseDir>/workflows/<workspace_id>.json（复用 JsonStorageAdapter 的原子写 + 迁移）。
@@ -30,12 +28,18 @@ export type BrokenSnapshotHandler = (fileName: string, error: unknown) => void;
 export declare function buildRootNode(id: string, maxDepth: number, maxSteps: number): AgentNode;
 export declare class WorkflowRepository {
     readonly baseDir: string;
+    readonly settingsDir: string;
     private readonly storage;
     /** 手册元数据缓存：key = workflowId:nodeId，按文件 mtime 失效，避免每次轮询都读盘。 */
     private readonly manualMetaCache;
     /** 每个工作区的写队列（串行化读-改-写，避免并发覆盖丢更新）。 */
     private readonly writeQueues;
-    constructor(baseDir: string);
+    /**
+     * @param baseDir     运行数据目录（workflows / trash / exports）：留在用户目录。
+     * @param settingsDir 设置目录（global-settings / app-settings）：默认随插件走，
+     *                    进 git；运行时数据不写这里，避免把用户工作流混进仓库。
+     */
+    constructor(baseDir: string, settingsDir?: string);
     /**
      * 按 key（通常是 workflowId 或工作目录）串行执行写操作。
      * 前一个任务无论成功失败，后面的都会接着跑；返回本次任务的真实结果。
@@ -54,7 +58,7 @@ export declare class WorkflowRepository {
     getGlobalOperationDetail(id: string): Promise<WorkflowSnapshot['settings']['global_operation_detail'] | null>;
     /** 存档目录：一份存档 = 一个 json 文件；内置「默认存档」来自代码常量，不落盘。 */
     private profilesDir;
-    /** 当前生效存档的指针：只存一个名字，存在 <baseDir>/global-settings.json。 */
+    /** 当前生效存档的指针：只存一个名字，存在 <settingsDir>/global-settings.json。 */
     private activePointerPath;
     /** 存档名 → 文件名：去掉路径分隔符等非法字符并限长，防止写到目录外。 */
     private profileFileName;
@@ -237,7 +241,7 @@ export declare class WorkflowRepository {
     } | null>;
     /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
-     * 存在 <baseDir>/app-settings.json。
+     * 存在 <settingsDir>/app-settings.json。
      */
     private appSettingsPath;
     getAppSettings(): Promise<{

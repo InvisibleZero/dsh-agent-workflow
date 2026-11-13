@@ -6,9 +6,25 @@
  *
  * 本文件必须保持**无运行时依赖**：客户端半的 tsconfig 也会编译 src/schema，
  * 这里不能引 zod、不能引 node 内置模块。
+ *
+ * 2026-11-13 起工具集分两类：基础工具（代码定义）与扩展工具（登记而来，执行体只能是脚本）。
+ * 两类同型（ToolEntry），靠 kind 区分；分类名只在这里定义，别处一律读标签表。
  */
 export type ToolState = 'discussing' | 'implementing' | 'verifying' | 'completed';
-export type ToolSideEffect = 'read' | 'write';
+/** 工具分类：定义在 tool-kind.ts（客户端只引那一份），这里 re-export 方便宿主侧使用。 */
+export { TOOL_KIND, TOOL_KIND_LABEL } from './tool-kind';
+export type { ToolKind } from './tool-kind';
+import { type ToolKind } from './tool-kind';
+/**
+ * 扩展工具的执行方式：交给哪个内置检查器。
+ * checker 必须是 `engine/checkers` 注册表里的 id——插件不执行外部脚本。
+ */
+export type ToolRun = {
+    kind: 'checker';
+    checker: string;
+};
+/** 副作用分级：审批界面按它排序，exec 最危险。 */
+export type ToolEffect = 'read-state' | 'write-state' | 'exec';
 /** 参数值的最小 JSON Schema 子集：够校验五类工具的参数，不引入第三方校验器。 */
 export interface ToolValueSchema {
     type: 'string' | 'number' | 'boolean' | 'object' | 'array';
@@ -27,41 +43,36 @@ export interface ToolParameterSchema {
     required?: string[];
     additionalProperties?: boolean;
 }
-/** 目录条目：基础工具与别名在网关眼里是同一种东西，靠 base_tool 区分执行入口。 */
-export interface ToolCatalogEntry {
+/**
+ * 一条工具。
+ *
+ * 基础工具由代码定义、不可被登记覆盖；扩展工具带 run / version / created_at。
+ * parameters 是给模型看的 JSON Schema：基础工具必填，扩展工具可以是宽松 schema。
+ */
+export interface ToolEntry {
     name: string;
-    /** 进系统提示的一句话说明（短）；长说明放 description，只给设置页看。 */
-    summary: string;
     description: string;
-    /** 真正执行的基础工具名；基础条目等于自身。 */
-    base_tool: string;
-    /** 预置参数：调用参数只能补剩余字段，不能覆盖这里的键。 */
-    fixed_args: Record<string, unknown>;
-    parameters: ToolParameterSchema;
+    kind: ToolKind;
+    /** 扩展工具必须带；基础工具没有（由 name 分派到内置 handler）。 */
+    run?: ToolRun;
     allowed_states: ToolState[];
-    side_effect: ToolSideEffect;
-    /** 别名条目标记为 true；基础条目省略。 */
-    alias?: boolean;
+    effect: ToolEffect;
+    parameters: ToolParameterSchema;
     version?: number;
     created_at?: string;
 }
-/** 别名条目：持久化在 <baseDir>/tool-aliases.json，按 workflow_id 分组。 */
-export interface ToolAliasEntry {
-    tool_id: string;
-    name: string;
-    description: string;
-    base_tool: string;
-    fixed_args: Record<string, unknown>;
-    allowed_states: ToolState[];
-    created_at: string;
-    version: number;
-}
 export declare const ALL_STATES: ToolState[];
 /**
- * 五个基础工具：参数 schema 与原 tools.register 的定义保持一致，
- * 只把描述压缩到注入预算内（关键规则一条不丢）。
+ * 五个基础工具：name 就是分派键，parameters 是给模型的参数 schema。
+ * description 的第一句会被注入系统提示（见 tool-policy 的 summarizeDescription），
+ * 所以第一句必须能独立说明「什么时候用」。
  */
-export declare const BASE_TOOLS: ToolCatalogEntry[];
-/** 基础工具名集合：别名只能挂在这五个上，不能挂别名（禁止链式）。 */
-export declare const BASE_TOOL_NAMES: string[];
+export declare const BASE_TOOLS: ToolEntry[];
+/**
+ * 出厂扩展工具：全部指向 `src/engine/checkers` 里的检查器，随代码分发。
+ *
+ * 为什么在代码里而不是 JSON：checker 的实现也在代码里，定义和实现分开两处迟早对不上。
+ * 开发期仍可用 `workflow_tool_add` 往 `tools/tool-registry.json` 加额外工具，那是增量，不在这里。
+ */
+export declare const EXTENSION_TOOLS: ToolEntry[];
 //# sourceMappingURL=tool-catalog.d.ts.map

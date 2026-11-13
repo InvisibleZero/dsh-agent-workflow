@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowTools } from '../src/host/workflow-tools';
-import { ToolAliasStore } from '../src/host/tool-alias-store';
+import { ToolRegistryStore } from '../src/host/tool-registry';
 
 const SESSION = 'session-back-test';
 const EXEC = { agent: { session: { id: SESSION } } } as any;
@@ -26,7 +26,7 @@ function makeToolRuntime(repository: WorkflowRepository) {
   };
   registerWorkflowTools(ctx as any, {
     repository,
-    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-back-alias-unused')),
+    registryStore: new ToolRegistryStore(join(tmpdir(), 'wf-back-registry-unused')),
     recordToolEvent: () => {},
     stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,

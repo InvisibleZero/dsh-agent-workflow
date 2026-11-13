@@ -97,8 +97,8 @@ export function registerWorkflowStateContext(
   repository: any,
   /** 只有返回 true 的会话才注入；由宿主半按"这个会话是不是工作流预设"判定。 */
   isWorkflowSession: (sessionId: string) => boolean = () => true,
-  /** 工具目录文本：按 workflow 现算（基础 5 条 + 本工作区别名），不在这里读文件。 */
-  options?: { catalogTextOf?: (workflowId: string) => Promise<string> },
+  /** 工具目录文本：按当前状态现算（基础 + 扩展，按状态过滤），不在这里读文件。 */
+  options?: { catalogTextOf?: (state: string) => Promise<string> },
 ): { peek: (sessionId: string) => Promise<string>; refreshNow: (sessionId: string) => Promise<string> } {
   /** sessionId -> 本轮各层文本（同步可读，供 systemPrompt.context 使用）。 */
   const cache = new Map<string, BuiltContext>();
@@ -210,11 +210,11 @@ export function registerWorkflowStateContext(
     }
 
     // 工具目录：模型不再原生看到 5 个工具，靠这一层知道「有哪些工具、怎么调」。
-    // 读别名失败不能把整轮注入拖垮：目录缺了就退回只剩基础工具，并在事件里留痕。
+    // 读工具表失败不能把整轮注入拖垮：目录缺了就退回只剩基础工具，并在事件里留痕。
     let toolCatalog = '';
     if (typeof options?.catalogTextOf === 'function') {
       try {
-        toolCatalog = await options.catalogTextOf(found.workflowId);
+        toolCatalog = await options.catalogTextOf(node.current_state);
       } catch (error) {
         logEvent(ctx.logger, 'warn', `[workflow] tool catalog failed (session=${sessionId}): ${String((error as Error)?.message ?? error)}`);
       }

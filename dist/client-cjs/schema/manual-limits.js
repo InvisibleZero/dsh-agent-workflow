@@ -9,7 +9,7 @@
  * 客户端设置页还要显示默认值；不能把 zod 或仓储实现带进客户端包。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ManualLimitError = exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
+exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
 exports.countManualChars = countManualChars;
 exports.stripManualEvidence = stripManualEvidence;
 exports.sanitizeManualLimits = sanitizeManualLimits;
@@ -78,7 +78,6 @@ class ManualLimitError extends Error {
         this.name = 'ManualLimitError';
     }
 }
-exports.ManualLimitError = ManualLimitError;
 /**
  * 写入前的硬校验：超了直接抛错。
  * @returns 实际计入的字数（已剥离勾选证据）。

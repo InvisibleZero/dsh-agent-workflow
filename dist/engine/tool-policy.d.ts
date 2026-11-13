@@ -1,5 +1,11 @@
-import { type ToolAliasEntry, type ToolCatalogEntry, type ToolParameterSchema, type ToolState } from '../schema/tool-catalog';
-export type DenyCode = 'unknown-tool' | 'stage-denied' | 'arguments-invalid' | 'arguments-override' | 'base-tool-invalid' | 'name-invalid' | 'name-duplicate' | 'description-invalid' | 'fixed-args-invalid' | 'sample-args-invalid' | 'states-invalid';
+import { type ToolEntry, type ToolKind } from '../schema/tool-catalog';
+/** 每类工具的条数上限：只卡「验收中」这一档，两类各自独立计数。 */
+export declare const TOOL_LIMIT_BY_KIND: Record<ToolKind, number>;
+/** 出厂工具名（基础 + 扩展）：登记工具不能重名（挡住"覆盖出厂工具"这条路）。 */
+export declare const FACTORY_TOOL_NAMES: string[];
+/** 完整出厂目录：5 个基础工具 + 5 个扩展工具，不读盘。 */
+export declare const FACTORY_TOOLS: ToolEntry[];
+export type DenyCode = 'unknown-tool' | 'stage-denied' | 'arguments-invalid' | 'name-invalid' | 'name-duplicate' | 'description-invalid' | 'sample-args-invalid' | 'states-invalid' | 'run-invalid' | 'effect-invalid' | 'script-invalid' | 'quota-exceeded';
 export type ToolDecision = {
     allow: true;
 } | {
@@ -7,45 +13,55 @@ export type ToolDecision = {
     code: DenyCode;
     message: string;
 };
-export type AliasValidation = {
+export type RegistrationValidation = {
     ok: true;
-    parameters: ToolParameterSchema;
-    allowedStates: ToolState[];
+    entry: ToolEntry;
 } | {
     ok: false;
     code: DenyCode;
     message: string;
 };
-/**
- * 别名可见的参数 = 基础参数去掉固定键。
- * 固定键从 properties 里整个删掉：调用时传了它会被 additionalProperties=false 挡下，
- * 同时 decideToolCall 还会先给一个更明确的 arguments-override。
- */
-export declare function deriveAliasParameters(base: ToolParameterSchema, fixedArgs: Record<string, unknown>): ToolParameterSchema;
-/** 基础目录 + 本工作区别名 = 模型这次能看到的目录；基础工具不存在的脏别名直接丢弃。 */
-export declare function mergeCatalog(base: ToolCatalogEntry[], aliases: ToolAliasEntry[]): ToolCatalogEntry[];
-/** 参数校验：args 必须是对象，且满足目录条目的 schema。 */
-export declare function validateToolArgs(schema: ToolParameterSchema, args: unknown): string | undefined;
-/** 网关调用前的唯一判定点：阶段 → 固定值覆盖 → 参数。 */
+/** 内置 + 登记 = 完整目录；与基础工具同名的登记条目直接丢掉（登记时已挡，这里兜底）。 */
+export declare function mergeCatalog(base: ToolEntry[], registered: ToolEntry[]): ToolEntry[];
+/** 当前状态能看到的工具：目录按 allowed_states 过滤，不做任何分组。 */
+export declare function visibleTools(entries: ToolEntry[], state: string): ToolEntry[];
+/** 按 kind 统计某状态下的可见条数：两类配额各自独立，就是靠这个计数。 */
+export declare function countVisibleByKind(entries: ToolEntry[], state: string): Record<ToolKind, number>;
+/** 网关调用前的唯一判定点：阶段 → 参数。 */
 export declare function decideToolCall(input: {
     state: string;
-    entry: ToolCatalogEntry;
+    entry: ToolEntry;
     args: unknown;
 }): ToolDecision;
-/** 合并固定参数：调用参数只能补剩余字段（判定已挡掉覆盖，这里固定值仍然优先）。 */
-export declare function mergeArgs(fixed: Record<string, unknown> | undefined, call: unknown): Record<string, unknown>;
 /** 参数摘要进审计账：截断 + 去掉换行，避免一条日志占满整个事件环。 */
 export declare function summarizeArgs(args: unknown, maxChars?: number): string;
-/** 别名校验：四关里除「账」以外的全部规则（类型 / 静态 / 样例 / 阶段继承）。 */
-export declare function validateAliasInput(input: {
+/**
+ * 登记校验：新增与更新共用，产物一律是扩展工具。
+ *
+ * 和调用的区别：登记是「造工具」，所以校验 run / effect / 配额 / 样例参数；
+ * 调用只校验「这个状态能不能用、参数对不对」。
+ *
+ * parameters：基础工具必填，扩展工具可选（不传就是宽松 schema）。
+ * 配额：只卡验收中，且按 kind 分别计数——两类工具各自的上限互不挤占。
+ */
+export declare function validateToolRegistration(input: {
     name: unknown;
     description: unknown;
-    baseTool: unknown;
-    fixedArgs: unknown;
+    run: unknown;
+    effect: unknown;
     allowedStates: unknown;
+    parameters: unknown;
+    parametersGiven: boolean;
     sampleArgs: unknown;
     existingNames: string[];
-}): AliasValidation;
-/** 注入给模型的目录文本：名字 + 可用阶段 + 必填参数 + 一句话说明。 */
-export declare function renderCatalogText(entries: ToolCatalogEntry[]): string;
+    verifyingCounts: Record<ToolKind, number>;
+    mode: 'create' | 'update';
+}): RegistrationValidation;
+/** 描述第一句：注入只留这一句，长描述留给设置页。 */
+export declare function summarizeDescription(description: string, maxChars?: number): string;
+/**
+ * 注入给模型的目录文本：当前状态能看到的工具，一张表，不分段、不标类别。
+ * 名字 + 可用阶段 + 必填参数 + 一句话说明。
+ */
+export declare function renderCatalogText(entries: ToolEntry[], state: string): string;
 //# sourceMappingURL=tool-policy.d.ts.map

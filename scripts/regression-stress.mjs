@@ -182,13 +182,45 @@ async function main() {
   report('清单未勾完时拒绝进入验收中', uncheckedTry?.ok === false && String(uncheckedTry?.error ?? '').includes('没勾完'), String(uncheckedTry?.error ?? '').slice(0, 40));
 
   await writeManual(true);
-  for (const to of ['verifying', 'completed']) {
-    const r = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to } });
-    const detail = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
-    if (r?.ok !== true || detail?.node?.current_state !== to) chainOk = false;
-    last = to;
+
+  // 必须先进「验收中」再报备：进入验收中会轮次 +1、七项清空，
+  // 提前报的会被这那次重置抹掉（这就是之前「报备全 pass 但推进仍被拒」的原因）。
+  const transitionErrors = [];
+  const toVerifying = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'verifying' } });
+  const detailVerifying = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
+  if (toVerifying?.ok !== true) transitionErrors.push(`verifying:${String(toVerifying?.error ?? 'unknown').slice(0, 100)}`);
+  if (toVerifying?.ok !== true || detailVerifying?.node?.current_state !== 'verifying') chainOk = false;
+  last = 'verifying';
+
+  // 七项验收：在验收中逐项报备（HTTP 入口，模型平时走 workflow_verify_report 工具）
+  await writeFile(join(dir, 'verify-evidence.md'), '# e2e 验收证据\n\n七项按 pass 报备，用于验证推进闭环。\n', 'utf8');
+  const verifyAnchor = [{ file: 'verify-evidence.md' }];
+  const verifyFailures = [];
+  for (const item of [1, 2, 3, 4, 5, 6, 7]) {
+    const body = {
+      id: wfId,
+      nodeId: nodeA,
+      item,
+      result: 'pass',
+      summary: `e2e 报备第 ${item} 项`,
+      anchors: verifyAnchor,
+      ...([1, 4, 7].includes(item) ? { command: 'npm run test' } : {}),
+    };
+    const r = await json(port, 'verify-report', { method: 'POST', body });
+    if (r?.ok !== true) verifyFailures.push(`${item}:${String(r?.error ?? 'unknown').slice(0, 60)}`);
   }
-  report('四态正向推进 讨论中→已完结', chainOk, `末态=${last}`);
+  report('七项报备全部成功', verifyFailures.length === 0, verifyFailures.join(' | '));
+  const afterVerify = await json(port, `node-checklist?id=${wfId}&nodeId=${nodeA}`);
+  const marks = (afterVerify?.verification ?? []).map((entry) => entry.mark).join(',');
+  report('报备后七项全部非 ○', (afterVerify?.verification ?? []).length === 7
+    && (afterVerify?.verification ?? []).every((entry) => entry.mark !== 'pending'), `marks=${marks}`);
+
+  const toCompleted = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'completed' } });
+  const detailCompleted = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
+  if (toCompleted?.ok !== true) transitionErrors.push(`completed:${String(toCompleted?.error ?? 'unknown').slice(0, 100)}`);
+  if (toCompleted?.ok !== true || detailCompleted?.node?.current_state !== 'completed') chainOk = false;
+  last = 'completed';
+  report('四态正向推进 讨论中→已完结', chainOk, transitionErrors.join(' | ') || `末态=${last}`);
 
   const dAfter = await json(port, `node-detail?id=${wfId}&nodeId=${nodeA}`);
   report('推进生成时间线', (dAfter?.node?.history?.length ?? 0) === 3, `条数=${dAfter?.node?.history?.length}`);

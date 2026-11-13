@@ -4,7 +4,7 @@
  *
  * 为什么是网关：模型不再直接看到 5 个基础工具，只能：
  *   1) `workflow_tool_call`：按目录里的名字调用，目录外 / 阶段不符 / 参数不符一律拒；
- *   2) `workflow_tool_add`：把基础工具 + 固定参数登记成别名，只写目录、不执行。
+ *   2) `workflow_tool_add`：登记 / 更新工具（先校验，再过宿主审批），只写工具表、不执行业务。
  *
  * 判定全部走 engine/tool-policy 的纯函数；这里只做「取数据 → 判定 → 执行 → 记账」。
  *
@@ -13,13 +13,16 @@
  *   - 手册与勾选走网关，不经过 write，因此不受门禁影响。
  *   - 「分步绝对」落在推进前置上：方案没写不能进实现中，清单没勾完不能进验收中。
  */
-import { randomUUID } from 'node:crypto';
+import { mkdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
 import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
-import { logEvent } from './event-log';
-import { BASE_TOOL_NAMES, BASE_TOOLS } from '../schema/tool-catalog';
-import { decideToolCall, mergeArgs, mergeCatalog, summarizeArgs, validateAliasInput } from '../engine/tool-policy';
+import { logEvent, newTraceId } from './event-log';
+import { BASE_TOOLS, TOOL_KIND } from '../schema/tool-catalog';
+import { FACTORY_TOOL_NAMES, FACTORY_TOOLS, countVisibleByKind, decideToolCall, mergeCatalog, summarizeArgs, validateToolRegistration, } from '../engine/tool-policy';
+import { findChecker } from '../engine/checkers';
+import { runCommand } from './command-runner';
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
 /** 合法状态迁移表（客户端「返工」菜单是它的展示子集，两边都要能走通）。 */
@@ -71,24 +74,24 @@ export function registerWorkflowGuard(ctx, deps) {
     });
 }
 /**
- * 注册两个模型工具：网关调用与别名申请。
+ * 注册两个模型工具：网关调用与工具登记。
  *
  * 两个工具都只在工作流会话里出现（`when`），不污染标准模式。
  */
 export function registerWorkflowTools(ctx, deps) {
     ctx.inject(['tools'], (toolCtx) => {
         const whenWorkflow = (context) => deps.isPresetSession(context?.agent?.session?.id);
-        /** 统一的工具埋点：成功/失败各一条，带耗时与会话，失败直接抛回模型。 */
-        const instrument = async (toolName, sessionId, run) => {
+        /** 统一的工具埋点：成功/失败各一条，带 trace/耗时/会话，失败直接抛回模型。 */
+        const instrument = async (toolName, sessionId, trace, run) => {
             const startedAt = Date.now();
             try {
                 const value = await run();
-                logEvent(ctx.logger, 'info', `[workflow] tool ${toolName} ok (session=${sessionId}, ${Date.now() - startedAt}ms)`);
+                logEvent(ctx.logger, 'info', `[workflow] tool ${toolName} ok (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms)`);
                 return value;
             }
             catch (error) {
                 const message = String(error?.message ?? error);
-                logEvent(ctx.logger, 'warn', `[workflow] tool ${toolName} failed (session=${sessionId}, ${Date.now() - startedAt}ms): ${message}`);
+                logEvent(ctx.logger, 'warn', `[workflow] tool ${toolName} failed (session=${sessionId}, trace=${trace}, ${Date.now() - startedAt}ms): ${message}`);
                 throw error;
             }
         };
@@ -96,14 +99,14 @@ export function registerWorkflowTools(ctx, deps) {
         // —— 1. 调用目录里的工具（模型唯一的调用入口） ——
         toolCtx.effect(() => toolCtx.tools.register({
             name: 'workflow_tool_call',
-            description: '调用工具目录里的工具：name 是目录里的工具名，args 是它的参数。目录在系统提示里（基础 5 个 + 本工作区登记的别名）。'
+            description: '调用工具目录里的工具：name 是目录里的工具名，args 是它的参数。目录在系统提示里（基础工具 + 本工作区的扩展工具）。'
                 + '目录外名字、当前阶段不可用、参数不符、覆盖固定参数都会被拒，拒绝理由会原样返回；新增工具用 workflow_tool_add。',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
                 required: ['name', 'args'],
                 properties: {
-                    name: { type: 'string', description: '目录里的工具名（例：workflow_manual / workflow_verify_report / 别名）。' },
+                    name: { type: 'string', description: '目录里的工具名（例：workflow_manual / check_deps）。' },
                     args: { type: 'object', description: '该工具的参数对象；按目录里的必填项与参数说明传。', additionalProperties: true },
                 },
             },
@@ -111,11 +114,11 @@ export function registerWorkflowTools(ctx, deps) {
                 schema: {
                     type: 'object',
                     additionalProperties: false,
-                    required: ['ok', 'name', 'base_tool', 'value'],
+                    required: ['ok', 'name', 'run', 'value'],
                     properties: {
                         ok: { type: 'boolean' },
                         name: { type: 'string' },
-                        base_tool: { type: 'string' },
+                        run: { type: 'string' },
                         value: { type: 'object' },
                     },
                 },
@@ -126,80 +129,94 @@ export function registerWorkflowTools(ctx, deps) {
             },
             execute: async (args, exec) => {
                 const sessionId = requireSession(deps, exec);
-                return instrument('workflow_tool_call', sessionId, async () => {
+                const trace = newTraceId();
+                return instrument('workflow_tool_call', sessionId, trace, async () => {
                     const found = await deps.repository.findBySession(sessionId);
                     if (found === null)
                         throw new Error('当前会话还没有 workflow 节点');
                     const name = typeof args?.name === 'string' ? args.name : '';
-                    const { catalog } = await loadCatalog(deps, found.workflowId);
+                    const catalog = await loadCatalog(deps);
                     const state = await currentStateOf(deps, sessionId);
                     const startedAt = Date.now();
                     const entry = catalog.find((item) => item.name === name);
                     if (entry === undefined) {
                         const message = `工具目录里没有「${name}」：只能调用目录里的工具；要新增请用 workflow_tool_add。`;
                         record({
-                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name,
+                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
                             decision: 'deny', code: 'unknown-tool', state, args: summarizeArgs(args?.args), message,
                         });
                         throw new Error(message);
                     }
+                    const runText = describeRun(entry);
                     const decision = decideToolCall({ state, entry, args: args?.args });
                     if (!decision.allow) {
                         record({
-                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name,
-                            base_tool: entry.base_tool, decision: 'deny', code: decision.code, state,
+                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+                            run: runText, version: entry.version, decision: 'deny', code: decision.code, state,
                             args: summarizeArgs(args?.args), message: decision.message,
                         });
                         throw new Error(decision.message);
                     }
-                    const merged = mergeArgs(entry.fixed_args, args?.args);
+                    const merged = args?.args ?? {};
                     let value;
                     try {
-                        value = await invokeBaseTool(deps, entry.base_tool, merged, sessionId);
+                        value = await invokeTool(deps, entry, merged, sessionId);
                     }
                     catch (error) {
                         const message = String(error?.message ?? error);
                         record({
-                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name,
-                            base_tool: entry.base_tool, decision: 'error', code: 'execution-failed', state,
+                            kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+                            run: runText, version: entry.version, decision: 'error', code: 'execution-failed', state,
                             args: summarizeArgs(args?.args), ms: Date.now() - startedAt, message,
                         });
                         throw error;
                     }
                     record({
-                        kind: 'call', session: sessionId, workflow_id: found.workflowId, name,
-                        base_tool: entry.base_tool, decision: 'allow', state,
+                        kind: 'call', session: sessionId, workflow_id: found.workflowId, name, trace,
+                        run: runText, version: entry.version, decision: 'allow', state,
                         args: summarizeArgs(args?.args), ms: Date.now() - startedAt,
+                        ...(typeof value?.checker === 'string'
+                            ? {
+                                checker: value.checker,
+                                ok: value.ok === true,
+                                findings: Array.isArray(value.findings) ? value.findings.length : 0,
+                            }
+                            : {}),
                     });
-                    return { ok: true, name: entry.name, base_tool: entry.base_tool, value };
+                    return { ok: true, name: entry.name, run: runText, value };
                 });
             },
         }, { when: whenWorkflow }));
-        // —— 2. 申请登记一个别名（只写目录，不执行） ——
+        // —— 2. 登记 / 更新一个工具（先校验，再过宿主审批） ——
         toolCtx.effect(() => toolCtx.tools.register({
             name: 'workflow_tool_add',
-            description: '登记一个新的工具别名（模型只有申请权，没有直接注册权）：只能把五个基础工具之一加上固定参数，不能挂别名（禁止链式）。'
-                + '登记时自动过四关：基础工具白名单、名字/描述/固定参数/阶段继承的静态校验、sample_args 参数校验、副作用继承；'
-                + '全过就写入本工作区目录、立即可用，不执行任何业务。只能在讨论中 / 实现中登记；验收中 / 已完结会被拒。',
+            description: '登记一个扩展工具，或更新一个已登记的扩展工具（mode=update）。这是**开发期登记入口**，'
+                + '不是给 AI 在运行时动态加能力的：登记结果写进工具表随代码进 git，别人 clone 下来直接可用。'
+                + '模型只有申请权：静态校验通过后还要走宿主审批，只有 allowed-once 才写入。'
+                + '扩展工具 = 名字 + 描述 + 指向哪个内置检查器（run.checker）+ 可用阶段；'
+                + '检查器会跑插件自带的工具（vitest / dependency-cruiser / knip）检查项目；回归压测不自动跑，只读项目自产的证据文件。'
+                + '只能在讨论中 / 实现中登记；「验收中」可见的扩展工具上限 8 条（基础工具另有独立的 6 条上限）。',
             parameters: {
                 type: 'object',
                 additionalProperties: false,
-                required: ['name', 'description', 'base_tool', 'sample_args'],
+                required: ['name', 'description', 'run', 'effect', 'allowed_states', 'sample_args'],
                 properties: {
-                    name: { type: 'string', description: '新工具名：3~41 位小写字母/数字/下划线，以字母开头（例：note_decision）。' },
-                    description: { type: 'string', description: '一句话说明：做什么、什么时候用（≤200 字）。' },
-                    base_tool: {
-                        type: 'string',
-                        enum: BASE_TOOL_NAMES,
-                        description: '基础工具：别名只能在它们之上加固定参数。',
+                    mode: { type: 'string', enum: ['create', 'update'], description: 'create（默认）= 新增；update = 整条替换已有工具（会重新审批）。' },
+                    name: { type: 'string', description: '工具名：3~41 位小写字母/数字/下划线，以字母开头（例：check_deps）。' },
+                    description: { type: 'string', description: '说明：做什么、什么时候用（≤400 字）；第一句会被注入系统提示，要能独立说明用途。' },
+                    run: {
+                        type: 'object',
+                        description: '{kind:"checker",checker:"deps"}；checker 必须是内置检查器 id：contract / deps / deadcode / boundary / regression。',
+                        additionalProperties: true,
                     },
-                    fixed_args: { type: 'object', description: '预置参数：调用时不能再传这些键。', additionalProperties: true },
+                    effect: { type: 'string', enum: ['read-state', 'write-state', 'exec'], description: '副作用分级；跑外部进程用 exec。' },
                     allowed_states: {
                         type: 'array',
                         items: { type: 'string', enum: ['discussing', 'implementing', 'verifying', 'completed'] },
-                        description: '可选：收窄可用阶段，必须是基础工具允许阶段的子集；不传则继承全部。',
+                        description: '这个工具在哪些状态可用（非空）。',
                     },
-                    sample_args: { type: 'object', description: '必填：一个能跑通的示例参数（不含固定参数），登记时用它校验参数形状。', additionalProperties: true },
+                    parameters: { type: 'object', description: '可选：给模型看的参数 JSON Schema；不传 = 接受任意参数。', additionalProperties: true },
+                    sample_args: { type: 'object', description: '必填：一个能跑通的示例参数，登记时用它校验参数形状。', additionalProperties: true },
                 },
             },
             output: {
@@ -212,10 +229,10 @@ export function registerWorkflowTools(ctx, deps) {
                         entry: {
                             type: 'object',
                             additionalProperties: false,
-                            required: ['name', 'base_tool', 'allowed_states', 'version'],
+                            required: ['name', 'run', 'allowed_states', 'version'],
                             properties: {
                                 name: { type: 'string' },
-                                base_tool: { type: 'string' },
+                                run: { type: 'string' },
                                 allowed_states: { type: 'array', items: { type: 'string' } },
                                 version: { type: 'number' },
                             },
@@ -225,70 +242,106 @@ export function registerWorkflowTools(ctx, deps) {
                 },
                 render: (_args, value) => [{
                         type: 'text',
-                        text: `已登记「${value.entry?.name ?? '?'}」→ ${value.entry?.base_tool ?? '?'}，现在可以通过 workflow_tool_call 调用。`,
+                        text: `已登记「${value.entry?.name ?? '?'}」（${value.entry?.run ?? '?'}，v${value.entry?.version ?? '?'}），现在可以通过 workflow_tool_call 调用。`,
                     }],
             },
             execute: async (args, exec) => {
                 const sessionId = requireSession(deps, exec);
-                return instrument('workflow_tool_add', sessionId, async () => {
+                const trace = newTraceId();
+                const startedAt = Date.now();
+                return instrument('workflow_tool_add', sessionId, trace, async () => {
                     const found = await deps.repository.findBySession(sessionId);
                     if (found === null)
                         throw new Error('当前会话还没有 workflow 节点');
                     const state = await currentStateOf(deps, sessionId);
                     if (state !== 'discussing' && state !== 'implementing') {
-                        const message = `当前状态「${labelOf(state)}」不能新增工具：工具变更会污染验收结论，等回到讨论中 / 实现中再登记。`;
+                        const message = `当前状态「${labelOf(state)}」不能登记工具：工具变更会污染验收结论，等回到讨论中 / 实现中再登记。`;
                         record({
-                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: String(args?.name ?? ''),
+                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: String(args?.name ?? ''), trace,
                             decision: 'deny', code: 'stage-denied', state, message,
                         });
                         throw new Error(message);
                     }
-                    const listing = await deps.aliasStore.list(found.workflowId);
+                    const mode = args?.mode === 'update' ? 'update' : 'create';
+                    const requestedName = String(args?.name ?? '').trim();
+                    const listing = await deps.registryStore.list();
                     if (listing.corrupt) {
-                        logEvent(deps.logger, 'warn', `[workflow] alias store corrupt (workflow=${found.workflowId})：别名不可用，基础工具不受影响`);
+                        logEvent(deps.logger, 'warn', `[workflow] tool registry corrupt (workflow=${found.workflowId})：扩展工具暂时不可用，基础工具不受影响`);
                     }
-                    const validation = validateAliasInput({
+                    // 更新时不把自己算进「重名」里。
+                    const others = mode === 'update'
+                        ? listing.entries.filter((entry) => entry.name !== requestedName)
+                        : listing.entries;
+                    const validation = validateToolRegistration({
                         name: args?.name,
                         description: args?.description,
-                        baseTool: args?.base_tool,
-                        fixedArgs: args?.fixed_args,
+                        run: args?.run,
+                        effect: args?.effect,
                         allowedStates: args?.allowed_states,
+                        parameters: args?.parameters,
+                        parametersGiven: args?.parameters !== undefined && args?.parameters !== null,
                         sampleArgs: args?.sample_args,
-                        existingNames: [...BASE_TOOL_NAMES, ...listing.aliases.map((entry) => entry.name)],
+                        existingNames: [...FACTORY_TOOL_NAMES, ...others.map((entry) => entry.name)],
+                        verifyingCounts: countVisibleByKind(listing.entries, 'verifying'),
+                        mode,
                     });
-                    const requestedName = String(args?.name ?? '').trim();
                     if (!validation.ok) {
                         record({
-                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName,
-                            base_tool: String(args?.base_tool ?? ''), decision: 'deny', code: validation.code, state,
-                            message: validation.message,
+                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
+                            decision: 'deny', code: validation.code, state, message: validation.message,
                         });
                         throw new Error(validation.message);
                     }
-                    const fixedArgs = isPlainRecord(args?.fixed_args) ? args.fixed_args : {};
+                    if (mode === 'update' && !listing.entries.some((entry) => entry.name === requestedName)) {
+                        const message = `没有叫「${requestedName}」的已登记工具：新建请用 mode=create。`;
+                        record({
+                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
+                            decision: 'deny', code: 'unknown-tool', state, message,
+                        });
+                        throw new Error(message);
+                    }
+                    // 宿主审批：登记与更新都要问题主；没有审批通道就是拒绝（fail-closed）。
+                    const runText = describeRun(validation.entry);
+                    const approval = await (deps.requestApproval?.({
+                        sessionId,
+                        agent: exec?.agent,
+                        toolName: 'workflow_tool_add',
+                        reason: `${mode === 'update' ? '更新' : '登记'}工具「${requestedName}」：${runText}`,
+                    }) ?? Promise.resolve('unavailable'));
+                    if (approval !== 'allowed-once') {
+                        const message = approval === 'unavailable'
+                            ? '登记工具需要审批，但当前没有可用的审批人（fail-closed）：这次没有写入。'
+                            : `登记工具没有通过审批（${approval}）：这次没有写入。`;
+                        record({
+                            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
+                            run: runText, decision: 'deny', code: 'approval-denied', state, approval, message,
+                        });
+                        throw new Error(message);
+                    }
+                    const nextVersion = mode === 'update'
+                        ? (listing.entries.find((entry) => entry.name === requestedName)?.version ?? 0) + 1
+                        : 1;
                     const entry = {
-                        tool_id: randomUUID(),
-                        name: requestedName,
-                        description: String(args.description).trim(),
-                        base_tool: String(args.base_tool),
-                        fixed_args: fixedArgs,
-                        allowed_states: validation.allowedStates,
+                        ...validation.entry,
+                        version: nextVersion,
                         created_at: new Date().toISOString(),
-                        version: 1,
                     };
-                    await deps.aliasStore.add(found.workflowId, entry);
+                    if (mode === 'update')
+                        await deps.registryStore.update(entry);
+                    else
+                        await deps.registryStore.save(entry);
                     record({
-                        kind: 'add', session: sessionId, workflow_id: found.workflowId, name: entry.name,
-                        base_tool: entry.base_tool, decision: 'allow', state,
-                        args: summarizeArgs({ fixed_args: fixedArgs }), ms: Date.now(),
+                        kind: 'add', session: sessionId, workflow_id: found.workflowId, name: entry.name, trace,
+                        run: runText, version: entry.version, decision: 'allow', state, approval,
+                        args: summarizeArgs(args?.sample_args ?? {}), ms: Date.now() - startedAt,
                     });
-                    // 目录变了：下一轮系统提示要立刻带上新别名。
+                    // 目录变了：下一轮系统提示要立刻带上新工具。
                     await deps.stateContext?.refreshNow?.(sessionId);
-                    const required = validation.parameters.required ?? [];
+                    const required = entry.parameters.required ?? [];
                     return {
                         ok: true,
-                        entry: { name: entry.name, base_tool: entry.base_tool, allowed_states: entry.allowed_states, version: entry.version },
-                        message: `已登记「${entry.name}」→ ${entry.base_tool}；调用时必填：${required.length > 0 ? required.join(',') : '无'}。`,
+                        entry: { name: entry.name, run: runText, allowed_states: entry.allowed_states, version: entry.version },
+                        message: `已${mode === 'update' ? '更新' : '登记'}「${entry.name}」（${runText}，v${entry.version}）；调用时必填：${required.length > 0 ? required.join(',') : '无'}。`,
                     };
                 });
             },
@@ -298,13 +351,19 @@ export function registerWorkflowTools(ctx, deps) {
 function isPlainRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-/** 目录 = 基础 5 条 + 本工作区别名；文件坏时只丢别名，基础工具照常。 */
-async function loadCatalog(deps, workflowId) {
-    const listing = await deps.aliasStore.list(workflowId);
+/** 目录 = 基础工具 + 全局扩展工具；文件坏时只丢扩展工具，基础工具照常。 */
+async function loadCatalog(deps) {
+    const listing = await deps.registryStore.list();
     if (listing.corrupt) {
-        logEvent(deps.logger, 'warn', `[workflow] alias store corrupt (workflow=${workflowId})：别名不可用，基础工具不受影响`);
+        logEvent(deps.logger, 'warn', '[workflow] tool registry corrupt：扩展工具暂时不可用，基础工具不受影响');
     }
-    return { catalog: mergeCatalog(BASE_TOOLS, listing.aliases), corrupt: listing.corrupt };
+    return mergeCatalog(FACTORY_TOOLS, listing.entries);
+}
+/** 把执行方式压成一行：审计账与审批理由共用，避免两处各写一套。 */
+function describeRun(entry) {
+    if (entry.kind === TOOL_KIND.extension)
+        return `checker:${entry.run?.checker ?? '?'}`;
+    return `base:${entry.name}`;
 }
 /** 取当前状态；缺条先补一次，补不到就明确拒绝（不能拿 undefined 当"允许"）。 */
 async function currentStateOf(deps, sessionId) {
@@ -318,16 +377,113 @@ async function currentStateOf(deps, sessionId) {
     }
     return state;
 }
-/** 按基础工具名分发到实现函数：网关只做转发，不在这里写业务。 */
-async function invokeBaseTool(deps, baseTool, args, sessionId) {
-    switch (baseTool) {
+/** 按 kind 分发：扩展工具跑脚本，基础工具走内置 handler。网关只做转发。 */
+async function invokeTool(deps, entry, args, sessionId) {
+    if (entry.kind === TOOL_KIND.extension)
+        return invokeChecker(deps, entry, args, sessionId);
+    return invokeBaseTool(deps, entry.name, args, sessionId);
+}
+/** 基础工具的分派点：只有这 5 个名字，别的一律当未知。 */
+async function invokeBaseTool(deps, name, args, sessionId) {
+    switch (name) {
         case 'workflow_advance': return invokeAdvance(deps, sessionId, args);
         case 'workflow_manual': return invokeManual(deps, sessionId, args);
         case 'workflow_check': return invokeCheck(deps, sessionId, args);
         case 'workflow_verify_report': return invokeVerifyReport(deps, sessionId, args);
         case 'workflow_verify_check': return invokeVerifyCheck(deps, sessionId, args);
-        default: throw new Error(`未知的基础工具：${baseTool}`);
+        default: throw new Error(`未知的基础工具：${name}`);
     }
+}
+/**
+ * 扩展工具：先在工作目录执行检查器自带的命令，再读产物判定。
+ *
+ * 命令是检查器定义里的常量模板（只有 target 可替换），调用方不能传命令——
+ * 所以这里不会执行模型给的任意字符串。
+ * 缺工具 / 超时 / 坏产物都判不合格，不抛错：它们是验收结果的一部分。
+ */
+async function invokeChecker(deps, entry, args, sessionId) {
+    const found = await deps.repository.findBySession(sessionId);
+    if (found === null)
+        throw new Error('当前会话还没有 workflow 节点');
+    const run = entry.run;
+    const checker = findChecker(run.checker);
+    if (checker === undefined) {
+        throw new Error(`工具「${entry.name}」指向的检查器「${run.checker}」不在注册表里：先补实现再登记`);
+    }
+    const snapshot = await deps.repository.get(found.workflowId);
+    const workingDirectory = snapshot?.working_directory;
+    if (typeof workingDirectory !== 'string' || workingDirectory === '') {
+        throw new Error('该 workflow 没有工作目录，检查器跑不了：先给它指定工作目录');
+    }
+    const target = resolveCheckerTarget(args?.target, checker);
+    const command = checker.buildCommand(target);
+    const evidencePath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
+    await mkdir(dirname(evidencePath), { recursive: true });
+    let commandResult = null;
+    if (checker.autoRun) {
+        const execute = deps.runCommand ?? runCommand;
+        commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
+    }
+    let data = null;
+    let parseError = '';
+    try {
+        data = JSON.parse(await readFile(evidencePath, 'utf8'));
+    }
+    catch (error) {
+        const code = error?.code;
+        if (code !== 'ENOENT')
+            parseError = String(error?.message ?? error);
+    }
+    const result = parseError === ''
+        ? checker.check(data)
+        : {
+            ok: false,
+            findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
+            stats: {},
+        };
+    logEvent(deps.logger, 'info', `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, `
+        + `auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? 'n/a')}, `
+        + `ok=${String(result.ok)}, findings=${result.findings.length}, ${commandResult?.ms ?? 0}ms)`);
+    return {
+        ok: result.ok,
+        checker: checker.id,
+        command: checker.autoRun ? command : null,
+        exit_code: commandResult?.exit_code ?? null,
+        timed_out: commandResult?.timed_out ?? false,
+        findings: result.findings,
+        stats: result.stats,
+        ...(commandResult !== null && commandResult.ok !== true
+            ? { command_output: commandResult.tail.slice(-800) }
+            : {}),
+    };
+}
+/**
+ * 检查器目标的校验：两种形态。
+ *   - 路径片段：字母数字与 . _ - / @（拼进 shell 安全）
+ *   - URL：http(s)://主机[:端口][/路径]（不带查询串，避免 & ? 注入）
+ * 两者都不允许空白、引号、分号、重定向。
+ */
+function resolveCheckerTarget(raw, checker) {
+    const text = raw === undefined || raw === null ? '' : String(raw).trim();
+    if (text === '') {
+        if (checker.requiresTarget === true) {
+            throw new Error('这一项需要目标地址：调用时传 target（例：{"target":"http://127.0.0.1:3000"}）');
+        }
+        return checker.defaultTarget;
+    }
+    if (/^https?:\/\//i.test(text)) {
+        if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._/-]*)?$/i.test(text)) {
+            throw new Error('target 作为 URL 时只允许 http(s)://主机[:端口][/路径]，不能带查询串或特殊字符');
+        }
+        return text;
+    }
+    if (!/^[A-Za-z0-9_.@/-]+$/.test(text)) {
+        throw new Error('target 只能是相对路径片段（字母/数字/. _ - / @），不能含空格、引号、分号或重定向');
+    }
+    if (text.startsWith('/') || /^[A-Za-z]:/.test(text) || text.includes('..')) {
+        throw new Error('target 不能是绝对路径，也不能含 ..');
+    }
+    return text;
 }
 /** 1. 推进状态：只登记请求，不改状态。 */
 async function invokeAdvance(deps, sessionId, args) {

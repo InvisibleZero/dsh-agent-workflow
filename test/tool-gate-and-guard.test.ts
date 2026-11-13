@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
 import { registerWorkflowGuard, registerWorkflowTools } from '../src/host/workflow-tools';
-import { ToolAliasStore } from '../src/host/tool-alias-store';
+import { ToolRegistryStore } from '../src/host/tool-registry';
 import { clearToolEvents, recordToolEvent } from '../src/host/tool-ledger';
 
 /**
@@ -37,7 +37,7 @@ function makeToolRuntime() {
 function makeDeps(repository: WorkflowRepository, state: string | undefined, logs: string[]) {
   return {
     repository,
-    aliasStore: new ToolAliasStore(join(tmpdir(), 'wf-alias-unused')),
+    registryStore: new ToolRegistryStore(join(tmpdir(), 'wf-registry-unused')),
     recordToolEvent,
     stateContext: { refreshNow: async () => '' },
     isPresetSession: () => true,

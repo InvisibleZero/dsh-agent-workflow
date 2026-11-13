@@ -11,7 +11,14 @@ export interface ToolLedgerEntry {
   session: string;
   workflow_id?: string;
   name: string;
-  base_tool?: string;
+  /** 执行方式：checker:deps / base:workflow_manual。 */
+  run?: string;
+  /** 检查器 id 与判定结果（只有扩展工具有）。 */
+  checker?: string;
+  ok?: boolean;
+  findings?: number;
+  /** 登记 / 更新的审批结果（allowed-once / rejected / cancelled / unavailable）。 */
+  approval?: string;
   decision: 'allow' | 'deny' | 'error';
   /** 拒绝分类或执行失败（unknown-tool / stage-denied / arguments-invalid / …）。 */
   code?: string;

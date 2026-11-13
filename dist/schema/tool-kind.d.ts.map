@@ -1,0 +1,1 @@
+{"version":3,"file":"tool-kind.d.ts","sourceRoot":"","sources":["../../src/schema/tool-kind.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAEH,eAAO,MAAM,SAAS;;;CAAoD,CAAC;AAC3E,MAAM,MAAM,QAAQ,GAAG,CAAC,OAAO,SAAS,CAAC,CAAC,MAAM,OAAO,SAAS,CAAC,CAAC;AAElE,eAAO,MAAM,eAAe,EAAE,MAAM,CAAC,QAAQ,EAAE,MAAM,CAGpD,CAAC"}

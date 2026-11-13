@@ -284,6 +284,34 @@ src/
 
 ---
 
+## 数据与配置放在哪
+
+| 位置 | 内容 | 是否进 git |
+|---|---|---|
+| 插件目录 `settings/` | 操作细节、应用设置（`global-settings.json` / `app-settings.json`） | ✅ 随插件 |
+| 插件目录 `tools/` | 开发期额外登记的扩展工具；出厂 5 个在代码里 | ✅ 随插件 |
+| 用户目录 `~/.dsh/dsh-agent-workflow/` | workflow 快照、回收站、导出 | ❌ 运行数据 |
+| 工作目录 `.workflow/` | 两层手册（项目 / 会话） | ❌ 项目自己的 |
+| 工作目录 `.workflow/evidence/` | 检查器产物（`deps.json` / `contract.json` 等） | ❌ 跑的时候生成 |
+
+`settings/` 与 `tools/` 首次运行才会写文件，仓库里现在是空的（只有 `.gitkeep`）。
+
+---
+
+## 致谢
+
+七项验收里的依赖检查、死代码扫描、测试证据判定、并发压测，分别交给
+[dependency-cruiser](https://github.com/sverweij/dependency-cruiser)（MIT）、
+[knip](https://github.com/webpro-nl/knip)（ISC）、
+[Vitest](https://github.com/vitest-dev/vitest)（MIT）、
+[autocannon](https://github.com/mcollina/autocannon)（MIT）。
+
+这四个工具**随插件一起安装**（`dependencies`），拉下插件即可用；插件只解析它们的产物，
+不修改它们的代码——没有这些项目，这几项只能靠人肉判断。
+完整署名与用途见 [THIRD-PARTY.md](./THIRD-PARTY.md)。
+
+---
+
 ## 相关文档
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md)：构建命令、宿主契约速查、踩坑清单（D-01 起）

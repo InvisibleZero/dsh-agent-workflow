@@ -81,7 +81,7 @@ const SECTION_TRIM_HINTS: Record<string, string> = {
 };
 
 /** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */
-export class ManualLimitError extends Error {
+class ManualLimitError extends Error {
   readonly code = 'manual-limit';
 
   constructor(message: string) {

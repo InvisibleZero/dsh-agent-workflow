@@ -1,0 +1,24 @@
+{
+  "entry": [
+    "src/host.ts",
+    "src/client/dsh-plugin.tsx"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "dependency-cruiser",
+    "knip",
+    "autocannon",
+    "@deepseek-ai/dsh-client-ui-primitives"
+  ],
+  "ignoreBinaries": [
+    "explorer.exe"
+  ],
+  "ignore": [
+    "dist/**",
+    "logs/**",
+    "scripts/**"
+  ]
+}
