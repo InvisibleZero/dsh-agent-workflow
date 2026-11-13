@@ -2,6 +2,35 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-11-13
+
+七项验收的前五项接上**社区工具**：检查器自己执行命令、自己读产物、自己报不合格；工具定义随插件分发，克隆即用。
+
+### 变更
+
+- **扩展工具从「读现成产物」改成「自带命令」**：调用 `check_deps` 时插件在工作目录执行 `npx depcruise`，再读产物判定。命令是检查器定义里的常量，调用方只能传 `target`（路径片段或压测地址），不能传命令。
+- **工具表全局一份**，不再按工作区分组：换项目不用重新登记工具。
+- **设置与工具表随插件进 git**（`settings/`、`tools/`），运行数据仍留 `~/.dsh/dsh-agent-workflow/`。
+- 出厂工具全部移到代码里：`BASE_TOOLS`（5 个基础）+ `EXTENSION_TOOLS`（5 个扩展），`tools/tool-registry.json` 只存开发期额外登记的工具。
+
+### 新增
+
+- **5 个检查器**（`src/engine/checkers/`）：契约测试、依赖检查、死代码扫描、边界测试、回归压测。纯函数，输入证据 JSON，输出 `{ ok, findings, stats }`。
+- **命令执行器**（`src/host/command-runner.ts`）：shell 执行、120s 超时、收退出码、输出留尾部 4KB；超时用 `taskkill /T` 杀进程树（只杀 shell 会漏掉子进程）。
+- **HTTP 报备入口** `POST /dsh-agent-workflow/verify-report`，给 e2e 用（模型仍走 `workflow_verify_report`）。
+- **四个社区工具进 `dependencies`**：vitest / dependency-cruiser / knip / autocannon，随插件安装。署名与用途见 [THIRD-PARTY.md](./THIRD-PARTY.md)。
+- `.dependency-cruiser.cjs`（分层规则模板）、`knip.json`（死代码扫描配置）。
+
+### 删除
+
+- **别名机制**：`tool-aliases.json`、`tool-alias-store.ts`、`fixed_args`、`run.kind='action'`。别名是「一个工具两处管理」，省下的参数抵不上状态双写与目录膨胀。
+- `tool-runner.ts`（不再执行项目脚本）。
+
+### 修复
+
+- **e2e 报备顺序**：原来先报备、后进「验收中」，而进验收中会轮次 +1、七项清空，报备全被抹掉。改成「先进验收中 → 报备七项 → 进已完结」，e2e 从 17/2 变成 21/0。
+- 客户端包从 127934 降到 117725 字节：分类常量拆到 `schema/tool-kind.ts`，客户端不再携带整份工具目录。
+
 ## [0.7.0] - 2026-11-13
 
 工具治理收进**网关**：5 个基础工具不再原生注册，模型只能经 `workflow_tool_call` 调用、经 `workflow_tool_add` 申请别名。
