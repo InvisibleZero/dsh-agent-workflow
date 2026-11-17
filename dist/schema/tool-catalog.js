@@ -219,7 +219,7 @@ export const EXTENSION_TOOLS = [
     },
     {
         name: 'check_regression',
-        description: '检查回归与压测证据（不自动跑，压测目标由项目自己定）。读 .workflow/evidence/regression.json，判用例数与失败数，耗时随结果返回。',
+        description: '跑回归与压测并判结果：先执行 autocannon 压测目标地址（target 必传，压测目标由项目自己定）生成证据。再读 .workflow/evidence/regression.json 判用例数与失败数，耗时随结果返回。',
         kind: TOOL_KIND.extension,
         run: { kind: 'checker', checker: 'regression' },
         allowed_states: ['verifying'],

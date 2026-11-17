@@ -2,6 +2,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.1] - 2026-11-17
+
+修正 `check_regression` 工具描述与实现不一致：描述说「不自动跑、只读现成产物」，但检查器实际 `autoRun: true` 会真执行 autocannon 压测。
+
+### 修复
+
+- `check_regression` 描述改为「跑回归与压测并判结果：先执行 autocannon 压测目标地址（target 必传）生成证据，再读 regression.json 判用例数与失败数」。
+- `workflow_tool_add` 自述文案同步：补上 autocannon、把「回归压测不自动跑」改为「回归压测需要调用方传 target」。
+
 ## [0.9.0] - 2026-11-17
 
 评审反馈落地：实现中范围门禁（保守版）、验收跨态失效校验、方案锁定、交付物导出、验收证据上 UI、事件日志落盘、第三方工具版本锁定；并做全量八项验收（含回归 + 压测）。

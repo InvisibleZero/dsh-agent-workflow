@@ -353,7 +353,7 @@ export function registerWorkflowTools(ctx: any, deps: WorkflowToolsDeps): void {
         + '不是给 AI 在运行时动态加能力的：登记结果写进工具表随代码进 git，别人 clone 下来直接可用。'
         + '模型只有申请权：静态校验通过后还要走宿主审批，只有 allowed-once 才写入。'
         + '扩展工具 = 名字 + 描述 + 指向哪个内置检查器（run.checker）+ 可用阶段；'
-        + '检查器会跑插件自带的工具（vitest / dependency-cruiser / knip）检查项目；回归压测不自动跑，只读项目自产的证据文件。'
+        + '检查器会跑插件自带的工具（vitest / dependency-cruiser / knip / autocannon）检查项目；回归压测需要调用方传 target（压测目标地址）。'
         + '只能在讨论中 / 实现中登记；「验收中」可见的扩展工具上限 8 条（基础工具另有独立的 6 条上限）。',
       parameters: {
         type: 'object',
