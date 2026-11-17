@@ -2,6 +2,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.2] - 2026-11-17
+
+第 5 项「命名与边界审查」加协助型检查器 `check_naming`；补方案备份留痕，修方案逐层字数与 require_run 文案。
+
+### 新增
+
+- **`check_naming` 检查器**（`naming.ts` + `naming-scan.mjs`）：扫 src 的封杀词（system/data/info/manager/util/utils/common/helper），产出 `naming.json`；第 5 项挂 assistive + require_run。
+- **方案备份留痕**：`replaceManualSection` 覆盖「方案」前，旧方案自动备份到 `.workflow/backups/方案-<时间戳>.md`。
+
+### 变更
+
+- 方案字数上限从「整份 500」修正为「每层 500」（目标与验收不计入，裸文本回退整份）。
+- 存量命名违规清理：`info` / `full_detail` / `evidence_json` / `checker_id` / `plan_sections_from_template` / `node_snapshot` 等改 camelCase（`enter_trigger` 等落盘字段保留）。
+- `require_run` 门禁文案从埋点专用「先扫描已有埋点」改为通用「先真跑一次检查器」。
+
 ## [0.9.1] - 2026-11-17
 
 修正 `check_regression` 工具描述与实现不一致：描述说「不自动跑、只读现成产物」，但检查器实际 `autoRun: true` 会真执行 autocannon 压测。

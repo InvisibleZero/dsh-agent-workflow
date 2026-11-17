@@ -515,10 +515,10 @@ async function invokeChecker(deps, entry, args, sessionId) {
         const execute = deps.runCommand ?? runCommand;
         commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
     }
-    let evidence_json = null;
+    let evidenceJson = null;
     let parseError = '';
     try {
-        evidence_json = JSON.parse(await readFile(evidencePath, 'utf8'));
+        evidenceJson = JSON.parse(await readFile(evidencePath, 'utf8'));
     }
     catch (error) {
         const code = error?.code;
@@ -526,7 +526,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
             parseError = String(error?.message ?? error);
     }
     const result = parseError === ''
-        ? checker.check(evidence_json)
+        ? checker.check(evidenceJson)
         : {
             ok: false,
             findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
@@ -768,7 +768,7 @@ async function invokeVerifyReport(deps, sessionId, args) {
         const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);
         if (runs.length === 0) {
             const toolName = `check_${checkerMeta.id}`;
-            throw new Error(`「${check.name}」报 pass 前本轮至少要跑过一次 ${toolName}（先扫描已有埋点）；没扫就声称到位不算数（至少跑一次门禁）`);
+            throw new Error(`「${check.name}」报 pass 前本轮至少要跑过一次 ${toolName}（先真跑一次检查器）；没跑就声称到位不算数（至少跑一次门禁）`);
         }
     }
     // 强制使用门禁 + 强制提交工具输出：required 型检查器报 pass 前，必须真跑过对应 check_* 且提交真实输出。

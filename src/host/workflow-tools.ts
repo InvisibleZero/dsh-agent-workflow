@@ -603,17 +603,17 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
   }
 
-  let evidence_json: unknown = null;
+  let evidenceJson: unknown = null;
   let parseError = '';
   try {
-    evidence_json = JSON.parse(await readFile(evidencePath, 'utf8'));
+    evidenceJson = JSON.parse(await readFile(evidencePath, 'utf8'));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code !== 'ENOENT') parseError = String((error as Error)?.message ?? error);
   }
 
   const result = parseError === ''
-    ? checker.check(evidence_json)
+    ? checker.check(evidenceJson)
     : {
       ok: false,
       findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
@@ -871,7 +871,7 @@ async function invokeVerifyReport(deps: WorkflowToolsDeps, sessionId: string, ar
     if (runs.length === 0) {
       const toolName = `check_${checkerMeta.id}`;
       throw new Error(
-        `「${check.name}」报 pass 前本轮至少要跑过一次 ${toolName}（先扫描已有埋点）；没扫就声称到位不算数（至少跑一次门禁）`,
+        `「${check.name}」报 pass 前本轮至少要跑过一次 ${toolName}（先真跑一次检查器）；没跑就声称到位不算数（至少跑一次门禁）`,
       );
     }
   }

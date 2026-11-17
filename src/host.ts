@@ -25,7 +25,7 @@ import { FACTORY_TOOLS, mergeCatalog, renderCatalogText, summarizeDescription } 
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 import { VERIFY_CHECKS } from './schema/verify-checks';
 import { resolveVerifyCheckId, validateVerifyReportInput } from './engine/verify-rules';
-import { plan_sections_from_template } from './engine/plan-sections';
+import { planSectionsFromTemplate } from './engine/plan-sections';
 
 export const inject = [];
 
@@ -259,11 +259,11 @@ export function apply(ctx: any) {
         sessionScope.delete(sessionId);
         return;
       }
-      const info = await repository.getChecklistScope(found.workflowId, found.nodeId);
-      if (info === null || info.scope.length === 0) {
+      const checklistScope = await repository.getChecklistScope(found.workflowId, found.nodeId);
+      if (checklistScope === null || checklistScope.scope.length === 0) {
         sessionScope.delete(sessionId);
       } else {
-        sessionScope.set(sessionId, { workingDir: info.workingDir, scope: info.scope });
+        sessionScope.set(sessionId, { workingDir: checklistScope.workingDir, scope: checklistScope.scope });
       }
     } catch {
       sessionScope.delete(sessionId);
@@ -628,7 +628,7 @@ export function apply(ctx: any) {
         // 两份清单都现取：方案五小节解析自会话手册模板（模板改了这里跟着变），
         // 七项直接来自协议常量。客户端不存任何一条文案。
         const template = await repository.readSessionManualTemplate();
-        const planSections = plan_sections_from_template(template);
+        const planSections = planSectionsFromTemplate(template);
         const verifyItems = VERIFY_CHECKS.map((check) => ({
           id: check.id,
           name: check.name,

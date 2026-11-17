@@ -7,8 +7,8 @@ import { depsChecker } from '../src/engine/checkers/deps';
 import { regressionChecker } from '../src/engine/checkers/regression';
 
 describe('检查器注册表', () => {
-  it('7 个检查器都在，id 不重复', () => {
-    expect(CHECKER_IDS.sort()).toEqual(['boundary', 'build', 'contract', 'deadcode', 'deps', 'instrumentation', 'regression']);
+  it('8 个检查器都在，id 不重复', () => {
+    expect(CHECKER_IDS.sort()).toEqual(['boundary', 'build', 'contract', 'deadcode', 'deps', 'instrumentation', 'naming', 'regression']);
     expect(new Set(CHECKER_IDS).size).toBe(CHECKERS.length);
   });
 

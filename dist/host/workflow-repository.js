@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
@@ -1415,6 +1415,9 @@ export class WorkflowRepository {
         const limits = (await this.getAppSettings()).manualLimits;
         const chars = assertSectionLimit(input.section, input.content, limits);
         const current = await this.readFileOrTemplate(file, isSession);
+        // 方案备份留痕：会话反复返工回讨论中，旧方案会被整节覆盖，覆盖前先留一份。
+        if (input.section === '方案')
+            await this.backupOldPlan(file, current);
         let next;
         try {
             next = replaceSectionBody(current, input.section, input.content, MANUAL_SECTION_ALIASES[input.section] ?? []);
@@ -1435,6 +1438,20 @@ export class WorkflowRepository {
         await writeTextAtomic(file, next);
         this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId ?? ''}`);
         return { bytes, section: input.section, chars };
+    }
+    /** 覆盖「方案」前把旧方案备份到 `.workflow/backups/方案-<时间戳>.md`（只增不删）。 */
+    async backupOldPlan(manualFile, current) {
+        const oldPlan = pickSectionBody(current, ['方案']);
+        if (oldPlan.trim() === '')
+            return;
+        // 文件不存在 = 第一次写，current 是模板占位符，不算「旧方案」，不备份。
+        const exists = await fs.access(manualFile).then(() => true).catch(() => false);
+        if (!exists)
+            return;
+        const dir = join(dirname(manualFile), 'backups');
+        await fs.mkdir(dir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        await fs.writeFile(join(dir, `方案-${stamp}.md`), `# 旧方案备份（${new Date().toISOString()}）\n\n${oldPlan}\n`, 'utf8');
     }
     /**
      * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。

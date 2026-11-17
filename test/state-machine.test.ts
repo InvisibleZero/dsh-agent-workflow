@@ -24,15 +24,15 @@ describe('state-machine：有效操作细节 A+(B/C/D)', () => {
   it('活跃态读到 A + 对应专属细节', () => {
     const node = makeNode('verifying');
     const detail = effectiveDetail('verifying', node, DEFAULT_GLOBAL_OPERATION_DETAIL);
-    expect(detail.full_detail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.shared_detail);
-    expect(detail.full_detail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.verifying.operation_detail);
+    expect(detail.fullDetail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.shared_detail);
+    expect(detail.fullDetail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.verifying.operation_detail);
   });
 
   it('只取当前状态的专属细节，不串到别的态', () => {
     const node = makeNode('implementing');
     const detail = effectiveDetail('implementing', node, DEFAULT_GLOBAL_OPERATION_DETAIL);
-    expect(detail.full_detail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.implementing.operation_detail);
-    expect(detail.full_detail).not.toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.verifying.operation_detail);
+    expect(detail.fullDetail).toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.implementing.operation_detail);
+    expect(detail.fullDetail).not.toContain(DEFAULT_GLOBAL_OPERATION_DETAIL.verifying.operation_detail);
   });
 
   it('子节点覆盖只作用于自己当前状态', () => {
@@ -43,13 +43,13 @@ describe('state-machine：有效操作细节 A+(B/C/D)', () => {
       },
     };
     const detail = effectiveDetail('implementing', node, DEFAULT_GLOBAL_OPERATION_DETAIL);
-    expect(detail.full_detail).toContain('我的专属实现细节');
+    expect(detail.fullDetail).toContain('我的专属实现细节');
     expect(detail.enter_trigger).toBe('custom');
   });
 
   it('终态无专属细节，只有公共 A', () => {
     const detail = effectiveDetail('completed', makeNode('verifying'), DEFAULT_GLOBAL_OPERATION_DETAIL);
-    expect(detail.full_detail).toBe(DEFAULT_GLOBAL_OPERATION_DETAIL.shared_detail);
+    expect(detail.fullDetail).toBe(DEFAULT_GLOBAL_OPERATION_DETAIL.shared_detail);
     expect(detail.enter_trigger).toBeNull();
   });
 });

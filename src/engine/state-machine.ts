@@ -7,12 +7,12 @@ export function effectiveDetail(
   targetState: NodeState,
   node: AgentNode,
   global: GlobalOperationDetail,
-): { full_detail: string; enter_trigger: string | null } {
+): { fullDetail: string; enter_trigger: string | null } {
   const parts = effectiveDetailParts(targetState, node, global);
-  const full_detail = parts.state_detail.trim() === ''
+  const fullDetail = parts.state_detail.trim() === ''
     ? parts.shared_detail
     : `${parts.shared_detail}\n\n${parts.state_detail}`;
-  return { full_detail, enter_trigger: parts.enter_trigger };
+  return { fullDetail, enter_trigger: parts.enter_trigger };
 }
 
 /**

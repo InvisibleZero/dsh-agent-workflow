@@ -32,6 +32,21 @@ describe('手册字数上限（按字判，证据不计入）', () => {
       .toThrow(/现在 501 字，上限 500 字，超 1 字/);
   });
 
+  it('方案按层判：每层 ≤ 500、目标与验收不计入，整份可超 500', () => {
+    const limits = { ...DEFAULT_MANUAL_LIMITS };
+    const structured = [
+      '### 1. 目标与验收',
+      '目标'.repeat(300),
+      '### 2. 数据层',
+      '层'.repeat(500),
+      '### 3. 领域层',
+      '层'.repeat(500),
+    ].join('\n');
+    expect(assertSectionLimit('方案', structured, limits)).toBeGreaterThan(500);
+    const tooLong = ['### 1. 目标与验收', '目标', '### 2. 数据层', '层'.repeat(501)].join('\n');
+    expect(() => assertSectionLimit('方案', tooLong, limits)).toThrow(/方案 \/ 数据层/);
+  });
+
   it('垂直切片坑：300 字放行、301 字拒绝', () => {
     const limits = { ...DEFAULT_MANUAL_LIMITS };
     expect(assertSectionLimit('垂直切片坑', 'x'.repeat(300), limits)).toBe(300);

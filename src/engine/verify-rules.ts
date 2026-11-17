@@ -65,8 +65,8 @@ export function parseCheckerResult(raw: unknown): CheckerResult | undefined {
     throw new Error('checker 必须是对象：{ checker_id, ok, findings, exit_code }');
   }
   const record = raw as Record<string, unknown>;
-  const checker_id = typeof record.checker_id === 'string' ? record.checker_id.trim() : '';
-  if (checker_id === '') throw new Error('checker.checker_id 不能为空');
+  const checkerId = typeof record.checker_id === 'string' ? record.checker_id.trim() : '';
+  if (checkerId === '') throw new Error('checker.checker_id 不能为空');
   const ok = record.ok;
   if (typeof ok !== 'boolean') throw new Error('checker.ok 必须是布尔值');
   const findings = record.findings;
@@ -78,10 +78,10 @@ export function parseCheckerResult(raw: unknown): CheckerResult | undefined {
     && (typeof exitCodeRaw !== 'number' || !Number.isInteger(exitCodeRaw))) {
     throw new Error('checker.exit_code 必须是整数或 null');
   }
-  const exit_code: number | null = exitCodeRaw === undefined || exitCodeRaw === null
+  const exitCode: number | null = exitCodeRaw === undefined || exitCodeRaw === null
     ? null
     : (exitCodeRaw as number);
-  return { checker_id, ok, findings, exit_code };
+  return { checker_id: checkerId, ok, findings, exit_code: exitCode };
 }
 
 /**
@@ -179,17 +179,17 @@ export function validateVerifyReportInput(check: VerifyCheckDefinition, raw: any
 function normalizeCheckerRun(raw: unknown): CheckerRun | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const checker_id = typeof record.checker_id === 'string' ? record.checker_id : '';
+  const checkerId = typeof record.checker_id === 'string' ? record.checker_id : '';
   const at = typeof record.at === 'string' ? record.at : '';
-  if (checker_id === '' || at === '') return null;
+  if (checkerId === '' || at === '') return null;
   const ok = record.ok === true;
   const findings = typeof record.findings === 'number' && Number.isInteger(record.findings) && record.findings >= 0
     ? record.findings
     : 0;
   const exitRaw = record.exit_code;
-  const exit_code = typeof exitRaw === 'number' || exitRaw === null ? (exitRaw as number | null) : null;
+  const exitCode = typeof exitRaw === 'number' || exitRaw === null ? (exitRaw as number | null) : null;
   const evidence = typeof record.evidence === 'string' && record.evidence !== '' ? record.evidence : undefined;
-  return { checker_id, ok, exit_code, findings, ...(evidence === undefined ? {} : { evidence }), at };
+  return { checker_id: checkerId, ok, exit_code: exitCode, findings, ...(evidence === undefined ? {} : { evidence }), at };
 }
 
 /**
@@ -212,12 +212,12 @@ export function pickVerification(raw: unknown): VerificationState {
       : null;
     return { id: check.id, mark: report === null ? 'pending' : mark, report };
   });
-  const checker_runs: CheckerRun[] = Array.isArray(source.checker_runs)
+  const checkerRuns: CheckerRun[] = Array.isArray(source.checker_runs)
     ? source.checker_runs
       .map((run) => normalizeCheckerRun(run))
       .filter((run): run is CheckerRun => run !== null)
     : [];
-  return { round, items, checker_runs };
+  return { round, items, checker_runs: checkerRuns };
 }
 
 export interface VerificationSummary {

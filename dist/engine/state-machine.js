@@ -2,10 +2,10 @@ import { isActiveState } from '../schema/node-state';
 /** 进入目标状态后实际读到的操作细节（A + B/C/D）与默认输入。 */
 export function effectiveDetail(targetState, node, global) {
     const parts = effectiveDetailParts(targetState, node, global);
-    const full_detail = parts.state_detail.trim() === ''
+    const fullDetail = parts.state_detail.trim() === ''
         ? parts.shared_detail
         : `${parts.shared_detail}\n\n${parts.state_detail}`;
-    return { full_detail, enter_trigger: parts.enter_trigger };
+    return { fullDetail, enter_trigger: parts.enter_trigger };
 }
 /**
  * 把 A（三态通用）与 B/C/D（本状态专属）分开返回。

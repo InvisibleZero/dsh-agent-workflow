@@ -302,7 +302,7 @@ src/
 
 ## 致谢
 
-七项验收里的依赖检查、死代码扫描、测试证据判定、并发压测，分别交给
+七项验收里的依赖检查、死代码扫描、测试证据判定、并发压测、命名扫描（封杀词 + 格式混用），分别交给
 [dependency-cruiser](https://github.com/sverweij/dependency-cruiser)（MIT）、
 [knip](https://github.com/webpro-nl/knip)（ISC）、
 [Vitest](https://github.com/vitest-dev/vitest)（MIT）、

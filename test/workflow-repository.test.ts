@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository, buildRootNode } from '../src/host/workflow-repository';
@@ -389,6 +389,25 @@ describe('WorkflowRepository：手册编辑与勾选（AI 工具的实现）', (
 
     const meta = await repo.getManualMeta(node.workflowId, node.nodeId);
     expect(meta?.hasPlan).toBe(true);
+  });
+
+  it('覆盖「方案」前把旧方案备份到 .workflow/backups/（只增不删）', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+    await repo.replaceManualSection({
+      workflowId: node.workflowId, nodeId: node.nodeId, section: '方案',
+      content: '### 1. 目标与验收\n\n第一版方案',
+    });
+    await repo.replaceManualSection({
+      workflowId: node.workflowId, nodeId: node.nodeId, section: '方案',
+      content: '### 1. 目标与验收\n\n第二版方案',
+    });
+    const manualData = await repo.readNodeManual(node.workflowId, node.nodeId);
+    const backups = await readdir(join(manualData.notesDir, 'backups'));
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+    const contents = await Promise.all(backups.map((name) => readFile(join(manualData.notesDir, 'backups', name), 'utf8')));
+    expect(contents.some((text) => text.includes('第一版方案'))).toBe(true);
+    expect(contents.every((text) => !text.includes('第二版方案'))).toBe(true);
   });
 
   it('替换不存在的小节时报错并列出可用小节', async () => {

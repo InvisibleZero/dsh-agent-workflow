@@ -17,7 +17,7 @@ exports.VERIFY_CHECKS = [
     { id: 2, name: '依赖检查', needs_command: false, judge: '无反向依赖、无循环依赖、无跨层引用', checker: { id: 'deps', enforcement: 'required' } },
     { id: 3, name: '死代码扫描', needs_command: false, judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）', checker: { id: 'deadcode', enforcement: 'required' } },
     { id: 4, name: '边界测试', needs_command: true, judge: '外部依赖可 mock，模块能独立测试', checker: { id: 'boundary', enforcement: 'required' } },
-    { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项' },
+    { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项', checker: { id: 'naming', enforcement: 'assistive', require_run: true } },
     { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
     { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
     { id: 8, name: '收尾', needs_command: false, judge: '把新决策 / 新坑 / 文档一致性写进项目手册，然后推进到已完结（自动，不再要人同意）' },

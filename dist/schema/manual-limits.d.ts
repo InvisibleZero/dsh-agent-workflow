@@ -40,6 +40,9 @@ export declare function stripManualEvidence(text: string): string;
 export declare function sanitizeManualLimits(raw: unknown): ManualLimits;
 /**
  * 写入前的硬校验：超了直接抛错。
+ *
+ * 「方案」按层判：每个 `### ` 子节（除「目标与验收」）各自 ≤ plan_chars；
+ * 「目标与验收」只受整本上限（它承担总述，不该被单层 500 卡）。
  * @returns 实际计入的字数（已剥离勾选证据）。
  */
 export declare function assertSectionLimit(section: string, content: string, limits: ManualLimits): number;

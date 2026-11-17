@@ -12,6 +12,7 @@ import { contractChecker } from './contract';
 import { deadcodeChecker } from './deadcode';
 import { depsChecker } from './deps';
 import { instrumentationChecker } from './instrumentation';
+import { namingChecker } from './naming';
 import { regressionChecker } from './regression';
 export const CHECKERS = [
     contractChecker,
@@ -20,6 +21,7 @@ export const CHECKERS = [
     boundaryChecker,
     regressionChecker,
     instrumentationChecker,
+    namingChecker,
     buildChecker,
 ];
 export const CHECKER_IDS = CHECKERS.map((checker) => checker.id);

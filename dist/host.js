@@ -1,12 +1,12 @@
 // src/host.ts
 import { homedir } from "node:os";
-import { dirname as dirname3, join as join6 } from "node:path";
+import { dirname as dirname4, join as join6 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawn2 } from "node:child_process";
 
 // src/host/workflow-repository.ts
 import { promises as fs2 } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/adapter/json-storage.ts
@@ -382,13 +382,49 @@ function assertSectionLimit(section, content, limits) {
   const field = SECTION_LIMIT_FIELD[section];
   if (field === void 0) return chars;
   const limit = limits[field];
+  const hint = SECTION_TRIM_HINTS[section] ?? "";
+  if (section === "\u65B9\u6848") {
+    const subsections = splitPlanSubsections(content);
+    if (subsections.length === 0) {
+      if (chars > limit) {
+        throw new ManualLimitError(
+          `\u300C\u65B9\u6848\u300D\u73B0\u5728 ${chars} \u5B57\uFF0C\u4E0A\u9650 ${limit} \u5B57\uFF0C\u8D85 ${chars - limit} \u5B57\u3002${hint}\uFF08\u5F3A\u5236\u4E0A\u9650\uFF0C\u5148\u7CBE\u7B80\u518D\u5199\uFF09`
+        );
+      }
+      return chars;
+    }
+    for (const subsection of subsections) {
+      if (subsection.title.includes("\u76EE\u6807")) continue;
+      const subChars = countManualChars(stripManualEvidence(subsection.body));
+      if (subChars > limit) {
+        throw new ManualLimitError(
+          `\u300C\u65B9\u6848 / ${subsection.title}\u300D\u73B0\u5728 ${subChars} \u5B57\uFF0C\u4E0A\u9650 ${limit} \u5B57\uFF0C\u8D85 ${subChars - limit} \u5B57\u3002${hint}\uFF08\u5F3A\u5236\u4E0A\u9650\uFF0C\u5148\u7CBE\u7B80\u518D\u5199\uFF09`
+        );
+      }
+    }
+    return chars;
+  }
   if (chars > limit) {
-    const hint = SECTION_TRIM_HINTS[section] ?? "";
     throw new ManualLimitError(
       `\u300C${section}\u300D\u73B0\u5728 ${chars} \u5B57\uFF0C\u4E0A\u9650 ${limit} \u5B57\uFF0C\u8D85 ${chars - limit} \u5B57\u3002${hint}\uFF08\u5F3A\u5236\u4E0A\u9650\uFF0C\u5148\u7CBE\u7B80\u518D\u5199\uFF09`
     );
   }
   return chars;
+}
+function splitPlanSubsections(content) {
+  const sections = [];
+  let current = null;
+  for (const line of content.split(/\r?\n/)) {
+    const heading = /^###\s*(?:(\d+)\.\s*)?(.+?)\s*$/.exec(line);
+    if (heading !== null) {
+      if (current !== null) sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+      current = { title: heading[2] ?? "", lines: [] };
+      continue;
+    }
+    if (current !== null) current.lines.push(line);
+  }
+  if (current !== null) sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+  return sections;
 }
 function assertSessionManualTotal(manual, limits) {
   const chars = countManualChars(stripManualEvidence(manual));
@@ -407,7 +443,7 @@ var VERIFY_CHECKS = [
   { id: 2, name: "\u4F9D\u8D56\u68C0\u67E5", needs_command: false, judge: "\u65E0\u53CD\u5411\u4F9D\u8D56\u3001\u65E0\u5FAA\u73AF\u4F9D\u8D56\u3001\u65E0\u8DE8\u5C42\u5F15\u7528", checker: { id: "deps", enforcement: "required" } },
   { id: 3, name: "\u6B7B\u4EE3\u7801\u626B\u63CF", needs_command: false, judge: "\u65E0\u7528\u5BFC\u51FA / \u53C2\u6570 / \u5B57\u6BB5\uFF0C\u4E14\u8981\u8BC1\u660E\u786E\u5B9E\u53EF\u5220\uFF08\u5F15\u7528\u8BA1\u6570\u4E3A\u96F6\uFF09", checker: { id: "deadcode", enforcement: "required" } },
   { id: 4, name: "\u8FB9\u754C\u6D4B\u8BD5", needs_command: true, judge: "\u5916\u90E8\u4F9D\u8D56\u53EF mock\uFF0C\u6A21\u5757\u80FD\u72EC\u7ACB\u6D4B\u8BD5", checker: { id: "boundary", enforcement: "required" } },
-  { id: 5, name: "\u547D\u540D\u4E0E\u8FB9\u754C\u5BA1\u67E5", needs_command: false, judge: "\u6CDB\u5316\u8BCD\u3001\u8DE8\u6A21\u5757\u66B4\u9732\u3001\u53CD\u5411\u5197\u957F\u3001\u524D\u7F00\u8D8A\u754C\u56DB\u9879" },
+  { id: 5, name: "\u547D\u540D\u4E0E\u8FB9\u754C\u5BA1\u67E5", needs_command: false, judge: "\u6CDB\u5316\u8BCD\u3001\u8DE8\u6A21\u5757\u66B4\u9732\u3001\u53CD\u5411\u5197\u957F\u3001\u524D\u7F00\u8D8A\u754C\u56DB\u9879", checker: { id: "naming", enforcement: "assistive", require_run: true } },
   { id: 6, name: "\u57CB\u70B9\u68C0\u6D4B", needs_command: false, judge: "\u9ED1\u76D2\u9010\u8DF3\u4E09\u95EE + \u767D\u76D2\u4E94\u5B57\u6BB5\uFF0C\u4E09\u7C7B\u7ED3\u8BBA\uFF1A\u65AD\u70B9 / \u65E0\u6548\u57CB\u70B9 / \u8D28\u91CF\u76F2\u533A", checker: { id: "instrumentation", enforcement: "assistive", require_run: true } },
   { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09", checker: { id: "regression", enforcement: "required" } },
   { id: 8, name: "\u6536\u5C3E", needs_command: false, judge: "\u628A\u65B0\u51B3\u7B56 / \u65B0\u5751 / \u6587\u6863\u4E00\u81F4\u6027\u5199\u8FDB\u9879\u76EE\u624B\u518C\uFF0C\u7136\u540E\u63A8\u8FDB\u5230\u5DF2\u5B8C\u7ED3\uFF08\u81EA\u52A8\uFF0C\u4E0D\u518D\u8981\u4EBA\u540C\u610F\uFF09" }
@@ -455,8 +491,8 @@ function parseCheckerResult(raw) {
     throw new Error("checker \u5FC5\u987B\u662F\u5BF9\u8C61\uFF1A{ checker_id, ok, findings, exit_code }");
   }
   const record = raw;
-  const checker_id = typeof record.checker_id === "string" ? record.checker_id.trim() : "";
-  if (checker_id === "") throw new Error("checker.checker_id \u4E0D\u80FD\u4E3A\u7A7A");
+  const checkerId = typeof record.checker_id === "string" ? record.checker_id.trim() : "";
+  if (checkerId === "") throw new Error("checker.checker_id \u4E0D\u80FD\u4E3A\u7A7A");
   const ok = record.ok;
   if (typeof ok !== "boolean") throw new Error("checker.ok \u5FC5\u987B\u662F\u5E03\u5C14\u503C");
   const findings = record.findings;
@@ -467,8 +503,8 @@ function parseCheckerResult(raw) {
   if (exitCodeRaw !== null && exitCodeRaw !== void 0 && (typeof exitCodeRaw !== "number" || !Number.isInteger(exitCodeRaw))) {
     throw new Error("checker.exit_code \u5FC5\u987B\u662F\u6574\u6570\u6216 null");
   }
-  const exit_code = exitCodeRaw === void 0 || exitCodeRaw === null ? null : exitCodeRaw;
-  return { checker_id, ok, findings, exit_code };
+  const exitCode = exitCodeRaw === void 0 || exitCodeRaw === null ? null : exitCodeRaw;
+  return { checker_id: checkerId, ok, findings, exit_code: exitCode };
 }
 function validateCheckerGate(check, checker, result, command) {
   if (check.checker?.enforcement !== "required") return void 0;
@@ -539,15 +575,15 @@ function validateVerifyReportInput(check, raw) {
 function normalizeCheckerRun(raw) {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw;
-  const checker_id = typeof record.checker_id === "string" ? record.checker_id : "";
+  const checkerId = typeof record.checker_id === "string" ? record.checker_id : "";
   const at = typeof record.at === "string" ? record.at : "";
-  if (checker_id === "" || at === "") return null;
+  if (checkerId === "" || at === "") return null;
   const ok = record.ok === true;
   const findings = typeof record.findings === "number" && Number.isInteger(record.findings) && record.findings >= 0 ? record.findings : 0;
   const exitRaw = record.exit_code;
-  const exit_code = typeof exitRaw === "number" || exitRaw === null ? exitRaw : null;
+  const exitCode = typeof exitRaw === "number" || exitRaw === null ? exitRaw : null;
   const evidence = typeof record.evidence === "string" && record.evidence !== "" ? record.evidence : void 0;
-  return { checker_id, ok, exit_code, findings, ...evidence === void 0 ? {} : { evidence }, at };
+  return { checker_id: checkerId, ok, exit_code: exitCode, findings, ...evidence === void 0 ? {} : { evidence }, at };
 }
 function pickVerification(raw) {
   if (raw === null || typeof raw !== "object") return createVerification(0);
@@ -561,8 +597,8 @@ function pickVerification(raw) {
     const report = mark !== "pending" && found.report !== null && typeof found.report === "object" ? found.report : null;
     return { id: check.id, mark: report === null ? "pending" : mark, report };
   });
-  const checker_runs = Array.isArray(source.checker_runs) ? source.checker_runs.map((run) => normalizeCheckerRun(run)).filter((run) => run !== null) : [];
-  return { round, items, checker_runs };
+  const checkerRuns = Array.isArray(source.checker_runs) ? source.checker_runs.map((run) => normalizeCheckerRun(run)).filter((run) => run !== null) : [];
+  return { round, items, checker_runs: checkerRuns };
 }
 function summarizeVerification(state) {
   const pass = state.items.filter((item) => item.mark === "pass").length;
@@ -1956,6 +1992,7 @@ ${entry}`;
     const limits = (await this.getAppSettings()).manualLimits;
     const chars = assertSectionLimit(input.section, input.content, limits);
     const current = await this.readFileOrTemplate(file, isSession);
+    if (input.section === "\u65B9\u6848") await this.backupOldPlan(file, current);
     let next;
     try {
       next = replaceSectionBody(current, input.section, input.content, MANUAL_SECTION_ALIASES[input.section] ?? []);
@@ -1971,6 +2008,20 @@ ${entry}`;
     await writeTextAtomic(file, next);
     this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId ?? ""}`);
     return { bytes, section: input.section, chars };
+  }
+  /** 覆盖「方案」前把旧方案备份到 `.workflow/backups/方案-<时间戳>.md`（只增不删）。 */
+  async backupOldPlan(manualFile, current) {
+    const oldPlan = pickSectionBody(current, ["\u65B9\u6848"]);
+    if (oldPlan.trim() === "") return;
+    const exists = await fs2.access(manualFile).then(() => true).catch(() => false);
+    if (!exists) return;
+    const dir = join(dirname(manualFile), "backups");
+    await fs2.mkdir(dir, { recursive: true });
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    await fs2.writeFile(join(dir, `\u65B9\u6848-${stamp}.md`), `# \u65E7\u65B9\u6848\u5907\u4EFD\uFF08${(/* @__PURE__ */ new Date()).toISOString()}\uFF09
+
+${oldPlan}
+`, "utf8");
   }
   /**
    * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。
@@ -2257,10 +2308,10 @@ async function readSidebarNodes(repository, workingDirectory, onBroken) {
 // src/engine/state-machine.ts
 function effectiveDetail(targetState, node, global) {
   const parts = effectiveDetailParts(targetState, node, global);
-  const full_detail = parts.state_detail.trim() === "" ? parts.shared_detail : `${parts.shared_detail}
+  const fullDetail = parts.state_detail.trim() === "" ? parts.shared_detail : `${parts.shared_detail}
 
 ${parts.state_detail}`;
-  return { full_detail, enter_trigger: parts.enter_trigger };
+  return { fullDetail, enter_trigger: parts.enter_trigger };
 }
 function effectiveDetailParts(targetState, node, global) {
   if (!isActiveState(targetState)) {
@@ -2299,7 +2350,7 @@ var DEFAULT_HARD_RULES = {
 // src/host/event-log.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join as join2 } from "node:path";
+import { dirname as dirname2, join as join2 } from "node:path";
 var MAX_EVENTS = 500;
 var events = [];
 var logFilePath = null;
@@ -2313,7 +2364,7 @@ function persistEvent(entry) {
   const line = `${JSON.stringify(entry)}
 `;
   writeChain = writeChain.then(async () => {
-    await mkdir(dirname(logFilePath), { recursive: true });
+    await mkdir(dirname2(logFilePath), { recursive: true });
     await appendFile(logFilePath, line, "utf8");
   }).catch(() => {
   });
@@ -2773,7 +2824,7 @@ function pickSessionId(context) {
 
 // src/host/workflow-tools.ts
 import { mkdir as mkdir2, readFile } from "node:fs/promises";
-import { dirname as dirname2, isAbsolute, join as join4, resolve as resolve2 } from "node:path";
+import { dirname as dirname3, isAbsolute, join as join4, resolve as resolve2 } from "node:path";
 
 // src/schema/tool-kind.ts
 var TOOL_KIND = { base: "base", extension: "extension" };
@@ -2838,7 +2889,7 @@ var BASE_TOOLS = [
   },
   {
     name: "workflow_manual",
-    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u4E24\u8005\u90FD\u4EC5\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u53EF\u5199\uFF1A\u8FDB\u5165\u5B9E\u73B0\u4E2D\u540E\u65B9\u6848\u9501\u5B9A\u3001\u5B9E\u65BD\u987A\u5E8F\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002\u5B9E\u65BD\u987A\u5E8F\u6BCF\u6761\u53EF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u6539\u52A8\u8303\u56F4\uFF08\u5B9E\u73B0\u4E2D\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u62E6\uFF09\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u4E0A\u9650 1200 \u5B57\u3001\u7EA6\u675F 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
+    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u4E24\u8005\u90FD\u4EC5\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u53EF\u5199\uFF1A\u8FDB\u5165\u5B9E\u73B0\u4E2D\u540E\u65B9\u6848\u9501\u5B9A\u3001\u5B9E\u65BD\u987A\u5E8F\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002\u5B9E\u65BD\u987A\u5E8F\u6BCF\u6761\u53EF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u6539\u52A8\u8303\u56F4\uFF08\u5B9E\u73B0\u4E2D\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u62E6\uFF09\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u6BCF\u5C42 500 \u5B57\uFF08\u6309 ### \u5C42\u5224\uFF0C\u76EE\u6807\u4E0E\u9A8C\u6536\u4E0D\u8BA1\u5165\uFF09\u3001\u7EA6\u675F 300 \u5B57\u3001\u5782\u76F4\u5207\u7247\u5751 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
     kind: TOOL_KIND.base,
     allowed_states: [...ALL_STATES],
     effect: "write-state",
@@ -2989,6 +3040,16 @@ var EXTENSION_TOOLS = [
     run: { kind: "checker", checker: "build" },
     allowed_states: ["implementing", "verifying"],
     effect: "exec",
+    parameters: { type: "object", properties: {}, additionalProperties: true },
+    version: 1
+  },
+  {
+    name: "check_naming",
+    description: "\u547D\u540D\u5BA1\u67E5\uFF08\u534F\u52A9\u578B\uFF09\uFF1A\u5148\u6267\u884C naming-scan.mjs \u626B src \u7684\u5C01\u6740\u8BCD\uFF08system/data/info/manager/util/utils/common/helper\uFF09\uFF0C\u4EA7\u51FA naming.json \u5E76\u5224\u5B9A\u3002\u8BED\u4E49\u90E8\u5206\uFF08\u53CD\u5411\u5197\u957F / \u8DE8\u6A21\u5757\u66B4\u9732 / \u524D\u7F00\u8D8A\u754C\uFF09\u4ECD\u7531\u4F60\u5224\uFF1B\u62A5\u7B2C 5 \u9879 pass \u524D\u672C\u8F6E\u81F3\u5C11\u8981\u8DD1\u8FC7\u4E00\u6B21\u672C\u5DE5\u5177\u3002",
+    kind: TOOL_KIND.extension,
+    run: { kind: "checker", checker: "naming" },
+    allowed_states: ["verifying"],
+    effect: "read-state",
     parameters: { type: "object", properties: {}, additionalProperties: true },
     version: 1
   }
@@ -3355,21 +3416,56 @@ var instrumentationChecker = {
   }
 };
 
+// src/engine/checkers/naming.ts
+var EVIDENCE7 = "naming.json";
+var namingChecker = {
+  id: "naming",
+  name: "\u547D\u540D\u5BA1\u67E5",
+  evidence: EVIDENCE7,
+  defaultTarget: "",
+  autoRun: true,
+  script: "naming-scan.mjs",
+  check(evidence_json) {
+    if (evidence_json === null) return missingEvidence(EVIDENCE7, "node scripts/naming-scan.mjs");
+    const root = asRecord(evidence_json);
+    if (!Array.isArray(root.violations)) {
+      return {
+        ok: false,
+        findings: [{ location: EVIDENCE7, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A violations\uFF0C\u786E\u8BA4\u7528\u7684\u662F naming-scan.mjs" }],
+        stats: {}
+      };
+    }
+    const findings = [];
+    for (const item of asArray(root.violations)) {
+      const record = asRecord(item);
+      const word = asString(record.word) || "(\u672A\u77E5)";
+      const file = asString(record.file) || EVIDENCE7;
+      const line = asNumber(record.line);
+      findings.push({
+        location: line > 0 ? `${file}:${line}` : file,
+        problem: `\u5C01\u6740\u8BCD\u300C${word}\u300D\uFF1A\u540D\u5B57\u8981\u5199\u51FA\u542B\u4E49\uFF0C\u522B\u7528\u6CDB\u5316\u8BCD`
+      });
+    }
+    const scanned = asNumber(root.scanned);
+    return { ok: findings.length === 0, findings, stats: { scanned, findings: findings.length } };
+  }
+};
+
 // src/engine/checkers/regression.ts
-var EVIDENCE7 = "regression.json";
+var EVIDENCE8 = "regression.json";
 function buildCommand5(target) {
-  return `autocannon ${target} -j > .workflow/evidence/${EVIDENCE7}`;
+  return `autocannon ${target} -j > .workflow/evidence/${EVIDENCE8}`;
 }
 var regressionChecker = {
   id: "regression",
   name: "\u56DE\u5F52\u4E0E\u538B\u6D4B",
-  evidence: EVIDENCE7,
+  evidence: EVIDENCE8,
   defaultTarget: "",
   autoRun: true,
   requiresTarget: true,
   buildCommand: buildCommand5,
   check(evidence_json) {
-    if (evidence_json === null) return missingEvidence(EVIDENCE7, `${buildCommand5("http://127.0.0.1:3000")}`);
+    if (evidence_json === null) return missingEvidence(EVIDENCE8, `${buildCommand5("http://127.0.0.1:3000")}`);
     const root = asRecord(evidence_json);
     if (typeof root.requests === "object" && root.requests !== null) {
       const requests = asRecord(root.requests);
@@ -3377,8 +3473,8 @@ var regressionChecker = {
       const failed = asNumber(root.errors) + asNumber(root.timeouts);
       const durationMs = Math.round(asNumber(root.duration) * 1e3);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE7, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE7, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
+      if (total <= 0) findings.push({ location: EVIDENCE8, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE8, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     if (typeof root.total === "number" && typeof root.failed === "number") {
@@ -3386,13 +3482,13 @@ var regressionChecker = {
       const failed = asNumber(root.failed);
       const durationMs = asNumber(root.durationMs);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE7, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE7, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
+      if (total <= 0) findings.push({ location: EVIDENCE8, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE8, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     return {
       ok: false,
-      findings: [{ location: EVIDENCE7, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
+      findings: [{ location: EVIDENCE8, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
       stats: {}
     };
   }
@@ -3406,6 +3502,7 @@ var CHECKERS = [
   boundaryChecker,
   regressionChecker,
   instrumentationChecker,
+  namingChecker,
   buildChecker
 ];
 var CHECKER_IDS = CHECKERS.map((checker) => checker.id);
@@ -4207,21 +4304,21 @@ async function invokeChecker(deps, entry, args, sessionId) {
   const target = resolveCheckerTarget(args?.target, checker);
   const command = commandForChecker(checker, target, deps.packageRoot);
   const evidencePath = join4(workingDirectory, ".workflow", "evidence", checker.evidence);
-  await mkdir2(dirname2(evidencePath), { recursive: true });
+  await mkdir2(dirname3(evidencePath), { recursive: true });
   let commandResult = null;
   if (checker.autoRun) {
     const execute = deps.runCommand ?? runCommand;
     commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
   }
-  let evidence_json = null;
+  let evidenceJson = null;
   let parseError = "";
   try {
-    evidence_json = JSON.parse(await readFile(evidencePath, "utf8"));
+    evidenceJson = JSON.parse(await readFile(evidencePath, "utf8"));
   } catch (error) {
     const code = error?.code;
     if (code !== "ENOENT") parseError = String(error?.message ?? error);
   }
-  const result = parseError === "" ? checker.check(evidence_json) : {
+  const result = parseError === "" ? checker.check(evidenceJson) : {
     ok: false,
     findings: [{ location: checker.evidence, problem: `\u8BC1\u636E\u6587\u4EF6\u89E3\u6790\u5931\u8D25\uFF1A${parseError}` }],
     stats: {}
@@ -4446,7 +4543,7 @@ async function invokeVerifyReport(deps, sessionId, args) {
     if (runs.length === 0) {
       const toolName = `check_${checkerMeta.id}`;
       throw new Error(
-        `\u300C${check.name}\u300D\u62A5 pass \u524D\u672C\u8F6E\u81F3\u5C11\u8981\u8DD1\u8FC7\u4E00\u6B21 ${toolName}\uFF08\u5148\u626B\u63CF\u5DF2\u6709\u57CB\u70B9\uFF09\uFF1B\u6CA1\u626B\u5C31\u58F0\u79F0\u5230\u4F4D\u4E0D\u7B97\u6570\uFF08\u81F3\u5C11\u8DD1\u4E00\u6B21\u95E8\u7981\uFF09`
+        `\u300C${check.name}\u300D\u62A5 pass \u524D\u672C\u8F6E\u81F3\u5C11\u8981\u8DD1\u8FC7\u4E00\u6B21 ${toolName}\uFF08\u5148\u771F\u8DD1\u4E00\u6B21\u68C0\u67E5\u5668\uFF09\uFF1B\u6CA1\u8DD1\u5C31\u58F0\u79F0\u5230\u4F4D\u4E0D\u7B97\u6570\uFF08\u81F3\u5C11\u8DD1\u4E00\u6B21\u95E8\u7981\uFF09`
       );
     }
   }
@@ -4769,7 +4866,7 @@ function recentToolEvents(limit = 50) {
 // src/engine/plan-sections.ts
 var SECTION_HEADING = /^###\s+(\d+)\.\s*(.+?)\s*$/;
 var HINT_BLOCK = /<!--([\s\S]*?)-->/;
-function plan_sections_from_template(template) {
+function planSectionsFromTemplate(template) {
   const lines = template.split(/\r?\n/);
   const sections = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -4802,7 +4899,7 @@ function resolveDataDir() {
   return join6(base, "dsh-agent-workflow");
 }
 function resolvePackageRoot() {
-  return join6(dirname3(fileURLToPath(import.meta.url)), "..");
+  return join6(dirname4(fileURLToPath(import.meta.url)), "..");
 }
 function isLoopbackRequest(req) {
   try {
@@ -4964,11 +5061,11 @@ function apply(ctx) {
         sessionScope.delete(sessionId);
         return;
       }
-      const info = await repository.getChecklistScope(found.workflowId, found.nodeId);
-      if (info === null || info.scope.length === 0) {
+      const checklistScope = await repository.getChecklistScope(found.workflowId, found.nodeId);
+      if (checklistScope === null || checklistScope.scope.length === 0) {
         sessionScope.delete(sessionId);
       } else {
-        sessionScope.set(sessionId, { workingDir: info.workingDir, scope: info.scope });
+        sessionScope.set(sessionId, { workingDir: checklistScope.workingDir, scope: checklistScope.scope });
       }
     } catch {
       sessionScope.delete(sessionId);
@@ -5250,7 +5347,7 @@ function apply(ctx) {
       handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const template = await repository.readSessionManualTemplate();
-        const planSections = plan_sections_from_template(template);
+        const planSections = planSectionsFromTemplate(template);
         const verifyItems = VERIFY_CHECKS.map((check) => ({
           id: check.id,
           name: check.name,
@@ -5692,7 +5789,7 @@ function apply(ctx) {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         const exported = await repository.exportVerificationReport(body.id, body.nodeId);
-        spawn2("explorer.exe", [dirname3(exported.path)], { stdio: "ignore", detached: true }).unref();
+        spawn2("explorer.exe", [dirname4(exported.path)], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] export-report ok (node=${body.nodeId}, name=${exported.name})`, traceId);
         return exported;
       })

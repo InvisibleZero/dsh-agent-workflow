@@ -12,6 +12,7 @@ import { contractChecker } from './contract';
 import { deadcodeChecker } from './deadcode';
 import { depsChecker } from './deps';
 import { instrumentationChecker } from './instrumentation';
+import { namingChecker } from './naming';
 import { regressionChecker } from './regression';
 import type { Checker } from './types';
 
@@ -22,6 +23,7 @@ export const CHECKERS: Checker[] = [
   boundaryChecker,
   regressionChecker,
   instrumentationChecker,
+  namingChecker,
   buildChecker,
 ];
 

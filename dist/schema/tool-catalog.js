@@ -80,7 +80,7 @@ export const BASE_TOOLS = [
             + '会话手册只能改「方案」和「实施顺序」（两者都仅在「讨论中」可写：进入实现中后方案锁定、实施顺序只能勾选）；项目手册条目用 append_entry / update_entry 写，必须带 1 个以上标签。'
             + '实施顺序每条可带「 ｜ 范围：目录1,目录2」声明改动范围（实现中越界改动会被拦）。'
             + 'replace_section 只替换一个小节正文；remove_entry 删除条目、rename_tag 合并标签。'
-            + '方案上限 1200 字、约束 300 字、会话手册整本 2000 字，超了拒写；勾选证据不计入。',
+            + '方案每层 500 字（按 ### 层判，目标与验收不计入）、约束 300 字、垂直切片坑 300 字、会话手册整本 2000 字，超了拒写；勾选证据不计入。',
         kind: TOOL_KIND.base,
         allowed_states: [...ALL_STATES],
         effect: 'write-state',
@@ -244,6 +244,16 @@ export const EXTENSION_TOOLS = [
         run: { kind: 'checker', checker: 'build' },
         allowed_states: ['implementing', 'verifying'],
         effect: 'exec',
+        parameters: { type: 'object', properties: {}, additionalProperties: true },
+        version: 1,
+    },
+    {
+        name: 'check_naming',
+        description: '命名审查（协助型）：先执行 naming-scan.mjs 扫 src 的封杀词（system/data/info/manager/util/utils/common/helper），产出 naming.json 并判定。语义部分（反向冗长 / 跨模块暴露 / 前缀越界）仍由你判；报第 5 项 pass 前本轮至少要跑过一次本工具。',
+        kind: TOOL_KIND.extension,
+        run: { kind: 'checker', checker: 'naming' },
+        allowed_states: ['verifying'],
+        effect: 'read-state',
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         version: 1,
     },

@@ -79,6 +79,9 @@ class ManualLimitError extends Error {
 }
 /**
  * 写入前的硬校验：超了直接抛错。
+ *
+ * 「方案」按层判：每个 `### ` 子节（除「目标与验收」）各自 ≤ plan_chars；
+ * 「目标与验收」只受整本上限（它承担总述，不该被单层 500 卡）。
  * @returns 实际计入的字数（已剥离勾选证据）。
  */
 export function assertSectionLimit(section, content, limits) {
@@ -87,11 +90,49 @@ export function assertSectionLimit(section, content, limits) {
     if (field === undefined)
         return chars;
     const limit = limits[field];
+    const hint = SECTION_TRIM_HINTS[section] ?? '';
+    if (section === '方案') {
+        const subsections = splitPlanSubsections(content);
+        if (subsections.length === 0) {
+            // 没有 ### 分节（裸文本）：退回整份判 plan_chars，避免无结构的方案无上限。
+            if (chars > limit) {
+                throw new ManualLimitError(`「方案」现在 ${chars} 字，上限 ${limit} 字，超 ${chars - limit} 字。${hint}（强制上限，先精简再写）`);
+            }
+            return chars;
+        }
+        for (const subsection of subsections) {
+            if (subsection.title.includes('目标'))
+                continue;
+            const subChars = countManualChars(stripManualEvidence(subsection.body));
+            if (subChars > limit) {
+                throw new ManualLimitError(`「方案 / ${subsection.title}」现在 ${subChars} 字，上限 ${limit} 字，超 ${subChars - limit} 字。${hint}（强制上限，先精简再写）`);
+            }
+        }
+        return chars;
+    }
     if (chars > limit) {
-        const hint = SECTION_TRIM_HINTS[section] ?? '';
         throw new ManualLimitError(`「${section}」现在 ${chars} 字，上限 ${limit} 字，超 ${chars - limit} 字。${hint}（强制上限，先精简再写）`);
     }
     return chars;
+}
+/** 按 `### [N. ]标题` 切「方案」正文成子节（只给按层判字数用）。 */
+function splitPlanSubsections(content) {
+    const sections = [];
+    let current = null;
+    for (const line of content.split(/\r?\n/)) {
+        const heading = /^###\s*(?:(\d+)\.\s*)?(.+?)\s*$/.exec(line);
+        if (heading !== null) {
+            if (current !== null)
+                sections.push({ title: current.title, body: current.lines.join('\n').trim() });
+            current = { title: heading[2] ?? '', lines: [] };
+            continue;
+        }
+        if (current !== null)
+            current.lines.push(line);
+    }
+    if (current !== null)
+        sections.push({ title: current.title, body: current.lines.join('\n').trim() });
+    return sections;
 }
 /**
  * 整本会话手册的字数校验（勾选证据不计入）。

@@ -360,6 +360,8 @@ export declare class WorkflowRepository {
         section: string;
         chars: number;
     }>;
+    /** 覆盖「方案」前把旧方案备份到 `.workflow/backups/方案-<时间戳>.md`（只增不删）。 */
+    private backupOldPlan;
     /**
      * 勾选 / 取消勾选「实施顺序」里的一条（按条目文字精确匹配，不许新增或改写条目）。
      * @returns 勾选后的完整清单，方便模型确认进度。

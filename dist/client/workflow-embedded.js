@@ -67,12 +67,12 @@ function WorkflowStateBadge(props) {
      * 宿主日志能证明「服务端给了节点」，证明不了「页面拿到之后有没有画出来」；
      * 这次排查就卡在这一点上，所以这里只在变化时补一条。
      */
-    const reportNodeChange = (node_snapshot) => {
-        const nextId = node_snapshot === null ? '' : node_snapshot.nodeId;
+    const reportNodeChange = (nodeSnapshot) => {
+        const nextId = nodeSnapshot === null ? '' : nodeSnapshot.nodeId;
         if (nextId === reportedNodeRef.current)
             return;
         reportedNodeRef.current = nextId;
-        void reportClientEvent('info', node_snapshot === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${node_snapshot.nodeId}, state=${node_snapshot.state})`);
+        void reportClientEvent('info', nodeSnapshot === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${nodeSnapshot.nodeId}, state=${nodeSnapshot.state})`);
     };
     /** 防止一轮还没回来又叠一轮（3 秒定时器 + 推送事件可能撞在一起）。 */
     const inFlightRef = useRef(false);
@@ -136,7 +136,7 @@ function WorkflowStateBadge(props) {
                 setNodeInfo(null);
                 return null;
             }
-            const node_snapshot = {
+            const nodeSnapshot = {
                 state: String(node.current_state),
                 workflowId: String(node.workflowId),
                 nodeId: String(node.nodeId),
@@ -145,9 +145,9 @@ function WorkflowStateBadge(props) {
                     ? null
                     : { to: String(responseBody.pendingAdvance.to) },
             };
-            reportNodeChange(node_snapshot);
-            setNodeInfo(node_snapshot);
-            return node_snapshot;
+            reportNodeChange(nodeSnapshot);
+            setNodeInfo(nodeSnapshot);
+            return nodeSnapshot;
         }
         catch {
             // 读失败也按「这一刻没有节点」上报：否则界面上「没有胶囊」分不清是没数据还是请求失败。
@@ -237,19 +237,19 @@ function WorkflowStateBadge(props) {
                 return;
             inFlightRef.current = true;
             try {
-                let node_snapshot = await readNode();
+                let nodeSnapshot = await readNode();
                 // 自动认领只对「还没聊过」的会话做：新会话可能刚被切成工作流，而宿主不会为
                 // 这次切换发任何事件；聊过的会话迟早会走到 agent/pre-step，由宿主自己认领。
-                if (node_snapshot === null && !hasMessagesRef.current) {
+                if (nodeSnapshot === null && !hasMessagesRef.current) {
                     const ensuredState = await ensureNode(sessionCwd);
                     if (ensuredState !== null) {
                         // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
                         notifyStateChanged(ensuredState);
-                        node_snapshot = await readNode();
+                        nodeSnapshot = await readNode();
                     }
                 }
-                if (node_snapshot !== null && (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying')) {
-                    void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
+                if (nodeSnapshot !== null && (nodeSnapshot.state === 'implementing' || nodeSnapshot.state === 'verifying')) {
+                    void readChecklist(nodeSnapshot.workflowId, nodeSnapshot.nodeId);
                 }
                 else {
                     setChecklist([]);
@@ -308,11 +308,11 @@ function WorkflowStateBadge(props) {
             }
             // 通知侧栏会话行的状态点刷新：只更新这一个会话。
             notifyStateChanged(to);
-            const node_snapshot = await readNode();
-            if (node_snapshot !== null)
-                await applyEnterTrigger(node_snapshot.enterTrigger);
-            if (node_snapshot !== null && (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying')) {
-                void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
+            const nodeSnapshot = await readNode();
+            if (nodeSnapshot !== null)
+                await applyEnterTrigger(nodeSnapshot.enterTrigger);
+            if (nodeSnapshot !== null && (nodeSnapshot.state === 'implementing' || nodeSnapshot.state === 'verifying')) {
+                void readChecklist(nodeSnapshot.workflowId, nodeSnapshot.nodeId);
             }
             else {
                 setChecklist([]);
@@ -361,14 +361,14 @@ function WorkflowStateBadge(props) {
                 window.alert(String(payload?.error ?? '处理推进请求失败'));
                 return;
             }
-            const node_snapshot = await readNode();
-            if (node_snapshot !== null) {
+            const nodeSnapshot = await readNode();
+            if (nodeSnapshot !== null) {
                 // 同意 / 拒绝之后都可能改变节点状态：按服务端读回的状态更新这一行。
-                notifyStateChanged(node_snapshot.state);
+                notifyStateChanged(nodeSnapshot.state);
                 if (accept)
-                    await applyEnterTrigger(node_snapshot.enterTrigger);
-                if (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying') {
-                    void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
+                    await applyEnterTrigger(nodeSnapshot.enterTrigger);
+                if (nodeSnapshot.state === 'implementing' || nodeSnapshot.state === 'verifying') {
+                    void readChecklist(nodeSnapshot.workflowId, nodeSnapshot.nodeId);
                 }
                 else {
                     setChecklist([]);

@@ -40,8 +40,8 @@ export function parseCheckerResult(raw) {
         throw new Error('checker 必须是对象：{ checker_id, ok, findings, exit_code }');
     }
     const record = raw;
-    const checker_id = typeof record.checker_id === 'string' ? record.checker_id.trim() : '';
-    if (checker_id === '')
+    const checkerId = typeof record.checker_id === 'string' ? record.checker_id.trim() : '';
+    if (checkerId === '')
         throw new Error('checker.checker_id 不能为空');
     const ok = record.ok;
     if (typeof ok !== 'boolean')
@@ -55,10 +55,10 @@ export function parseCheckerResult(raw) {
         && (typeof exitCodeRaw !== 'number' || !Number.isInteger(exitCodeRaw))) {
         throw new Error('checker.exit_code 必须是整数或 null');
     }
-    const exit_code = exitCodeRaw === undefined || exitCodeRaw === null
+    const exitCode = exitCodeRaw === undefined || exitCodeRaw === null
         ? null
         : exitCodeRaw;
-    return { checker_id, ok, findings, exit_code };
+    return { checker_id: checkerId, ok, findings, exit_code: exitCode };
 }
 /**
  * 两层门禁判定（纯函数，不读盘）：
@@ -151,18 +151,18 @@ function normalizeCheckerRun(raw) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
         return null;
     const record = raw;
-    const checker_id = typeof record.checker_id === 'string' ? record.checker_id : '';
+    const checkerId = typeof record.checker_id === 'string' ? record.checker_id : '';
     const at = typeof record.at === 'string' ? record.at : '';
-    if (checker_id === '' || at === '')
+    if (checkerId === '' || at === '')
         return null;
     const ok = record.ok === true;
     const findings = typeof record.findings === 'number' && Number.isInteger(record.findings) && record.findings >= 0
         ? record.findings
         : 0;
     const exitRaw = record.exit_code;
-    const exit_code = typeof exitRaw === 'number' || exitRaw === null ? exitRaw : null;
+    const exitCode = typeof exitRaw === 'number' || exitRaw === null ? exitRaw : null;
     const evidence = typeof record.evidence === 'string' && record.evidence !== '' ? record.evidence : undefined;
-    return { checker_id, ok, exit_code, findings, ...(evidence === undefined ? {} : { evidence }), at };
+    return { checker_id: checkerId, ok, exit_code: exitCode, findings, ...(evidence === undefined ? {} : { evidence }), at };
 }
 /**
  * 把快照里的未知值收成合法状态：缺字段 / 坏字段一律回落到七项全空。
@@ -186,12 +186,12 @@ export function pickVerification(raw) {
             : null;
         return { id: check.id, mark: report === null ? 'pending' : mark, report };
     });
-    const checker_runs = Array.isArray(source.checker_runs)
+    const checkerRuns = Array.isArray(source.checker_runs)
         ? source.checker_runs
             .map((run) => normalizeCheckerRun(run))
             .filter((run) => run !== null)
         : [];
-    return { round, items, checker_runs };
+    return { round, items, checker_runs: checkerRuns };
 }
 export function summarizeVerification(state) {
     const pass = state.items.filter((item) => item.mark === 'pass').length;

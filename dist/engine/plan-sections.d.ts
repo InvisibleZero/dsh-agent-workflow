@@ -17,6 +17,6 @@ interface PlanSection {
  * 凑不齐 1..6 六节就返回空数组：调用方（路由）据此回退成整段模板原文，
  * 不能因为标题写法被改了就显示成「六项是空的」。
  */
-export declare function plan_sections_from_template(template: string): PlanSection[];
+export declare function planSectionsFromTemplate(template: string): PlanSection[];
 export {};
 //# sourceMappingURL=plan-sections.d.ts.map

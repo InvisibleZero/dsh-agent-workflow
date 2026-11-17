@@ -306,14 +306,19 @@ describe('验收八项：规则与门禁', () => {
       expect(value.value.item).toMatchObject({ id: 1, mark: 'pass' });
     });
 
-    it('没挂检查器的项（命名审查）报 pass 不要求真跑工具', async () => {
+    it('第 5 项命名审查已挂 naming 检查器：报 pass 前要先跑过 check_naming', async () => {
       const node = await seedAt('verifying');
       const { tool } = makeRuntime(repo, stateRef);
+      // 没跑过 check_naming → 被「至少跑一次」门禁拒
+      await expect(tool('workflow_verify_report').execute({
+        item: '5', result: 'pass', summary: '命名审查通过', anchors: [{ file: 'evidence.md', line: 1 }],
+      }, exec)).rejects.toThrow(/至少要跑过一次 check_naming/);
+      // 跑过 check_naming → 放行
+      await repo.recordCheckerRun({
+        workflowId: node.workflowId, nodeId: node.nodeId, checkerId: 'naming', ok: true, findings: 0, exit_code: 0,
+      });
       const value = await tool('workflow_verify_report').execute({
-        item: '5',
-        result: 'pass',
-        summary: '命名审查通过',
-        anchors: [{ file: 'evidence.md', line: 1 }],
+        item: '5', result: 'pass', summary: '命名审查通过', anchors: [{ file: 'evidence.md', line: 1 }],
       }, exec);
       expect(value.value.item).toMatchObject({ id: 5, mark: 'pass' });
     });

@@ -64,8 +64,8 @@ describe('迁移：第 6 项从无检查器改成协助型', () => {
     expect(check?.checker).toEqual({ id: 'instrumentation', enforcement: 'assistive', require_run: true });
   });
 
-  it('第 5 项命名审查仍然没有检查器', () => {
-    expect(VERIFY_CHECKS.find((entry) => entry.id === 5)?.checker).toBeUndefined();
+  it('第 5 项命名审查已挂 naming：协助型 + 要求本轮至少跑一次', () => {
+    expect(VERIFY_CHECKS.find((entry) => entry.id === 5)?.checker).toEqual({ id: 'naming', enforcement: 'assistive', require_run: true });
   });
 
   it('旧快照（没有 verification）回落八项全空，第 6 项是 ○', () => {
