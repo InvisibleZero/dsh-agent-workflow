@@ -6,7 +6,7 @@ import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetai
 import { CHECK_EVIDENCE_MARK, CHECK_SCOPE_MARK, DEFAULT_MANUAL_LIMITS, assertSectionLimit, assertSessionManualTotal, sanitizeManualLimits, } from '../schema/manual-limits';
 import { VERIFY_CHECKS, createVerification } from '../schema/verify-checks';
 import { pickVerification } from '../engine/verify-rules';
-import { collectChecklistScope, headingText, parseChecklist, parseChecklistLine, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
+import { collectChecklistScope, headingText, parseChecklist, parseChecklistLine, parseHasPlan, parseScopeAppends, pickSectionBody, SCOPE_APPEND_SECTION, SCOPE_REASON_MARK, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
 import { TAG_TABLE_MAX, TAG_TABLE_SECTION, dedupeTags, findEntryLineIndexes, normalizeTag, parseTagTable, renderEntryLine, renderTagTable, rewriteEntryTag, } from '../engine/manual-tags';
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
 const BUILTIN_PROFILE_NAME = '默认存档';
@@ -62,12 +62,15 @@ const SESSION_MANUAL_TEMPLATE = [
     '<!-- 垂直切片挖出的「做完再改贵」的坑，只挑关键几条喂给后续层 -->',
     '',
     '## 实施顺序',
-    '<!-- 每条可选加「 ｜ 范围：目录1,目录2」声明该步要改动的相对路径；声明后进入实现中，越界改动会被门禁拦截 -->',
+    '<!-- 每条可选加「 ｜ 范围：目录1,目录2」声明该步要改动的相对路径（尽量目录粒度）；声明后进入实现中，越界改动会被门禁拦截 -->',
     '- [ ] 垂直切片 —— 完成标准：端到端跑通',
     '- [ ] 数据层 —— 完成标准：能读写、迁移可跑',
     '- [ ] 领域层 —— 完成标准：逻辑独立可测',
     '- [ ] 接口层 —— 完成标准：契约测试通过',
     '- [ ] 表现层 —— 完成标准：build + smoke 通过',
+    '',
+    '## 范围追加',
+    '<!-- 实现中 extend_scope 追加的范围（append-only），每条「- 路径 ｜ 原因：xxx」；由工具自动维护 -->',
     '',
 ].join('\n');
 /**
@@ -266,6 +269,23 @@ async function computeSourceStamp(workingDir) {
     }
     await walk(workingDir);
     return { mtimeMax, count };
+}
+/** 归一化并校验一个范围路径：相对路径、不含 ..、不含绝对路径、不含空格与特殊字符。 */
+function normalizeScopePath(raw) {
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (text === '')
+        throw new Error('范围路径不能为空');
+    const normalized = text.replace(/\\/g, '/');
+    if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
+        throw new Error(`范围路径必须是工作目录内的相对路径（不认绝对路径）：${text}`);
+    }
+    if (normalized.split('/').some((segment) => segment === '..')) {
+        throw new Error(`范围路径不能含 ..：${text}`);
+    }
+    if (!/^[A-Za-z0-9_.@/-]+$/.test(normalized)) {
+        throw new Error(`范围路径只能是字母 / 数字 / . _ - / @，不能含空格或特殊字符：${text}`);
+    }
+    return normalized;
 }
 export class WorkflowRepository {
     baseDir;
@@ -1159,9 +1179,52 @@ export class WorkflowRepository {
         const workingDir = snapshot.working_directory;
         if (typeof workingDir !== 'string' || workingDir === '')
             return null;
-        const meta = await this.getManualMeta(workflowId, nodeId);
-        const scope = collectChecklistScope(meta?.checklist ?? []);
+        const manual = await this.readNodeManual(workflowId, nodeId);
+        const scope = collectChecklistScope(manual?.checklist ?? []);
+        // 实现中 extend_scope 追加的范围也并进来（append-only 记录）。
+        for (const path of parseScopeAppends(manual?.manual ?? '')) {
+            if (!scope.includes(path))
+                scope.push(path);
+        }
         return { workingDir, scope };
+    }
+    /**
+     * 实现中追加范围（append-only + 留痕）：把新路径写进会话手册「范围追加」小节，带 reason。
+     * 只能加、不能删缩；方案 / 实施顺序仍锁定，只有「范围」这一栏可在实现中扩大——
+     * 让「被范围门禁误拦」的修正成本从「返工回讨论中」降到「一次追加」。
+     */
+    async extendSessionScope(input) {
+        const reason = input.reason.trim();
+        if (reason === '')
+            throw new Error('追加范围必须带 reason：说明为什么还要碰这些路径');
+        const paths = [];
+        for (const raw of input.paths) {
+            const path = normalizeScopePath(raw);
+            if (!paths.includes(path))
+                paths.push(path);
+        }
+        if (paths.length === 0)
+            throw new Error('paths 不能为空：给至少一个要追加的相对路径 / 目录');
+        const { file } = await this.resolveManualFile(input.workflowId, input.nodeId);
+        const current = await this.readFileOrTemplate(file, true);
+        const body = pickSectionBody(current, [SCOPE_APPEND_SECTION]);
+        const lines = body.trim() === '' ? [] : body.split(/\r?\n/);
+        const appended = [];
+        for (const path of paths) {
+            lines.push(`- ${path}${SCOPE_REASON_MARK}${reason}`);
+            appended.push(path);
+        }
+        const next = this.upsertSection(current, SCOPE_APPEND_SECTION, lines.join('\n'));
+        await writeTextAtomic(file, next);
+        this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
+        // 追加后的完整范围 = 清单声明 + 追加记录（去重）。
+        const meta = await this.getManualMeta(input.workflowId, input.nodeId);
+        const scope = collectChecklistScope(meta?.checklist ?? []);
+        for (const path of parseScopeAppends(next)) {
+            if (!scope.includes(path))
+                scope.push(path);
+        }
+        return { scope, appended };
     }
     /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。

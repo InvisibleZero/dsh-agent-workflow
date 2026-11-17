@@ -78,7 +78,8 @@ export const BASE_TOOLS = [
         name: 'workflow_manual',
         description: '读写会话手册与项目手册。'
             + '会话手册只能改「方案」和「实施顺序」（两者都仅在「讨论中」可写：进入实现中后方案锁定、实施顺序只能勾选）；项目手册条目用 append_entry / update_entry 写，必须带 1 个以上标签。'
-            + '实施顺序每条可带「 ｜ 范围：目录1,目录2」声明改动范围（实现中越界改动会被拦）。'
+            + '实施顺序每条可带「 ｜ 范围：目录1,目录2」声明改动范围（实现中越界改动会被拦，尽量声明到目录粒度、不逐文件）。'
+            + '实现中被范围门禁拦时，用 extend_scope 追加范围（只能加、不能删缩，必须带 reason），不必返工回讨论中。'
             + 'replace_section 只替换一个小节正文；remove_entry 删除条目、rename_tag 合并标签。'
             + '方案每层 500 字（按 ### 层判，目标与验收不计入）、约束 300 字、垂直切片坑 300 字、会话手册整本 2000 字，超了拒写；勾选证据不计入。',
         kind: TOOL_KIND.base,
@@ -92,8 +93,8 @@ export const BASE_TOOLS = [
                 target: { type: 'string', enum: ['session', 'project'], description: 'Which manual to touch.' },
                 action: {
                     type: 'string',
-                    enum: ['read', 'replace_section', 'append_entry', 'update_entry', 'remove_entry', 'rename_tag'],
-                    description: 'read returns text; replace_section rewrites a whole section (session 方案 / project 标签表); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it.',
+                    enum: ['read', 'replace_section', 'append_entry', 'update_entry', 'remove_entry', 'rename_tag', 'extend_scope'],
+                    description: 'read returns text; replace_section rewrites a whole section (session 方案 / project 标签表); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag; extend_scope appends implementation scope paths in 实现中 (session only, append-only with reason).',
                 },
                 section: { type: 'string', description: 'Section name (e.g. 方案 / 项目总览 / 决策记录 / 约束 / 坑与防线 / 标签表).' },
                 content: { type: 'string', description: 'Entry text (append_entry / update_entry) or new section body (replace_section).' },
@@ -105,6 +106,8 @@ export const BASE_TOOLS = [
                 entry: { type: 'string', description: 'update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix).' },
                 from: { type: 'string', description: 'rename_tag: the tag to replace.' },
                 to: { type: 'string', description: 'rename_tag: the tag to keep. Use this to merge synonyms when the table is full.' },
+                paths: { type: 'array', items: { type: 'string' }, description: 'extend_scope: relative paths/directories to append to the implementation scope (append-only, no shrinking).' },
+                reason: { type: 'string', description: 'extend_scope: why these paths are needed (required).' },
             },
         },
     },

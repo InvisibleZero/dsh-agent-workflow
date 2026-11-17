@@ -256,6 +256,20 @@ export declare class WorkflowRepository {
         scope: string[];
     } | null>;
     /**
+     * 实现中追加范围（append-only + 留痕）：把新路径写进会话手册「范围追加」小节，带 reason。
+     * 只能加、不能删缩；方案 / 实施顺序仍锁定，只有「范围」这一栏可在实现中扩大——
+     * 让「被范围门禁误拦」的修正成本从「返工回讨论中」降到「一次追加」。
+     */
+    extendSessionScope(input: {
+        workflowId: string;
+        nodeId: string;
+        paths: string[];
+        reason: string;
+    }): Promise<{
+        scope: string[];
+        appended: string[];
+    }>;
+    /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
      * 存在 <settingsDir>/app-settings.json。
      */

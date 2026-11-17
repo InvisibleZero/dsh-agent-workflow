@@ -684,6 +684,23 @@ function collectChecklistScope(items) {
   }
   return [...seen];
 }
+var SCOPE_APPEND_SECTION = "\u8303\u56F4\u8FFD\u52A0";
+var SCOPE_REASON_MARK = " \uFF5C \u539F\u56E0\uFF1A";
+function parseScopeAppends(manual) {
+  const body = pickSectionBody(manual, [SCOPE_APPEND_SECTION]);
+  if (body.trim() === "") return [];
+  const paths = [];
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("- ")) continue;
+    const text = trimmed.slice(2).trim();
+    if (text === "") continue;
+    const cut = text.indexOf(SCOPE_REASON_MARK);
+    const path2 = (cut === -1 ? text : text.slice(0, cut)).trim().replace(/\\/g, "/");
+    if (path2 !== "") paths.push(path2);
+  }
+  return paths;
+}
 function parseHasPlan(manual) {
   const lines = manual.split(/\r?\n/);
   let inPlan = false;
@@ -813,12 +830,15 @@ var SESSION_MANUAL_TEMPLATE = [
   "<!-- \u5782\u76F4\u5207\u7247\u6316\u51FA\u7684\u300C\u505A\u5B8C\u518D\u6539\u8D35\u300D\u7684\u5751\uFF0C\u53EA\u6311\u5173\u952E\u51E0\u6761\u5582\u7ED9\u540E\u7EED\u5C42 -->",
   "",
   "## \u5B9E\u65BD\u987A\u5E8F",
-  "<!-- \u6BCF\u6761\u53EF\u9009\u52A0\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8BE5\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF1B\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A -->",
+  "<!-- \u6BCF\u6761\u53EF\u9009\u52A0\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8BE5\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF08\u5C3D\u91CF\u76EE\u5F55\u7C92\u5EA6\uFF09\uFF1B\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A -->",
   "- [ ] \u5782\u76F4\u5207\u7247 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u7AEF\u5230\u7AEF\u8DD1\u901A",
   "- [ ] \u6570\u636E\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1",
   "- [ ] \u9886\u57DF\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B",
   "- [ ] \u63A5\u53E3\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u5951\u7EA6\u6D4B\u8BD5\u901A\u8FC7",
   "- [ ] \u8868\u73B0\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1Abuild + smoke \u901A\u8FC7",
+  "",
+  "## \u8303\u56F4\u8FFD\u52A0",
+  "<!-- \u5B9E\u73B0\u4E2D extend_scope \u8FFD\u52A0\u7684\u8303\u56F4\uFF08append-only\uFF09\uFF0C\u6BCF\u6761\u300C- \u8DEF\u5F84 \uFF5C \u539F\u56E0\uFF1Axxx\u300D\uFF1B\u7531\u5DE5\u5177\u81EA\u52A8\u7EF4\u62A4 -->",
   ""
 ].join("\n");
 var GLOBAL_MANUAL_TEMPLATE = [
@@ -985,6 +1005,21 @@ async function computeSourceStamp(workingDir) {
   }
   await walk(workingDir);
   return { mtimeMax, count };
+}
+function normalizeScopePath(raw) {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (text === "") throw new Error("\u8303\u56F4\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A");
+  const normalized = text.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+    throw new Error(`\u8303\u56F4\u8DEF\u5F84\u5FC5\u987B\u662F\u5DE5\u4F5C\u76EE\u5F55\u5185\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF08\u4E0D\u8BA4\u7EDD\u5BF9\u8DEF\u5F84\uFF09\uFF1A${text}`);
+  }
+  if (normalized.split("/").some((segment) => segment === "..")) {
+    throw new Error(`\u8303\u56F4\u8DEF\u5F84\u4E0D\u80FD\u542B ..\uFF1A${text}`);
+  }
+  if (!/^[A-Za-z0-9_.@/-]+$/.test(normalized)) {
+    throw new Error(`\u8303\u56F4\u8DEF\u5F84\u53EA\u80FD\u662F\u5B57\u6BCD / \u6570\u5B57 / . _ - / @\uFF0C\u4E0D\u80FD\u542B\u7A7A\u683C\u6216\u7279\u6B8A\u5B57\u7B26\uFF1A${text}`);
+  }
+  return normalized;
 }
 var WorkflowRepository = class {
   /**
@@ -1753,9 +1788,45 @@ var WorkflowRepository = class {
     if (node === void 0) return null;
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") return null;
-    const meta = await this.getManualMeta(workflowId, nodeId);
-    const scope = collectChecklistScope(meta?.checklist ?? []);
+    const manual = await this.readNodeManual(workflowId, nodeId);
+    const scope = collectChecklistScope(manual?.checklist ?? []);
+    for (const path2 of parseScopeAppends(manual?.manual ?? "")) {
+      if (!scope.includes(path2)) scope.push(path2);
+    }
     return { workingDir, scope };
+  }
+  /**
+   * 实现中追加范围（append-only + 留痕）：把新路径写进会话手册「范围追加」小节，带 reason。
+   * 只能加、不能删缩；方案 / 实施顺序仍锁定，只有「范围」这一栏可在实现中扩大——
+   * 让「被范围门禁误拦」的修正成本从「返工回讨论中」降到「一次追加」。
+   */
+  async extendSessionScope(input) {
+    const reason = input.reason.trim();
+    if (reason === "") throw new Error("\u8FFD\u52A0\u8303\u56F4\u5FC5\u987B\u5E26 reason\uFF1A\u8BF4\u660E\u4E3A\u4EC0\u4E48\u8FD8\u8981\u78B0\u8FD9\u4E9B\u8DEF\u5F84");
+    const paths = [];
+    for (const raw of input.paths) {
+      const path2 = normalizeScopePath(raw);
+      if (!paths.includes(path2)) paths.push(path2);
+    }
+    if (paths.length === 0) throw new Error("paths \u4E0D\u80FD\u4E3A\u7A7A\uFF1A\u7ED9\u81F3\u5C11\u4E00\u4E2A\u8981\u8FFD\u52A0\u7684\u76F8\u5BF9\u8DEF\u5F84 / \u76EE\u5F55");
+    const { file } = await this.resolveManualFile(input.workflowId, input.nodeId);
+    const current = await this.readFileOrTemplate(file, true);
+    const body = pickSectionBody(current, [SCOPE_APPEND_SECTION]);
+    const lines = body.trim() === "" ? [] : body.split(/\r?\n/);
+    const appended = [];
+    for (const path2 of paths) {
+      lines.push(`- ${path2}${SCOPE_REASON_MARK}${reason}`);
+      appended.push(path2);
+    }
+    const next = this.upsertSection(current, SCOPE_APPEND_SECTION, lines.join("\n"));
+    await writeTextAtomic(file, next);
+    this.manualMetaCache.delete(`${input.workflowId}:${input.nodeId}`);
+    const meta = await this.getManualMeta(input.workflowId, input.nodeId);
+    const scope = collectChecklistScope(meta?.checklist ?? []);
+    for (const path2 of parseScopeAppends(next)) {
+      if (!scope.includes(path2)) scope.push(path2);
+    }
+    return { scope, appended };
   }
   /**
    * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
@@ -2337,8 +2408,8 @@ var NODE_STATE_LABEL = {
 
 // src/schema/hard-rules.ts
 var DEFAULT_HARD_RULES = {
-  discussing: `\uFF08\u6536\u5C3E\uFF09\u8BA8\u8BBA\u9636\u6BB5\u4E0D\u5199\u624B\u518C\u4E5F\u4E0D\u4F1A\u5361\u4F4F\uFF0C\u5199\u4E0D\u5199\u7531\u6211\u51B3\u5B9A\uFF1B\u53EA\u6709\u51C6\u5907\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u65F6\uFF0C\u624D\u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u6570\u636E\u5C42 \u2192 \u9886\u57DF\u5C42 \u2192 \u63A5\u53E3\u5C42 \u2192 \u8868\u73B0\u5C42\u300D\u5199\u8FDB\u672C\u8282\u70B9\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF08\u6BCF\u5C42\u5199\u6E05\u5C42\u95F4\u5951\u7EA6\uFF09\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\u3002\u6BCF\u6761\u5B9E\u65BD\u987A\u5E8F\u5C3D\u91CF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8FD9\u4E00\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\u2014\u2014\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A\uFF1B\u4E0D\u58F0\u660E\u5219\u4E0D\u505A\u8303\u56F4\u62E6\u622A\u3002\u63A8\u8FDB\u9700\u8981\u6211\u70B9\u540C\u610F\uFF0C\u4E0D\u8981\u81EA\u5DF1\u50AC\u3002`,
-  implementing: `\uFF08\u7EAA\u5F8B\uFF09\u6309\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u4ECE\u4E0B\u5230\u4E0A\u8FDE\u7EED\u5B8C\u6210\u6240\u6709\u5C42\uFF1A\u6BCF\u5B8C\u6210\u4E00\u5C42\uFF0C\u6309\u8BE5\u5C42\u300C\u5B8C\u6210\u6807\u51C6\u300D\u81EA\u68C0\uFF0C\u7528 workflow_check \u628A\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\uFF0C\u7136\u540E\u76F4\u63A5\u7EE7\u7EED\u4E0B\u4E00\u5C42\uFF0C\u4E0D\u8981\u9010\u5C42\u7B49\u6211\u786E\u8BA4\u3002\u6CE8\u610F\uFF1A\u8FDB\u5165\u300C\u5B9E\u73B0\u4E2D\u300D\u540E\u300C\u65B9\u6848\u300D\u5DF2\u9501\u5B9A\uFF0C\u4E0D\u80FD\u7528 workflow_manual \u6539\u5199\u2014\u2014\u53D1\u73B0\u65B9\u6848\u6709\u6D1E\u8981\u6539\uFF0C\u5C31\u8BF7\u6C42\u8FD4\u5DE5\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u3002\u53EA\u6709\u547D\u4E2D\u4EE5\u4E0B\u60C5\u51B5\u624D\u505C\u4E0B\u6765\u95EE\u6211\uFF1A\u2460 \u65B9\u6848\u6709\u6D1E\u6216\u81EA\u76F8\u77DB\u76FE\uFF0C\u9700\u8981\u6211\u62CD\u677F\uFF1B\u2461 \u8BE5\u5C42\u81EA\u68C0\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u5728\u672C\u5C42\u81EA\u884C\u4FEE\u590D\uFF1B\u2462 \u9700\u8981\u505A\u8D85\u51FA\u65B9\u6848\u8303\u56F4\u7684\u6539\u52A8\uFF1B\u2463 \u6D89\u53CA\u5220\u9664 / \u8986\u76D6\u4E0D\u53EF\u9006\u7684\u6570\u636E\u6216\u914D\u7F6E\uFF1B\u2464 \u9700\u8981\u6211\u63D0\u4F9B\u5916\u90E8\u8D44\u6E90\uFF08\u8D26\u53F7\u3001\u6587\u4EF6\u3001\u73AF\u5883\uFF09\u3002\u5168\u90E8\u5C42\u5B8C\u6210\u540E\uFF0C\u4E00\u6B21\u6027\u6C47\u62A5\u6BCF\u5C42\u505A\u4E86\u4EC0\u4E48\u3001\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF0C\u7136\u540E\u8BF7\u6C42\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002`,
+  discussing: `\uFF08\u6536\u5C3E\uFF09\u8BA8\u8BBA\u9636\u6BB5\u4E0D\u5199\u624B\u518C\u4E5F\u4E0D\u4F1A\u5361\u4F4F\uFF0C\u5199\u4E0D\u5199\u7531\u6211\u51B3\u5B9A\uFF1B\u53EA\u6709\u51C6\u5907\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u65F6\uFF0C\u624D\u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u6570\u636E\u5C42 \u2192 \u9886\u57DF\u5C42 \u2192 \u63A5\u53E3\u5C42 \u2192 \u8868\u73B0\u5C42\u300D\u5199\u8FDB\u672C\u8282\u70B9\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF08\u6BCF\u5C42\u5199\u6E05\u5C42\u95F4\u5951\u7EA6\uFF09\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\u3002\u6BCF\u6761\u5B9E\u65BD\u987A\u5E8F\u5C3D\u91CF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8FD9\u4E00\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\u2014\u2014**\u5C3D\u91CF\u58F0\u660E\u5230\u76EE\u5F55\u7C92\u5EA6\uFF08\u5982 src/data\uFF09\uFF0C\u4E0D\u8981\u9010\u6587\u4EF6\u5217**\uFF1B\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A\uFF1B\u4E0D\u58F0\u660E\u5219\u4E0D\u505A\u8303\u56F4\u62E6\u622A\u3002\u63A8\u8FDB\u9700\u8981\u6211\u70B9\u540C\u610F\uFF0C\u4E0D\u8981\u81EA\u5DF1\u50AC\u3002`,
+  implementing: `\uFF08\u7EAA\u5F8B\uFF09\u6309\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u4ECE\u4E0B\u5230\u4E0A\u8FDE\u7EED\u5B8C\u6210\u6240\u6709\u5C42\uFF1A\u6BCF\u5B8C\u6210\u4E00\u5C42\uFF0C\u6309\u8BE5\u5C42\u300C\u5B8C\u6210\u6807\u51C6\u300D\u81EA\u68C0\uFF0C\u7528 workflow_check \u628A\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\uFF0C\u7136\u540E\u76F4\u63A5\u7EE7\u7EED\u4E0B\u4E00\u5C42\uFF0C\u4E0D\u8981\u9010\u5C42\u7B49\u6211\u786E\u8BA4\u3002\u6CE8\u610F\uFF1A\u8FDB\u5165\u300C\u5B9E\u73B0\u4E2D\u300D\u540E\u300C\u65B9\u6848\u300D\u5DF2\u9501\u5B9A\uFF0C\u4E0D\u80FD\u7528 workflow_manual \u6539\u5199\u2014\u2014\u53D1\u73B0\u65B9\u6848\u6709\u6D1E\u8981\u6539\uFF0C\u5C31\u8BF7\u6C42\u8FD4\u5DE5\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u3002\u4F46\u300C\u8303\u56F4\u300D\u4E0D\u7528\u8FD4\u5DE5\uFF1A\u53D1\u73B0\u8FD8\u8981\u78B0\u58F0\u660E\u8303\u56F4\u5916\u7684\u8DEF\u5F84\u65F6\uFF0C\u7528 workflow_manual({ target:"session", action:"extend_scope", paths:[...], reason:"..." }) \u8FFD\u52A0\u8303\u56F4\uFF08\u53EA\u80FD\u52A0\u3001\u4E0D\u80FD\u5220\u7F29\uFF09\uFF0C\u95E8\u7981\u7ACB\u523B\u751F\u6548\u3002\u53EA\u6709\u547D\u4E2D\u4EE5\u4E0B\u60C5\u51B5\u624D\u505C\u4E0B\u6765\u95EE\u6211\uFF1A\u2460 \u65B9\u6848\u6709\u6D1E\u6216\u81EA\u76F8\u77DB\u76FE\uFF0C\u9700\u8981\u6211\u62CD\u677F\uFF1B\u2461 \u8BE5\u5C42\u81EA\u68C0\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u5728\u672C\u5C42\u81EA\u884C\u4FEE\u590D\uFF1B\u2462 \u9700\u8981\u505A\u8D85\u51FA\u65B9\u6848\u8303\u56F4\u7684\u6539\u52A8\uFF08\u542B\u53CD\u590D\u8FFD\u52A0\u8303\u56F4\u4E5F\u76D6\u4E0D\u4F4F\u7684\u65B0\u65B9\u5411\uFF09\uFF1B\u2463 \u6D89\u53CA\u5220\u9664 / \u8986\u76D6\u4E0D\u53EF\u9006\u7684\u6570\u636E\u6216\u914D\u7F6E\uFF1B\u2464 \u9700\u8981\u6211\u63D0\u4F9B\u5916\u90E8\u8D44\u6E90\uFF08\u8D26\u53F7\u3001\u6587\u4EF6\u3001\u73AF\u5883\uFF09\u3002\u5168\u90E8\u5C42\u5B8C\u6210\u540E\uFF0C\u4E00\u6B21\u6027\u6C47\u62A5\u6BCF\u5C42\u505A\u4E86\u4EC0\u4E48\u3001\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF0C\u7136\u540E\u8BF7\u6C42\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002`,
   verifying: `\uFF08\u7EAA\u5F8B\uFF09\u9A8C\u6536\u5FC5\u987B\u7ED9\u53EF\u590D\u8DD1\u7684\u8BC1\u636E\uFF1A\u6BCF\u4E00\u9879\u300C\u901A\u8FC7\u300D\u90FD\u8981\u9644\u547D\u4EE4 + \u8F93\u51FA\uFF0C\u6216\u6307\u5411\u5177\u4F53\u6D4B\u8BD5\u6587\u4EF6\uFF08\u8DEF\u5F84 + \u8DD1\u6CD5\uFF09\uFF1B\u6CA1\u6709\u8BC1\u636E\u7684\u300C\u901A\u8FC7\u300D\u4E0D\u7B97\u901A\u8FC7\u3002
 
 \u4E03\u9879\u53EA\u8BA4\u5DE5\u5177\u62A5\u5907\uFF0C\u4E0D\u8BA4\u300C\u6211\u68C0\u67E5\u8FC7\u4E86\u300D\uFF1A
@@ -2889,7 +2960,7 @@ var BASE_TOOLS = [
   },
   {
     name: "workflow_manual",
-    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u4E24\u8005\u90FD\u4EC5\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u53EF\u5199\uFF1A\u8FDB\u5165\u5B9E\u73B0\u4E2D\u540E\u65B9\u6848\u9501\u5B9A\u3001\u5B9E\u65BD\u987A\u5E8F\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002\u5B9E\u65BD\u987A\u5E8F\u6BCF\u6761\u53EF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u6539\u52A8\u8303\u56F4\uFF08\u5B9E\u73B0\u4E2D\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u62E6\uFF09\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u6BCF\u5C42 500 \u5B57\uFF08\u6309 ### \u5C42\u5224\uFF0C\u76EE\u6807\u4E0E\u9A8C\u6536\u4E0D\u8BA1\u5165\uFF09\u3001\u7EA6\u675F 300 \u5B57\u3001\u5782\u76F4\u5207\u7247\u5751 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
+    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u4E24\u8005\u90FD\u4EC5\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u53EF\u5199\uFF1A\u8FDB\u5165\u5B9E\u73B0\u4E2D\u540E\u65B9\u6848\u9501\u5B9A\u3001\u5B9E\u65BD\u987A\u5E8F\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002\u5B9E\u65BD\u987A\u5E8F\u6BCF\u6761\u53EF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u6539\u52A8\u8303\u56F4\uFF08\u5B9E\u73B0\u4E2D\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u62E6\uFF0C\u5C3D\u91CF\u58F0\u660E\u5230\u76EE\u5F55\u7C92\u5EA6\u3001\u4E0D\u9010\u6587\u4EF6\uFF09\u3002\u5B9E\u73B0\u4E2D\u88AB\u8303\u56F4\u95E8\u7981\u62E6\u65F6\uFF0C\u7528 extend_scope \u8FFD\u52A0\u8303\u56F4\uFF08\u53EA\u80FD\u52A0\u3001\u4E0D\u80FD\u5220\u7F29\uFF0C\u5FC5\u987B\u5E26 reason\uFF09\uFF0C\u4E0D\u5FC5\u8FD4\u5DE5\u56DE\u8BA8\u8BBA\u4E2D\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u6BCF\u5C42 500 \u5B57\uFF08\u6309 ### \u5C42\u5224\uFF0C\u76EE\u6807\u4E0E\u9A8C\u6536\u4E0D\u8BA1\u5165\uFF09\u3001\u7EA6\u675F 300 \u5B57\u3001\u5782\u76F4\u5207\u7247\u5751 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
     kind: TOOL_KIND.base,
     allowed_states: [...ALL_STATES],
     effect: "write-state",
@@ -2901,8 +2972,8 @@ var BASE_TOOLS = [
         target: { type: "string", enum: ["session", "project"], description: "Which manual to touch." },
         action: {
           type: "string",
-          enum: ["read", "replace_section", "append_entry", "update_entry", "remove_entry", "rename_tag"],
-          description: "read returns text; replace_section rewrites a whole section (session \u65B9\u6848 / project \u6807\u7B7E\u8868); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag and rewrites every entry that uses it."
+          enum: ["read", "replace_section", "append_entry", "update_entry", "remove_entry", "rename_tag", "extend_scope"],
+          description: "read returns text; replace_section rewrites a whole section (session \u65B9\u6848 / project \u6807\u7B7E\u8868); append_entry / update_entry / remove_entry write ONE tagged entry into a project section; rename_tag merges or renames a tag; extend_scope appends implementation scope paths in \u5B9E\u73B0\u4E2D (session only, append-only with reason)."
         },
         section: { type: "string", description: "Section name (e.g. \u65B9\u6848 / \u9879\u76EE\u603B\u89C8 / \u51B3\u7B56\u8BB0\u5F55 / \u7EA6\u675F / \u5751\u4E0E\u9632\u7EBF / \u6807\u7B7E\u8868)." },
         content: { type: "string", description: "Entry text (append_entry / update_entry) or new section body (replace_section)." },
@@ -2913,7 +2984,9 @@ var BASE_TOOLS = [
         },
         entry: { type: "string", description: "update_entry / remove_entry: exact body text of the existing entry (without its [tags] prefix)." },
         from: { type: "string", description: "rename_tag: the tag to replace." },
-        to: { type: "string", description: "rename_tag: the tag to keep. Use this to merge synonyms when the table is full." }
+        to: { type: "string", description: "rename_tag: the tag to keep. Use this to merge synonyms when the table is full." },
+        paths: { type: "array", items: { type: "string" }, description: "extend_scope: relative paths/directories to append to the implementation scope (append-only, no shrinking)." },
+        reason: { type: "string", description: "extend_scope: why these paths are needed (required)." }
       }
     }
   },
@@ -4411,6 +4484,26 @@ async function invokeManual(deps, sessionId, args) {
     const text = await deps.repository.readManual(found.workflowId, nodeId);
     return { ok: true, text };
   }
+  if (action === "extend_scope") {
+    if (target !== "session") {
+      throw new Error("extend_scope \u53EA\u5BF9\u4F1A\u8BDD\u624B\u518C\uFF08target=session\uFF09\u53EF\u7528");
+    }
+    if (deps.getState(sessionId) === void 0) await deps.refreshState?.(sessionId);
+    const state = deps.getState(sessionId);
+    if (state !== "implementing") {
+      throw new Error("\u300C\u8303\u56F4\u8FFD\u52A0\u300D\u53EA\u5728\u300C\u5B9E\u73B0\u4E2D\u300D\u53EF\u7528\uFF1A\u8BA8\u8BBA\u4E2D\u8BF7\u76F4\u63A5\u6539\u5B9E\u65BD\u987A\u5E8F\u7684\u300C\uFF5C \u8303\u56F4\uFF1A\u300D\uFF0C\u9A8C\u6536 / \u5DF2\u5B8C\u7ED3\u6CA1\u6709\u8303\u56F4\u62E6\u622A");
+    }
+    const paths = Array.isArray(args?.paths) ? args.paths : [];
+    const result2 = await deps.repository.extendSessionScope({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      paths,
+      reason: String(args?.reason ?? "")
+    });
+    logEvent(deps.logger, "info", `[workflow] scope extended (session=${sessionId}, appended=${result2.appended.length})`);
+    await deps.refreshScope?.(sessionId);
+    return { ok: true, scope: result2.scope, appended: result2.appended };
+  }
   if (action === "append_entry" || action === "update_entry" || action === "remove_entry" || action === "rename_tag") {
     if (target !== "project") {
       throw new Error("\u6761\u76EE\u7EA7\u5199\u5165\u53EA\u5BF9\u9879\u76EE\u624B\u518C\uFF08target=project\uFF09\u53EF\u7528\uFF1B\u4F1A\u8BDD\u624B\u518C\u7528 replace_section \u5199\u65B9\u6848");
@@ -4460,7 +4553,7 @@ async function invokeManual(deps, sessionId, args) {
     }
   }
   if (action !== "replace_section") {
-    throw new Error("action \u53EA\u80FD\u662F read / replace_section / append_entry / update_entry / remove_entry / rename_tag");
+    throw new Error("action \u53EA\u80FD\u662F read / replace_section / extend_scope / append_entry / update_entry / remove_entry / rename_tag");
   }
   const section = String(args?.section ?? "").trim();
   const writable = WRITABLE_SECTIONS[target];
@@ -5210,6 +5303,8 @@ function apply(ctx) {
     getState: (sessionId) => sessionState.get(sessionId),
     /** 实现中范围拦截的同步缓存：null = 无范围限制（保守放行）。 */
     getScope: (sessionId) => sessionScope.get(sessionId) ?? null,
+    /** extend_scope 之后刷新范围缓存，让门禁立刻读到新范围。 */
+    refreshScope: (sessionId) => refreshSessionScope(sessionId),
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
     refreshState: (sessionId) => refreshSessionState(sessionId),
     setState: (sessionId, state) => sessionState.set(sessionId, state),

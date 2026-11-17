@@ -84,6 +84,8 @@ export interface WorkflowToolsDeps {
         workingDir: string;
         scope: string[];
     } | null;
+    /** extend_scope 之后刷新范围缓存：让门禁立刻读到新范围，不等下一次状态迁移。 */
+    refreshScope?: (sessionId: string) => Promise<void>;
 }
 /** 注册门禁：只在「讨论中」拦截写操作。 */
 export declare function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void;

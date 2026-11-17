@@ -116,6 +116,8 @@ export interface WorkflowToolsDeps {
    * 清单没声明范围、不在实现中、或还没算好都返回 null——按放行处理（保守）。
    */
   getScope?: (sessionId: string) => { workingDir: string; scope: string[] } | null;
+  /** extend_scope 之后刷新范围缓存：让门禁立刻读到新范围，不等下一次状态迁移。 */
+  refreshScope?: (sessionId: string) => Promise<void>;
 }
 
 function labelOf(state: string): string {
@@ -730,6 +732,27 @@ async function invokeManual(deps: WorkflowToolsDeps, sessionId: string, args: an
     const text = await deps.repository.readManual(found.workflowId, nodeId);
     return { ok: true, text };
   }
+  // —— 实现中追加范围（append-only + 留痕）：被范围门禁拦时的低成本修正，不必返工回讨论中 ——
+  if (action === 'extend_scope') {
+    if (target !== 'session') {
+      throw new Error('extend_scope 只对会话手册（target=session）可用');
+    }
+    if (deps.getState(sessionId) === undefined) await deps.refreshState?.(sessionId);
+    const state = deps.getState(sessionId);
+    if (state !== 'implementing') {
+      throw new Error('「范围追加」只在「实现中」可用：讨论中请直接改实施顺序的「｜ 范围：」，验收 / 已完结没有范围拦截');
+    }
+    const paths = Array.isArray(args?.paths) ? args.paths : [];
+    const result = await deps.repository.extendSessionScope({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      paths,
+      reason: String(args?.reason ?? ''),
+    });
+    logEvent(deps.logger, 'info', `[workflow] scope extended (session=${sessionId}, appended=${result.appended.length})`);
+    await deps.refreshScope?.(sessionId);
+    return { ok: true, scope: result.scope, appended: result.appended };
+  }
   // —— 项目手册的条目级写口：一条一写，必须带标签 ——
   if (action === 'append_entry' || action === 'update_entry' || action === 'remove_entry' || action === 'rename_tag') {
     if (target !== 'project') {
@@ -774,7 +797,7 @@ async function invokeManual(deps: WorkflowToolsDeps, sessionId: string, args: an
     }
   }
   if (action !== 'replace_section') {
-    throw new Error('action 只能是 read / replace_section / append_entry / update_entry / remove_entry / rename_tag');
+    throw new Error('action 只能是 read / replace_section / extend_scope / append_entry / update_entry / remove_entry / rename_tag');
   }
   const section = String(args?.section ?? '').trim();
   const writable = WRITABLE_SECTIONS[target];

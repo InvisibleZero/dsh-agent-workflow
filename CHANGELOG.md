@@ -2,6 +2,20 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.3] - 2026-11-17
+
+实现中范围门禁松绑：被误拦时用 `extend_scope` 追加范围（append-only + 留痕），不必返工回讨论中；范围声明引导到目录粒度。
+
+### 新增
+
+- **`workflow_manual` 加 `extend_scope` 动作**（`target=session`、`paths` + `reason`）：只在「实现中」可用，把新路径追加进会话手册「范围追加」小节（只能加、不能删缩），门禁立刻读到新范围。`extendSessionScope` / `parseScopeAppends` / `normalizeScopePath`。
+- **会话手册模板加「范围追加」小节**：append-only 记录，每条 `- 路径 ｜ 原因：xxx`。
+
+### 变更
+
+- 范围声明引导到**目录粒度**（` ｜ 范围：src/data`，不逐文件），减少误拦；匹配逻辑本就支持目录前缀。
+- 「实现中」硬规则与工具描述补充：发现范围外改动时用 `extend_scope` 追加，只有「反复追加也盖不住的新方向」才返工回讨论中。
+
 ## [0.9.2] - 2026-11-17
 
 第 5 项「命名与边界审查」加协助型检查器 `check_naming`；补方案备份留痕，修方案逐层字数与 require_run 文案。

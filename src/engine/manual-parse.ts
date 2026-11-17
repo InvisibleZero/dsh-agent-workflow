@@ -107,6 +107,29 @@ export function collectChecklistScope(items: ChecklistItem[]): string[] {
   return [...seen];
 }
 
+/** 会话手册里「范围追加」小节名（实现中 extend_scope 写的，append-only）。 */
+export const SCOPE_APPEND_SECTION = '范围追加';
+
+/** 范围追加一行里「原因」的分隔标记：- src/repo ｜ 原因：xxx */
+export const SCOPE_REASON_MARK = ' ｜ 原因：';
+
+/** 从会话手册的「范围追加」小节解析出追加的路径（相对路径数组）。 */
+export function parseScopeAppends(manual: string): string[] {
+  const body = pickSectionBody(manual, [SCOPE_APPEND_SECTION]);
+  if (body.trim() === '') return [];
+  const paths: string[] = [];
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('- ')) continue;
+    const text = trimmed.slice(2).trim();
+    if (text === '') continue;
+    const cut = text.indexOf(SCOPE_REASON_MARK);
+    const path = (cut === -1 ? text : text.slice(0, cut)).trim().replace(/\\/g, '/');
+    if (path !== '') paths.push(path);
+  }
+  return paths;
+}
+
 /** 判断「方案」小节是否已经写了实质内容（非标题、非注释、非空行）。 */
 export function parseHasPlan(manual: string): boolean {
   const lines = manual.split(/\r?\n/);

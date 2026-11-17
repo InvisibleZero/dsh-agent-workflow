@@ -556,3 +556,65 @@ describe('WorkflowRepository：切回讨论中清空实施顺序', () => {
     expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(5);
   });
 });
+
+describe('WorkflowRepository：实现中范围追加（extend_scope）', () => {
+  let dir: string;
+  let workDir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'wf-repo-'));
+    workDir = await mkdtemp(join(tmpdir(), 'wf-work-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(workDir, { recursive: true, force: true });
+  });
+
+  it('追加范围写进「范围追加」小节，getChecklistScope 能读到并带 reason', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-1', workingDirectory: workDir });
+
+    const result = await repo.extendSessionScope({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      paths: ['src/repo', 'src/api'],
+      reason: '数据层要碰存储抽象，接口层要暴露路由',
+    });
+    expect(result.appended).toEqual(['src/repo', 'src/api']);
+
+    const scopeInfo = await repo.getChecklistScope(node.workflowId, node.nodeId);
+    expect(scopeInfo?.scope).toEqual(expect.arrayContaining(['src/repo', 'src/api']));
+
+    // 追加是 append-only 留痕：手册里能看到「范围追加」小节 + 带 reason 的行。
+    const manual = await repo.readManual(node.workflowId, node.nodeId);
+    expect(manual).toContain('## 范围追加');
+    expect(manual).toContain('- src/repo ｜ 原因：数据层要碰存储抽象，接口层要暴露路由');
+  });
+
+  it('追加必须带 reason；路径为空或含 .. 被拒', async () => {
+    const repo = new WorkflowRepository(dir);
+    const node = await repo.ensureNode({ sessionId: 's-2', workingDirectory: workDir });
+
+    await expect(repo.extendSessionScope({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      paths: ['src/x'],
+      reason: '',
+    })).rejects.toThrow(/reason/);
+
+    await expect(repo.extendSessionScope({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      paths: [],
+      reason: 'why',
+    })).rejects.toThrow(/paths/);
+
+    await expect(repo.extendSessionScope({
+      workflowId: node.workflowId,
+      nodeId: node.nodeId,
+      paths: ['../escape'],
+      reason: 'why',
+    })).rejects.toThrow(/\.\./);
+  });
+});

@@ -476,6 +476,8 @@ export function apply(ctx: any) {
     getState: (sessionId: string) => sessionState.get(sessionId),
     /** 实现中范围拦截的同步缓存：null = 无范围限制（保守放行）。 */
     getScope: (sessionId: string) => sessionScope.get(sessionId) ?? null,
+    /** extend_scope 之后刷新范围缓存，让门禁立刻读到新范围。 */
+    refreshScope: (sessionId: string) => refreshSessionScope(sessionId),
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
     refreshState: (sessionId: string) => refreshSessionState(sessionId),
     setState: (sessionId: string, state: string) => sessionState.set(sessionId, state),
