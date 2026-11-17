@@ -57,7 +57,7 @@ function makeRuntime(repository: WorkflowRepository, stateRef: { value: string |
 
 const exec = { agent: { session: { id: SESSION } } } as any;
 
-describe('验收七项：规则与门禁', () => {
+describe('验收八项：规则与门禁', () => {
   let dir: string;
   let workDir: string;
   let repo: WorkflowRepository;
@@ -131,16 +131,16 @@ describe('验收七项：规则与门禁', () => {
 
     it('汇总把 pending 当成未完成', () => {
       const progress = summarizeVerification(createVerification(1));
-      expect(progress).toMatchObject({ pass: 0, deferred: 0, pending: 7, complete: false });
+      expect(progress).toMatchObject({ pass: 0, deferred: 0, pending: 8, complete: false });
     });
   });
 
   describe('数据层：轮次与锚点', () => {
-    it('旧快照没有 verification 字段时回落到七项全空', async () => {
+    it('旧快照没有 verification 字段时回落到八项全空', async () => {
       const node = await seedAt('implementing');
       const state = await repo.getVerification(node.workflowId, node.nodeId);
       expect(state.round).toBe(0);
-      expect(state.items).toHaveLength(7);
+      expect(state.items).toHaveLength(8);
       expect(state.items.every((item) => item.mark === 'pending')).toBe(true);
     });
 
@@ -221,7 +221,7 @@ describe('验收七项：规则与门禁', () => {
         checker: { checker_id: 'contract', ok: true, findings: 0, exit_code: 0 },
       }, exec);
       expect(value.value.item).toMatchObject({ id: 1, mark: 'pass' });
-      expect(value.value.progress.pending).toBe(6);
+      expect(value.value.progress.pending).toBe(7);
       expect(node.nodeId).toBeTruthy();
     });
 
@@ -354,6 +354,37 @@ describe('验收七项：规则与门禁', () => {
       const value = await tool('workflow_advance').execute({ to: 'completed' }, exec);
       expect(value.value.requested).toBe('completed');
       expect(requests[0]).toMatchObject({ sessionId: SESSION, to: 'completed' });
+    });
+
+    it('第 8 项「收尾」报 pass 且八项全非 ○ → 自动推进到已完结（不再要同意）', async () => {
+      const node = await seedAt('verifying');
+      stateRef.value = 'verifying';
+      // 先报 1-7 项（repo 直报，绕过工具门禁）
+      for (const check of VERIFY_CHECKS.filter((entry) => entry.id < 8)) {
+        await repo.submitVerifyReport({
+          workflowId: node.workflowId, nodeId: node.nodeId, itemId: check.id,
+          report: { result: 'pass', summary: `第 ${check.id} 项通过`, anchors: [{ file: 'evidence.md' }] },
+        });
+      }
+      const { tool } = makeRuntime(repo, stateRef);
+      await tool('workflow_verify_report').execute({
+        item: '8', result: 'pass', summary: '收尾完成', anchors: [{ file: 'evidence.md' }],
+      }, exec);
+      const snapshot = await repo.get(node.workflowId);
+      const currentNode = snapshot?.nodes.find((entry) => entry.node_id === node.nodeId);
+      expect(currentNode?.current_state).toBe('completed');
+    });
+
+    it('第 8 项「收尾」报 pass 但前面还有 ○ → 不自动推进', async () => {
+      const node = await seedAt('verifying');
+      stateRef.value = 'verifying';
+      const { tool } = makeRuntime(repo, stateRef);
+      await tool('workflow_verify_report').execute({
+        item: '8', result: 'pass', summary: '收尾完成', anchors: [{ file: 'evidence.md' }],
+      }, exec);
+      const snapshot = await repo.get(node.workflowId);
+      const currentNode = snapshot?.nodes.find((entry) => entry.node_id === node.nodeId);
+      expect(currentNode?.current_state).toBe('verifying');
     });
   });
 });

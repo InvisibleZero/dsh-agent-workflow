@@ -17,7 +17,8 @@ exports.assertSectionLimit = assertSectionLimit;
 exports.assertSessionManualTotal = assertSessionManualTotal;
 exports.DEFAULT_MANUAL_LIMITS = {
     constraints_chars: 300,
-    plan_chars: 1200,
+    plan_chars: 500,
+    slice_pitfalls_chars: 300,
     session_total_chars: 2000,
 };
 /** 合法区间：太小会把模板本身卡死，太大会把系统提示撑爆。 */
@@ -57,6 +58,7 @@ function sanitizeManualLimits(raw) {
     return {
         constraints_chars: read(source.constraints_chars, exports.DEFAULT_MANUAL_LIMITS.constraints_chars),
         plan_chars: read(source.plan_chars, exports.DEFAULT_MANUAL_LIMITS.plan_chars),
+        slice_pitfalls_chars: read(source.slice_pitfalls_chars, exports.DEFAULT_MANUAL_LIMITS.slice_pitfalls_chars),
         session_total_chars: read(source.session_total_chars, exports.DEFAULT_MANUAL_LIMITS.session_total_chars),
     };
 }
@@ -64,11 +66,13 @@ function sanitizeManualLimits(raw) {
 const SECTION_LIMIT_FIELD = {
     约束: 'constraints_chars',
     方案: 'plan_chars',
+    垂直切片坑: 'slice_pitfalls_chars',
 };
 /** 超限时给的具体删法：报错要能照着改，不能只说"请精简"。 */
 const SECTION_TRIM_HINTS = {
     约束: '删掉已被测试或代码固化验证过的条目、只对某个分支成立的临时约定；同类禁令合并成一条。',
     方案: '把已落地的实现细节挪回代码，方案里只留目标、分层和层间契约；长篇论证换成一句"不这么做会怎样"。',
+    垂直切片坑: '只留「做完再改就贵」的坑（依赖方向 / 跨层 / 契约不一致），细节实现坑写项目手册，别塞这里。',
 };
 /** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */
 class ManualLimitError extends Error {

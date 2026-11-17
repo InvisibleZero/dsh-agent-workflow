@@ -12,7 +12,7 @@
  * 两类同型（ToolEntry），靠 kind 区分；分类名只在这里定义，别处一律读标签表。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EXTENSION_TOOLS = exports.BASE_TOOLS = exports.ALL_STATES = exports.TOOL_KIND_LABEL = exports.TOOL_KIND = void 0;
+exports.LAYER_GATES = exports.EXTENSION_TOOLS = exports.BASE_TOOLS = exports.ALL_STATES = exports.TOOL_KIND_LABEL = exports.TOOL_KIND = void 0;
 /** 工具分类：定义在 tool-kind.ts（客户端只引那一份），这里 re-export 方便宿主侧使用。 */
 var tool_kind_1 = require("./tool-kind");
 Object.defineProperty(exports, "TOOL_KIND", { enumerable: true, get: function () { return tool_kind_1.TOOL_KIND; } });
@@ -186,7 +186,7 @@ exports.EXTENSION_TOOLS = [
         description: '跑契约测试并判结果。先执行 vitest run test 生成证据，再判用例数与失败数：0 个用例、有失败都报不合格。',
         kind: tool_kind_2.TOOL_KIND.extension,
         run: { kind: 'checker', checker: 'contract' },
-        allowed_states: ['verifying'],
+        allowed_states: ['implementing', 'verifying'],
         effect: 'read-state',
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         version: 1,
@@ -196,7 +196,7 @@ exports.EXTENSION_TOOLS = [
         description: '跑依赖边界检查并判结果。先执行 dependency-cruiser 扫描 src，再把循环依赖与跨层引用报成不合格。',
         kind: tool_kind_2.TOOL_KIND.extension,
         run: { kind: 'checker', checker: 'deps' },
-        allowed_states: ['verifying'],
+        allowed_states: ['implementing', 'verifying'],
         effect: 'read-state',
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         version: 1,
@@ -241,5 +241,22 @@ exports.EXTENSION_TOOLS = [
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         version: 1,
     },
+    {
+        name: 'check_build',
+        description: '跑构建与冒烟并判结果：先 npm run build 再 npm run smoke，任一退出码非 0 报不合格。改产物后表现层勾选前用它验证 build + smoke 通过。',
+        kind: tool_kind_2.TOOL_KIND.extension,
+        run: { kind: 'checker', checker: 'build' },
+        allowed_states: ['implementing', 'verifying'],
+        effect: 'exec',
+        parameters: { type: 'object', properties: {}, additionalProperties: true },
+        version: 1,
+    },
 ];
+exports.LAYER_GATES = {
+    垂直切片: { checker: 'deps', require_run: true },
+    数据层: { checker: '', require_run: false },
+    领域层: { checker: '', require_run: false },
+    接口层: { checker: 'contract', require_run: true },
+    表现层: { checker: 'build', require_run: true },
+};
 //# sourceMappingURL=tool-catalog.js.map

@@ -328,7 +328,8 @@ var JsonStorageAdapter = class {
 // src/schema/manual-limits.ts
 var DEFAULT_MANUAL_LIMITS = {
   constraints_chars: 300,
-  plan_chars: 1200,
+  plan_chars: 500,
+  slice_pitfalls_chars: 300,
   session_total_chars: 2e3
 };
 var MANUAL_LIMIT_MIN_CHARS = 20;
@@ -354,16 +355,19 @@ function sanitizeManualLimits(raw) {
   return {
     constraints_chars: read(source.constraints_chars, DEFAULT_MANUAL_LIMITS.constraints_chars),
     plan_chars: read(source.plan_chars, DEFAULT_MANUAL_LIMITS.plan_chars),
+    slice_pitfalls_chars: read(source.slice_pitfalls_chars, DEFAULT_MANUAL_LIMITS.slice_pitfalls_chars),
     session_total_chars: read(source.session_total_chars, DEFAULT_MANUAL_LIMITS.session_total_chars)
   };
 }
 var SECTION_LIMIT_FIELD = {
   \u7EA6\u675F: "constraints_chars",
-  \u65B9\u6848: "plan_chars"
+  \u65B9\u6848: "plan_chars",
+  \u5782\u76F4\u5207\u7247\u5751: "slice_pitfalls_chars"
 };
 var SECTION_TRIM_HINTS = {
   \u7EA6\u675F: "\u5220\u6389\u5DF2\u88AB\u6D4B\u8BD5\u6216\u4EE3\u7801\u56FA\u5316\u9A8C\u8BC1\u8FC7\u7684\u6761\u76EE\u3001\u53EA\u5BF9\u67D0\u4E2A\u5206\u652F\u6210\u7ACB\u7684\u4E34\u65F6\u7EA6\u5B9A\uFF1B\u540C\u7C7B\u7981\u4EE4\u5408\u5E76\u6210\u4E00\u6761\u3002",
-  \u65B9\u6848: '\u628A\u5DF2\u843D\u5730\u7684\u5B9E\u73B0\u7EC6\u8282\u632A\u56DE\u4EE3\u7801\uFF0C\u65B9\u6848\u91CC\u53EA\u7559\u76EE\u6807\u3001\u5206\u5C42\u548C\u5C42\u95F4\u5951\u7EA6\uFF1B\u957F\u7BC7\u8BBA\u8BC1\u6362\u6210\u4E00\u53E5"\u4E0D\u8FD9\u4E48\u505A\u4F1A\u600E\u6837"\u3002'
+  \u65B9\u6848: '\u628A\u5DF2\u843D\u5730\u7684\u5B9E\u73B0\u7EC6\u8282\u632A\u56DE\u4EE3\u7801\uFF0C\u65B9\u6848\u91CC\u53EA\u7559\u76EE\u6807\u3001\u5206\u5C42\u548C\u5C42\u95F4\u5951\u7EA6\uFF1B\u957F\u7BC7\u8BBA\u8BC1\u6362\u6210\u4E00\u53E5"\u4E0D\u8FD9\u4E48\u505A\u4F1A\u600E\u6837"\u3002',
+  \u5782\u76F4\u5207\u7247\u5751: "\u53EA\u7559\u300C\u505A\u5B8C\u518D\u6539\u5C31\u8D35\u300D\u7684\u5751\uFF08\u4F9D\u8D56\u65B9\u5411 / \u8DE8\u5C42 / \u5951\u7EA6\u4E0D\u4E00\u81F4\uFF09\uFF0C\u7EC6\u8282\u5B9E\u73B0\u5751\u5199\u9879\u76EE\u624B\u518C\uFF0C\u522B\u585E\u8FD9\u91CC\u3002"
 };
 var ManualLimitError = class extends Error {
   code = "manual-limit";
@@ -404,7 +408,8 @@ var VERIFY_CHECKS = [
   { id: 4, name: "\u8FB9\u754C\u6D4B\u8BD5", needs_command: true, judge: "\u5916\u90E8\u4F9D\u8D56\u53EF mock\uFF0C\u6A21\u5757\u80FD\u72EC\u7ACB\u6D4B\u8BD5", checker: { id: "boundary", enforcement: "required" } },
   { id: 5, name: "\u547D\u540D\u4E0E\u8FB9\u754C\u5BA1\u67E5", needs_command: false, judge: "\u6CDB\u5316\u8BCD\u3001\u8DE8\u6A21\u5757\u66B4\u9732\u3001\u53CD\u5411\u5197\u957F\u3001\u524D\u7F00\u8D8A\u754C\u56DB\u9879" },
   { id: 6, name: "\u57CB\u70B9\u68C0\u6D4B", needs_command: false, judge: "\u9ED1\u76D2\u9010\u8DF3\u4E09\u95EE + \u767D\u76D2\u4E94\u5B57\u6BB5\uFF0C\u4E09\u7C7B\u7ED3\u8BBA\uFF1A\u65AD\u70B9 / \u65E0\u6548\u57CB\u70B9 / \u8D28\u91CF\u76F2\u533A", checker: { id: "instrumentation", enforcement: "assistive", require_run: true } },
-  { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09", checker: { id: "regression", enforcement: "required" } }
+  { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09", checker: { id: "regression", enforcement: "required" } },
+  { id: 8, name: "\u6536\u5C3E", needs_command: false, judge: "\u628A\u65B0\u51B3\u7B56 / \u65B0\u5751 / \u6587\u6863\u4E00\u81F4\u6027\u5199\u8FDB\u9879\u76EE\u624B\u518C\uFF0C\u7136\u540E\u63A8\u8FDB\u5230\u5DF2\u5B8C\u7ED3\uFF08\u81EA\u52A8\uFF0C\u4E0D\u518D\u8981\u4EBA\u540C\u610F\uFF09" }
 ];
 function verifyMarkSymbol(mark) {
   if (mark === "pass") return "\u2713";
@@ -430,7 +435,7 @@ function resolveVerifyCheckId(raw) {
   const byName = VERIFY_CHECKS.find((check) => check.name === text);
   if (byName !== void 0) return byName.id;
   throw new Error(
-    `\u300C${text}\u300D\u4E0D\u662F\u9A8C\u6536\u9879\uFF1A\u7528 id 1-7 \u6216\u540D\u79F0\uFF08${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(" / ")}\uFF09`
+    `\u300C${text}\u300D\u4E0D\u662F\u9A8C\u6536\u9879\uFF1A\u7528 id 1-${VERIFY_CHECKS.length} \u6216\u540D\u79F0\uFF08${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(" / ")}\uFF09`
   );
 }
 function assertAnchorPathShape(file) {
@@ -731,17 +736,23 @@ var SESSION_MANUAL_TEMPLATE = [
   "",
   "## \u65B9\u6848\uFF08\u81EA\u5E95\u5411\u4E0A\uFF09",
   "### 1. \u76EE\u6807\u4E0E\u9A8C\u6536",
-  "<!-- \u8981\u89E3\u51B3\u4EC0\u4E48\u3001\u4E0D\u505A\u4EC0\u4E48\u3001\u9A8C\u6536\u6807\u51C6 -->",
-  "### 2. \u6570\u636E\u5C42",
+  "<!-- \u8981\u89E3\u51B3\u4EC0\u4E48\u3001\u4E0D\u505A\u4EC0\u4E48\u3001\u9A8C\u6536\u6807\u51C6\uFF1B\u603B\u5206\uFF1A\u603B\u8FF0\u4E00\u53E5 + \u5206\u9879\u7F16\u53F7\u9010\u6761\uFF081\u3001xxx\u3002\u6362\u884C 2\u3001xxx\u3002\uFF09 -->",
+  "### 2. \u5782\u76F4\u5207\u7247",
+  "<!-- \u6700\u8584\u7AEF\u5230\u7AEF\u5207\u7247\uFF0C\u9A8C\u4F9D\u8D56\u65B9\u5411 / \u8DE8\u5C42 / \u5951\u7EA6\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u7AEF\u5230\u7AEF\u8DD1\u901A\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u66B4\u9732\u6700\u5C0F\u95ED\u73AF -->",
+  "### 3. \u6570\u636E\u5C42",
   "<!-- \u6570\u636E\u6A21\u578B / \u6301\u4E45\u5316 / \u8FC1\u79FB\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1\uFF0C\u9644\u6D4B\u8BD5\u811A\u672C\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u5BF9\u5916\u53EA\u66B4\u9732 ____\uFF0C\u4E0A\u5C42\u4E0D\u76F4\u63A5\u78B0\u5B58\u50A8\u5B9E\u73B0 -->",
-  "### 3. \u9886\u57DF\u5C42",
+  "### 4. \u9886\u57DF\u5C42",
   "<!-- \u6838\u5FC3\u89C4\u5219 / \u72B6\u6001\u673A / \u7B97\u6CD5\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B\uFF0C\u9644\u6D4B\u8BD5\u811A\u672C\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u66B4\u9732\u7EAF\u51FD\u6570 ____\uFF0C\u4E0D\u78B0 DOM\u3001\u4E0D\u8BFB\u5199\u5168\u5C40 -->",
-  "### 4. \u63A5\u53E3\u5C42",
+  "### 5. \u63A5\u53E3\u5C42",
   "<!-- \u5BF9\u5916\u5951\u7EA6\uFF08\u5DE5\u5177 / \u8DEF\u7531 / \u547D\u4EE4\uFF09\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1A\u5951\u7EA6\u6D4B\u8BD5\u901A\u8FC7\uFF0C\u9644\u6D4B\u8BD5\u6587\u4EF6\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u505A\u4E8B\u4EF6 \u2192 action \u6620\u5C04\uFF0C\u4E0D\u505A\u8BA1\u7B97\u3001\u4E0D\u6E32\u67D3 -->",
-  "### 5. \u8868\u73B0\u5C42",
+  "### 6. \u8868\u73B0\u5C42",
   "<!-- UI / \u6587\u6848 / \u7AEF\u5230\u7AEF\uFF1B\u5B8C\u6210\u6807\u51C6\uFF1Abuild + smoke \u901A\u8FC7\uFF1B\u5C42\u95F4\u5951\u7EA6\uFF1A\u53EA\u6D88\u8D39\u53EA\u8BFB\u72B6\u6001\u6E32\u67D3\uFF0C\u4E0D\u53CD\u5411\u5199\u6570\u636E\u5C42 -->",
   "",
+  "## \u5782\u76F4\u5207\u7247\u5751",
+  "<!-- \u5782\u76F4\u5207\u7247\u6316\u51FA\u7684\u300C\u505A\u5B8C\u518D\u6539\u8D35\u300D\u7684\u5751\uFF0C\u53EA\u6311\u5173\u952E\u51E0\u6761\u5582\u7ED9\u540E\u7EED\u5C42 -->",
+  "",
   "## \u5B9E\u65BD\u987A\u5E8F",
+  "- [ ] \u5782\u76F4\u5207\u7247 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u7AEF\u5230\u7AEF\u8DD1\u901A",
   "- [ ] \u6570\u636E\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1",
   "- [ ] \u9886\u57DF\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B",
   "- [ ] \u63A5\u53E3\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u5951\u7EA6\u6D4B\u8BD5\u901A\u8FC7",
@@ -2093,6 +2104,81 @@ function truncateToBytes(text, maxBytes) {
   return `${buffer.subarray(0, end).toString("utf8")}\u2026\uFF08\u5DF2\u622A\u65AD\uFF09`;
 }
 
+// src/engine/session-manual-slices.ts
+function splitPlanSections(planBody) {
+  const sections = [];
+  let current = null;
+  for (const line of planBody.split(/\r?\n/)) {
+    const heading = /^###\s*(?:(\d+)\.\s*)?(.+?)\s*$/.exec(line);
+    if (heading !== null) {
+      if (current !== null) sections.push({ id: current.id, title: current.title, body: current.lines.join("\n").trim() });
+      const title = heading[2] ?? "";
+      current = { id: heading[1] === void 0 ? sections.length + 1 : Number(heading[1]), title, lines: [] };
+      continue;
+    }
+    if (current !== null) current.lines.push(line);
+  }
+  if (current !== null) sections.push({ id: current.id, title: current.title, body: current.lines.join("\n").trim() });
+  return sections;
+}
+function extractContract(body) {
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("\u5C42\u95F4\u5951\u7EA6")) continue;
+    const cut = trimmed.indexOf("\uFF1A");
+    return cut === -1 ? trimmed : trimmed.slice(cut + 1).trim();
+  }
+  return "";
+}
+function sectionForLabel(sections, label) {
+  return sections.find((section) => label.includes(section.title));
+}
+function pickCurrentLayer(sections, items) {
+  const unchecked = items.find((item) => !item.done);
+  return unchecked === void 0 ? void 0 : sectionForLabel(sections, unchecked.label);
+}
+function accumulateContracts(sections, items) {
+  const contracts = [];
+  for (const item of items) {
+    if (!item.done) continue;
+    const section = sectionForLabel(sections, item.label);
+    if (section === void 0) continue;
+    const contract = extractContract(section.body);
+    if (contract !== "") contracts.push({ label: section.title, contract });
+  }
+  return contracts;
+}
+function pickPerLayerPlan(planBody, items) {
+  const sections = splitPlanSections(planBody);
+  if (sections.length === 0) {
+    return { goal: planBody.trim(), currentTitle: "", currentBody: "", contracts: [] };
+  }
+  const goal = sections.find((section) => section.title.includes("\u76EE\u6807")) ?? sections[0];
+  const current = pickCurrentLayer(sections, items);
+  const contracts = accumulateContracts(sections, items);
+  return {
+    goal: goal?.body ?? "",
+    currentTitle: current?.title ?? "",
+    currentBody: current?.body ?? "",
+    contracts
+  };
+}
+function composePerLayerPlan(plan) {
+  const parts = [];
+  if (plan.goal !== "") parts.push(`### 1. \u76EE\u6807\u4E0E\u9A8C\u6536
+${plan.goal}`);
+  if (plan.currentTitle !== "") parts.push(`### \u5F53\u524D\u5C42\uFF1A${plan.currentTitle}
+${plan.currentBody}`);
+  if (plan.contracts.length > 0) {
+    parts.push(`\u5DF2\u5B8C\u6210\u5C42\u5951\u7EA6\uFF1A
+${plan.contracts.map((item) => `- ${item.label}\uFF1A${item.contract}`).join("\n")}`);
+  }
+  return parts.join("\n\n");
+}
+function pickPerLayerPlanFromManual(manual, items) {
+  return composePerLayerPlan(pickPerLayerPlan(pickSectionBody(manual, ["\u65B9\u6848"]), items));
+}
+
 // src/engine/prompt-layers.ts
 var PROMPT_LAYER_SPECS = [
   { name: "header", order: 130, hard: true, priority: 0 },
@@ -2151,9 +2237,10 @@ function assemblePromptLayers(input, budgetBytes) {
 function pickSessionManualParts(manual) {
   const items = parseChecklist(manual);
   const unchecked = items.filter((item) => !item.done).map((item) => item.label);
-  const plan = pickSectionBody(manual, ["\u65B9\u6848"]);
+  const plan = pickPerLayerPlanFromManual(manual, items);
   return {
     plan,
+    pitfalls: pickSectionBody(manual, ["\u5782\u76F4\u5207\u7247\u5751"]),
     unchecked,
     checkedCount: items.filter((item) => item.done).length,
     totalItems: items.length,
@@ -2175,6 +2262,9 @@ function renderSessionManual(input) {
     ...input.unchecked.map((label, index) => `${index + 1}. ${label}`)
   ];
   const listText = listLines.join("\n");
+  const pitfallsRaw = input.pitfalls.trim();
+  const pitfallsBlock = pitfallsRaw === "" ? "" : `\u5782\u76F4\u5207\u7247\u5751\uFF08\u505A\u5B8C\u518D\u6539\u8D35\uFF0C\u7ED5\u5F00\uFF09\uFF1A
+${pitfallsRaw}`;
   const overhead = countUtf8Bytes(`${head}
 
 \u65B9\u6848\uFF1A
@@ -2184,11 +2274,12 @@ ${listText}`);
   const planBudget = Math.max(300, SESSION_MANUAL_BUDGET_BYTES - overhead);
   const rawPlan = input.plan.trim();
   const planText = rawPlan === "" ? "\uFF08\u8FD8\u6CA1\u5199\uFF09" : truncateToBytes(rawPlan, planBudget);
+  const middle = [planText, pitfallsBlock].filter((part) => part !== "").join("\n\n");
   return {
     text: `${head}
 
 \u65B9\u6848\uFF1A
-${planText}
+${middle}
 
 ${listText}`,
     planTruncated: rawPlan !== "" && planText !== rawPlan
@@ -2263,6 +2354,7 @@ ${projectSections.tags.join(" / ")}`;
       const rendered = renderSessionManual({
         path: join2(manualData.notesDir, `\u4F1A\u8BDD\u624B\u518C-${found.nodeId}.md`),
         plan: parts.plan,
+        pitfalls: node.current_state === "implementing" ? parts.pitfalls : "",
         unchecked: parts.unchecked,
         checkedCount: parts.checkedCount,
         totalItems: parts.totalItems
@@ -2585,7 +2677,7 @@ var EXTENSION_TOOLS = [
     description: "\u8DD1\u5951\u7EA6\u6D4B\u8BD5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C vitest run test \u751F\u6210\u8BC1\u636E\uFF0C\u518D\u5224\u7528\u4F8B\u6570\u4E0E\u5931\u8D25\u6570\uFF1A0 \u4E2A\u7528\u4F8B\u3001\u6709\u5931\u8D25\u90FD\u62A5\u4E0D\u5408\u683C\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "contract" },
-    allowed_states: ["verifying"],
+    allowed_states: ["implementing", "verifying"],
     effect: "read-state",
     parameters: { type: "object", properties: {}, additionalProperties: true },
     version: 1
@@ -2595,7 +2687,7 @@ var EXTENSION_TOOLS = [
     description: "\u8DD1\u4F9D\u8D56\u8FB9\u754C\u68C0\u67E5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C dependency-cruiser \u626B\u63CF src\uFF0C\u518D\u628A\u5FAA\u73AF\u4F9D\u8D56\u4E0E\u8DE8\u5C42\u5F15\u7528\u62A5\u6210\u4E0D\u5408\u683C\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "deps" },
-    allowed_states: ["verifying"],
+    allowed_states: ["implementing", "verifying"],
     effect: "read-state",
     parameters: { type: "object", properties: {}, additionalProperties: true },
     version: 1
@@ -2639,8 +2731,25 @@ var EXTENSION_TOOLS = [
     effect: "exec",
     parameters: { type: "object", properties: {}, additionalProperties: true },
     version: 1
+  },
+  {
+    name: "check_build",
+    description: "\u8DD1\u6784\u5EFA\u4E0E\u5192\u70DF\u5E76\u5224\u7ED3\u679C\uFF1A\u5148 npm run build \u518D npm run smoke\uFF0C\u4EFB\u4E00\u9000\u51FA\u7801\u975E 0 \u62A5\u4E0D\u5408\u683C\u3002\u6539\u4EA7\u7269\u540E\u8868\u73B0\u5C42\u52FE\u9009\u524D\u7528\u5B83\u9A8C\u8BC1 build + smoke \u901A\u8FC7\u3002",
+    kind: TOOL_KIND.extension,
+    run: { kind: "checker", checker: "build" },
+    allowed_states: ["implementing", "verifying"],
+    effect: "exec",
+    parameters: { type: "object", properties: {}, additionalProperties: true },
+    version: 1
   }
 ];
+var LAYER_GATES = {
+  \u5782\u76F4\u5207\u7247: { checker: "deps", require_run: true },
+  \u6570\u636E\u5C42: { checker: "", require_run: false },
+  \u9886\u57DF\u5C42: { checker: "", require_run: false },
+  \u63A5\u53E3\u5C42: { checker: "contract", require_run: true },
+  \u8868\u73B0\u5C42: { checker: "build", require_run: true }
+};
 
 // src/engine/checkers/types.ts
 function missingEvidence(evidence, command) {
@@ -2736,33 +2845,65 @@ var boundaryChecker = {
   }
 };
 
+// src/engine/checkers/build.ts
+var EVIDENCE3 = "build.json";
+var buildChecker = {
+  id: "build",
+  name: "\u6784\u5EFA\u4E0E\u5192\u70DF",
+  evidence: EVIDENCE3,
+  defaultTarget: "",
+  autoRun: true,
+  script: "build-check.mjs",
+  check(evidence_json) {
+    if (evidence_json === null) return missingEvidence(EVIDENCE3, "node scripts/build-check.mjs");
+    const root = asRecord(evidence_json);
+    if (typeof root.build_exit !== "number") {
+      return {
+        ok: false,
+        findings: [{ location: EVIDENCE3, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A build_exit\uFF0C\u786E\u8BA4\u7528\u7684\u662F build-check.mjs" }],
+        stats: {}
+      };
+    }
+    const buildExit = asNumber(root.build_exit);
+    const smokeExit = asNumber(root.smoke_exit);
+    const stats = { build_exit: buildExit, smoke_exit: smokeExit, bytes: asNumber(root.bytes) };
+    if (buildExit !== 0) {
+      return { ok: false, findings: [{ location: EVIDENCE3, problem: `build \u5931\u8D25\uFF08exit=${buildExit}\uFF09` }], stats };
+    }
+    if (smokeExit !== 0) {
+      return { ok: false, findings: [{ location: EVIDENCE3, problem: `smoke \u5931\u8D25\uFF08exit=${smokeExit}\uFF09` }], stats };
+    }
+    return { ok: true, findings: [], stats };
+  }
+};
+
 // src/engine/checkers/deadcode.ts
-var EVIDENCE3 = "deadcode.json";
+var EVIDENCE4 = "deadcode.json";
 function buildCommand3(_target) {
-  return `knip --reporter json > .workflow/evidence/${EVIDENCE3}`;
+  return `knip --reporter json > .workflow/evidence/${EVIDENCE4}`;
 }
 var UNUSED_KEYS = ["exports", "types", "dependencies", "devDependencies", "unlisted"];
 var deadcodeChecker = {
   id: "deadcode",
   name: "\u6B7B\u4EE3\u7801\u626B\u63CF",
-  evidence: EVIDENCE3,
+  evidence: EVIDENCE4,
   defaultTarget: "",
   autoRun: true,
   buildCommand: buildCommand3,
   check(evidence_json) {
-    if (evidence_json === null) return missingEvidence(EVIDENCE3, buildCommand3(""));
+    if (evidence_json === null) return missingEvidence(EVIDENCE4, buildCommand3(""));
     const root = asRecord(evidence_json);
     if (!Array.isArray(root.issues)) {
       return {
         ok: false,
-        findings: [{ location: EVIDENCE3, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A issues \u6570\u7EC4\uFF0C\u786E\u8BA4\u7528\u7684\u662F knip --reporter json" }],
+        findings: [{ location: EVIDENCE4, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A issues \u6570\u7EC4\uFF0C\u786E\u8BA4\u7528\u7684\u662F knip --reporter json" }],
         stats: {}
       };
     }
     const findings = [];
     for (const issue of asArray(root.issues)) {
       const record = asRecord(issue);
-      const file = asString(record.file) || EVIDENCE3;
+      const file = asString(record.file) || EVIDENCE4;
       for (const item of asArray(record.files)) {
         const name = asString(asRecord(item).name) || asString(item);
         if (name !== "") findings.push({ location: name, problem: "\u6587\u4EF6\u6CA1\u6709\u88AB\u4EFB\u4F55\u6A21\u5757\u5F15\u7528" });
@@ -2780,25 +2921,25 @@ var deadcodeChecker = {
 };
 
 // src/engine/checkers/deps.ts
-var EVIDENCE4 = "deps.json";
+var EVIDENCE5 = "deps.json";
 var DEFAULT_TARGET3 = "src";
 function buildCommand4(target) {
-  return `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE4}`;
+  return `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE5}`;
 }
 var depsChecker = {
   id: "deps",
   name: "\u4F9D\u8D56\u68C0\u67E5",
-  evidence: EVIDENCE4,
+  evidence: EVIDENCE5,
   defaultTarget: DEFAULT_TARGET3,
   autoRun: true,
   buildCommand: buildCommand4,
   check(evidence_json) {
-    if (evidence_json === null) return missingEvidence(EVIDENCE4, buildCommand4(DEFAULT_TARGET3));
+    if (evidence_json === null) return missingEvidence(EVIDENCE5, buildCommand4(DEFAULT_TARGET3));
     const summary = asRecord(asRecord(evidence_json).summary);
     if (!Array.isArray(summary.violations)) {
       return {
         ok: false,
-        findings: [{ location: EVIDENCE4, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A summary.violations\uFF0C\u786E\u8BA4\u7528\u7684\u662F depcruise --output-type json" }],
+        findings: [{ location: EVIDENCE5, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u7F3A summary.violations\uFF0C\u786E\u8BA4\u7528\u7684\u662F depcruise --output-type json" }],
         stats: {}
       };
     }
@@ -2951,11 +3092,11 @@ function validateInstrumentation(raw, limits = INSTRUMENTATION_LIMITS) {
 }
 
 // src/engine/checkers/instrumentation.ts
-var EVIDENCE5 = "instrumentation.json";
+var EVIDENCE6 = "instrumentation.json";
 var instrumentationChecker = {
   id: "instrumentation",
   name: "\u57CB\u70B9\u68C0\u6D4B",
-  evidence: EVIDENCE5,
+  evidence: EVIDENCE6,
   defaultTarget: "",
   autoRun: true,
   script: "instrument-apply.mjs",
@@ -2965,20 +3106,20 @@ var instrumentationChecker = {
 };
 
 // src/engine/checkers/regression.ts
-var EVIDENCE6 = "regression.json";
+var EVIDENCE7 = "regression.json";
 function buildCommand5(target) {
-  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE6}`;
+  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE7}`;
 }
 var regressionChecker = {
   id: "regression",
   name: "\u56DE\u5F52\u4E0E\u538B\u6D4B",
-  evidence: EVIDENCE6,
+  evidence: EVIDENCE7,
   defaultTarget: "",
   autoRun: true,
   requiresTarget: true,
   buildCommand: buildCommand5,
   check(evidence_json) {
-    if (evidence_json === null) return missingEvidence(EVIDENCE6, `${buildCommand5("http://127.0.0.1:3000")}`);
+    if (evidence_json === null) return missingEvidence(EVIDENCE7, `${buildCommand5("http://127.0.0.1:3000")}`);
     const root = asRecord(evidence_json);
     if (typeof root.requests === "object" && root.requests !== null) {
       const requests = asRecord(root.requests);
@@ -2986,8 +3127,8 @@ var regressionChecker = {
       const failed = asNumber(root.errors) + asNumber(root.timeouts);
       const durationMs = Math.round(asNumber(root.duration) * 1e3);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE6, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE6, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
+      if (total <= 0) findings.push({ location: EVIDENCE7, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE7, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     if (typeof root.total === "number" && typeof root.failed === "number") {
@@ -2995,13 +3136,13 @@ var regressionChecker = {
       const failed = asNumber(root.failed);
       const durationMs = asNumber(root.durationMs);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE6, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE6, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
+      if (total <= 0) findings.push({ location: EVIDENCE7, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE7, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     return {
       ok: false,
-      findings: [{ location: EVIDENCE6, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
+      findings: [{ location: EVIDENCE7, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
       stats: {}
     };
   }
@@ -3014,7 +3155,8 @@ var CHECKERS = [
   deadcodeChecker,
   boundaryChecker,
   regressionChecker,
-  instrumentationChecker
+  instrumentationChecker,
+  buildChecker
 ];
 var CHECKER_IDS = CHECKERS.map((checker) => checker.id);
 function findChecker(id) {
@@ -3954,6 +4096,12 @@ async function invokeManual(deps, sessionId, args) {
   logEvent(deps.logger, "info", `[workflow] manual write (session=${sessionId}, target=${target}, section=${section}, bytes=${result.bytes}, chars=${result.chars})`);
   return { ok: true, bytes: result.bytes, section };
 }
+function layerGateFor(label) {
+  for (const [layer, gate] of Object.entries(LAYER_GATES)) {
+    if (label.startsWith(layer)) return gate;
+  }
+  return null;
+}
 async function invokeCheck(deps, sessionId, args) {
   const state = deps.getState(sessionId);
   if (state === void 0) await deps.refreshState?.(sessionId);
@@ -3963,6 +4111,16 @@ async function invokeCheck(deps, sessionId, args) {
   if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
   const label = String(args?.item ?? "").trim();
   if (label === "") throw new Error("item \u4E0D\u80FD\u4E3A\u7A7A");
+  if (args?.done === true) {
+    const gate = layerGateFor(label);
+    if (gate !== null && gate.require_run && gate.checker !== "") {
+      const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+      const runs = verification.checker_runs.filter((run) => run.checker_id === gate.checker);
+      if (runs.length === 0) {
+        throw new Error(`\u52FE\u9009\u300C${label}\u300D\u524D\u5FC5\u987B\u5148\u771F\u8DD1\u8FC7 check_${gate.checker}\uFF08\u5C0F\u9A8C\u6536\u95E8\u7981\uFF1A\u8FD9\u4E00\u5C42\u505A\u5B8C\u518D\u6539\u8D35\uFF0C\u5F97\u5148\u673A\u5668\u9A8C\u8FC7\uFF09`);
+      }
+    }
+  }
   const items = await deps.repository.setChecklistItem({
     workflowId: found.workflowId,
     nodeId: found.nodeId,
@@ -4035,6 +4193,11 @@ async function invokeVerifyReport(deps, sessionId, args) {
     `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? "pending"}, round=${state.round}, pending=${progress.pending})`
   );
   deps.notify?.(sessionId, "verify");
+  if (itemId === 8 && report.result === "pass" && progress.complete) {
+    await deps.repository.transitionNode({ id: found.workflowId, nodeId: found.nodeId, to: "completed" });
+    logEvent(deps.logger, "info", `[workflow] auto completed (session=${sessionId}, round=${state.round})`);
+    deps.notify?.(sessionId, "advance");
+  }
   return {
     item: { id: itemId, name: check.name, mark: item?.mark ?? "pending" },
     progress: {
@@ -4323,7 +4486,7 @@ function plan_sections_from_template(template) {
     }
     sections.push({ id, title, hint });
   }
-  const complete = sections.length === 5 && sections.every((section, index) => section.id === index + 1);
+  const complete = sections.length === 6 && sections.every((section, index) => section.id === index + 1);
   return complete ? sections : [];
 }
 

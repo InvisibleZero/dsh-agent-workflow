@@ -19,7 +19,7 @@ import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
 import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
 import { logEvent, newTraceId } from './event-log';
-import { BASE_TOOLS, TOOL_KIND, type ToolEntry } from '../schema/tool-catalog';
+import { BASE_TOOLS, LAYER_GATES, TOOL_KIND, type ToolEntry } from '../schema/tool-catalog';
 import {
   FACTORY_TOOL_NAMES,
   FACTORY_TOOLS,
@@ -744,6 +744,14 @@ async function invokeManual(deps: WorkflowToolsDeps, sessionId: string, args: an
 }
 
 /** 3. 勾选实施顺序。 */
+/** 按清单条目 label 找小验收门禁：label 以层名开头（如「接口层 —— 完成标准：…」）。 */
+function layerGateFor(label: string): { checker: string; require_run: boolean } | null {
+  for (const [layer, gate] of Object.entries(LAYER_GATES)) {
+    if (label.startsWith(layer)) return gate;
+  }
+  return null;
+}
+
 async function invokeCheck(deps: WorkflowToolsDeps, sessionId: string, args: any): Promise<any> {
   const state = deps.getState(sessionId);
   if (state === undefined) await deps.refreshState?.(sessionId);
@@ -753,6 +761,17 @@ async function invokeCheck(deps: WorkflowToolsDeps, sessionId: string, args: any
   if (found === null) throw new Error('当前会话还没有 workflow 节点');
   const label = String(args?.item ?? '').trim();
   if (label === '') throw new Error('item 不能为空');
+  // 小验收门禁：hard-to-reverse 的层勾选前必须真跑过对应检查器（结果不卡，只查跑没跑）。
+  if (args?.done === true) {
+    const gate = layerGateFor(label);
+    if (gate !== null && gate.require_run && gate.checker !== '') {
+      const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+      const runs = verification.checker_runs.filter((run) => run.checker_id === gate.checker);
+      if (runs.length === 0) {
+        throw new Error(`勾选「${label}」前必须先真跑过 check_${gate.checker}（小验收门禁：这一层做完再改贵，得先机器验过）`);
+      }
+    }
+  }
   const items = await deps.repository.setChecklistItem({
     workflowId: found.workflowId,
     nodeId: found.nodeId,
@@ -832,8 +851,14 @@ async function invokeVerifyReport(deps: WorkflowToolsDeps, sessionId: string, ar
     'info',
     `[workflow] verify report (session=${sessionId}, item=${itemId}, mark=${item?.mark ?? 'pending'}, round=${state.round}, pending=${progress.pending})`,
   );
-  // 徽标上的 n/7 变了：推一次，别让页面等刷新才看见勾。
+  // 徽标上的 n/8 变了：推一次，别让页面等刷新才看见勾。
   deps.notify?.(sessionId, 'verify');
+  // 第 8 项「收尾」报 pass 且八项全非 ○ → 自动推进到已完结（不再走 workflow_advance 的人工同意）。
+  if (itemId === 8 && report.result === 'pass' && progress.complete) {
+    await deps.repository.transitionNode({ id: found.workflowId, nodeId: found.nodeId, to: 'completed' });
+    logEvent(deps.logger, 'info', `[workflow] auto completed (session=${sessionId}, round=${state.round})`);
+    deps.notify?.(sessionId, 'advance');
+  }
   return {
     item: { id: itemId, name: check.name, mark: item?.mark ?? 'pending' },
     progress: {

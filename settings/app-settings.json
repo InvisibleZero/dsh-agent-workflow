@@ -1,0 +1,9 @@
+{
+  "autoSendEnterTrigger": false,
+  "manualLimits": {
+    "constraints_chars": 300,
+    "plan_chars": 500,
+    "slice_pitfalls_chars": 300,
+    "session_total_chars": 2000
+  }
+}

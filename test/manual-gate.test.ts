@@ -35,27 +35,27 @@ describe('手册写入闸门（按小节判字数，超了拒写）', () => {
     })).rejects.toThrow(/「约束」现在 301 字，上限 300 字，超 1 字/);
   });
 
-  it('会话手册「方案」：1200 字放行、1201 字拒绝', async () => {
+  it('会话手册「方案」：500 字放行、501 字拒绝', async () => {
     const ok = await repo.replaceManualSection({
-      workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(1200),
+      workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(500),
     });
-    expect(ok.chars).toBe(1200);
+    expect(ok.chars).toBe(500);
 
     await expect(repo.replaceManualSection({
-      workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(1201),
-    })).rejects.toThrow(/「方案」现在 1201 字，上限 1200 字，超 1 字/);
+      workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(501),
+    })).rejects.toThrow(/「方案」现在 501 字，上限 500 字，超 1 字/);
   });
 
-  it('勾选证据不计入方案字数：1200 字正文 + 500 字证据照样放行', async () => {
-    const content = `${'x'.repeat(1200)} ｜ 自检：${'y'.repeat(500)}`;
+  it('勾选证据不计入方案字数：500 字正文 + 500 字证据照样放行', async () => {
+    const content = `${'x'.repeat(500)} ｜ 自检：${'y'.repeat(500)}`;
     const ok = await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '方案', content });
-    expect(ok.chars).toBe(1200);
+    expect(ok.chars).toBe(500);
   });
 
   it('会话手册整本超 2000 字：拒写，且提示证据不用删', async () => {
-    await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(1200) });
+    await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '方案', content: 'x'.repeat(500) });
     await expect(repo.replaceManualSection({
-      workflowId, nodeId: workflowId, section: '实施顺序', content: `- [ ] 一 —— 完成标准：${'y'.repeat(1000)}`,
+      workflowId, nodeId: workflowId, section: '实施顺序', content: `- [ ] 一 —— 完成标准：${'y'.repeat(1600)}`,
     })).rejects.toThrow(/会话手册整本现在 \d+ 字，上限 2000 字/);
   });
 

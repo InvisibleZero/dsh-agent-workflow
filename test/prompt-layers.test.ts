@@ -77,14 +77,20 @@ describe('会话手册按小节取用（不再取尾部 2000 字）', () => {
     '',
   ].join('\n');
 
-  it('方案取全文、清单只给未勾项，已勾项只记账数', () => {
+  it('方案按当前层、清单只给未勾项，已勾项只记账数', () => {
     const parts = pickSessionManualParts(manual);
     expect(parts.plan).toContain('### 1. 目标与验收');
-    expect(parts.plan).toContain('### 2. 数据层');
+    expect(parts.plan).toContain('### 当前层：数据层');
     expect(parts.unchecked).toEqual(['数据层 —— 完成标准：单测过', '接口层 —— 完成标准：契约测试通过']);
     expect(parts.checkedCount).toBe(1);
     expect(parts.totalItems).toBe(3);
     expect(parts.hasPlan).toBe(true);
+  });
+
+  it('「垂直切片坑」小节被单独抽出（pitfalls），没有则空串', () => {
+    const withPitfalls = `${manual}\n\n## 垂直切片坑\n- 坑：依赖方向别反。\n`;
+    expect(pickSessionManualParts(withPitfalls).pitfalls).toContain('依赖方向别反');
+    expect(pickSessionManualParts(manual).pitfalls).toBe('');
   });
 
   it('空手册：没有方案、没有清单', () => {

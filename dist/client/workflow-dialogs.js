@@ -86,11 +86,11 @@ const STATE_TABS = [
     { id: 'implementing', label: '实现中' },
     { id: 'verifying', label: '验收中' },
 ];
-/** 节点弹窗的三个页签：操作细节 / 会话手册 / 项目手册。 */
+/** 节点弹窗的三个页签：会话手册 / 项目手册 / 会话操作细节。 */
 const NODE_DETAIL_TABS = [
-    { id: 'detail', label: '会话操作细节' },
     { id: 'sessionManual', label: '会话手册' },
     { id: 'globalManual', label: '项目手册' },
+    { id: 'detail', label: '会话操作细节' },
 ];
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
 const APPENDIX_TAB = { id: 'appendix', label: '附表' };
@@ -556,7 +556,8 @@ function WorkflowGlobalSettingsSection() {
                     color: 'var(--dsw-alias-label-secondary)',
                 }, children: [_jsx("span", { children: "\u624B\u518C\u5B57\u6570\u4E0A\u9650" }), [
                         { field: 'constraints_chars', label: '约束 / 红线' },
-                        { field: 'plan_chars', label: '方案' },
+                        { field: 'plan_chars', label: '方案（每层）' },
+                        { field: 'slice_pitfalls_chars', label: '垂直切片坑' },
                         { field: 'session_total_chars', label: '会话手册整本' },
                     ].map((item) => (_jsxs("label", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [_jsx("span", { children: item.label }), _jsx("input", { type: "number", min: MANUAL_LIMIT_MIN_CHARS, max: MANUAL_LIMIT_MAX_CHARS, value: limits[item.field], onChange: (event) => setLimits({ ...limits, [item.field]: Number(event.target.value) }), onBlur: (event) => { void saveLimit(item.field, event.target.value); }, style: {
                                     width: 72,

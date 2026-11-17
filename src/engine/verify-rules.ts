@@ -40,7 +40,7 @@ export function resolveVerifyCheckId(raw: unknown): number {
   const byName = VERIFY_CHECKS.find((check) => check.name === text);
   if (byName !== undefined) return byName.id;
   throw new Error(
-    `「${text}」不是验收项：用 id 1-7 或名称（${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(' / ')}）`,
+    `「${text}」不是验收项：用 id 1-${VERIFY_CHECKS.length} 或名称（${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(' / ')}）`,
   );
 }
 

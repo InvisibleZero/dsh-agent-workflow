@@ -9,10 +9,11 @@ import {
 } from '../src/schema/manual-limits';
 
 describe('手册字数上限（按字判，证据不计入）', () => {
-  it('默认三档是 300 / 1200 / 2000', () => {
+  it('默认四档是 300 / 500 / 300 / 2000', () => {
     expect(DEFAULT_MANUAL_LIMITS).toEqual({
       constraints_chars: 300,
-      plan_chars: 1200,
+      plan_chars: 500,
+      slice_pitfalls_chars: 300,
       session_total_chars: 2000,
     });
   });
@@ -24,11 +25,18 @@ describe('手册字数上限（按字判，证据不计入）', () => {
       .toThrow(/现在 301 字，上限 300 字，超 1 字/);
   });
 
-  it('方案：1200 字放行、1201 字拒绝', () => {
+  it('方案：500 字放行、501 字拒绝', () => {
     const limits = { ...DEFAULT_MANUAL_LIMITS };
-    expect(assertSectionLimit('方案', 'x'.repeat(1200), limits)).toBe(1200);
-    expect(() => assertSectionLimit('方案', 'x'.repeat(1201), limits))
-      .toThrow(/现在 1201 字，上限 1200 字，超 1 字/);
+    expect(assertSectionLimit('方案', 'x'.repeat(500), limits)).toBe(500);
+    expect(() => assertSectionLimit('方案', 'x'.repeat(501), limits))
+      .toThrow(/现在 501 字，上限 500 字，超 1 字/);
+  });
+
+  it('垂直切片坑：300 字放行、301 字拒绝', () => {
+    const limits = { ...DEFAULT_MANUAL_LIMITS };
+    expect(assertSectionLimit('垂直切片坑', 'x'.repeat(300), limits)).toBe(300);
+    expect(() => assertSectionLimit('垂直切片坑', 'x'.repeat(301), limits))
+      .toThrow(/现在 301 字，上限 300 字，超 1 字/);
   });
 
   it('勾选证据（｜ 自检：…）不计入字数', () => {

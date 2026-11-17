@@ -131,8 +131,9 @@ describe('分层注入（与真机同一条注册/求值路径）', () => {
   });
 
   it('会话手册写满接近上限时，硬规则层仍然完整（不会被挤掉）', async () => {
-    // 方案 1200 字 + 清单约 600 字 ≈ 1900 字，逼近整本 2000 字上限。
-    await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '方案', content: '方'.repeat(1200) });
+    // 方案 500 + 垂直切片坑 300 + 清单约 600 字，逼近整本 2000 字上限。
+    await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '方案', content: '方'.repeat(500) });
+    await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '垂直切片坑', content: '坑'.repeat(300) });
     const longItems = Array.from({ length: 8 }, (_, index) => `- [ ] 第 ${index + 1} 层 —— 完成标准：${'标'.repeat(50)}`).join('\n');
     await repo.replaceManualSection({ workflowId, nodeId: workflowId, section: '实施顺序', content: longItems });
 

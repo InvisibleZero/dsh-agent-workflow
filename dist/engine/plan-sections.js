@@ -9,8 +9,8 @@ const HINT_BLOCK = /<!--([\s\S]*?)-->/;
 /**
  * 解析模板里的 `### N. 标题` 与紧随的 `<!-- 提示 -->`。
  *
- * 凑不齐 1..5 五节就返回空数组：调用方（路由）据此回退成整段模板原文，
- * 不能因为标题写法被改了就显示成「五项是空的」。
+ * 凑不齐 1..6 六节就返回空数组：调用方（路由）据此回退成整段模板原文，
+ * 不能因为标题写法被改了就显示成「六项是空的」。
  */
 export function plan_sections_from_template(template) {
     const lines = template.split(/\r?\n/);
@@ -38,7 +38,7 @@ export function plan_sections_from_template(template) {
         }
         sections.push({ id, title, hint });
     }
-    const complete = sections.length === 5 && sections.every((section, index) => section.id === index + 1);
+    const complete = sections.length === 6 && sections.every((section, index) => section.id === index + 1);
     return complete ? sections : [];
 }
 //# sourceMappingURL=plan-sections.js.map

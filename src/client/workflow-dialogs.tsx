@@ -113,11 +113,11 @@ const STATE_TABS = [
   { id: 'verifying', label: '验收中' },
 ];
 
-/** 节点弹窗的三个页签：操作细节 / 会话手册 / 项目手册。 */
+/** 节点弹窗的三个页签：会话手册 / 项目手册 / 会话操作细节。 */
 const NODE_DETAIL_TABS = [
-  { id: 'detail', label: '会话操作细节' },
   { id: 'sessionManual', label: '会话手册' },
   { id: 'globalManual', label: '项目手册' },
+  { id: 'detail', label: '会话操作细节' },
 ];
 
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
@@ -613,7 +613,7 @@ function WorkflowGlobalSettingsSection() {
   };
 
   /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
-  const saveLimit = async (field: 'constraints_chars' | 'plan_chars' | 'session_total_chars', raw: string) => {
+  const saveLimit = async (field: 'constraints_chars' | 'plan_chars' | 'slice_pitfalls_chars' | 'session_total_chars', raw: string) => {
     const parsed = Number(raw);
     const value = Number.isFinite(parsed) ? Math.round(parsed) : DEFAULT_MANUAL_LIMITS[field];
     const next = { ...limits, [field]: value };
@@ -807,7 +807,8 @@ function WorkflowGlobalSettingsSection() {
         <span>手册字数上限</span>
         {([
           { field: 'constraints_chars', label: '约束 / 红线' },
-          { field: 'plan_chars', label: '方案' },
+          { field: 'plan_chars', label: '方案（每层）' },
+          { field: 'slice_pitfalls_chars', label: '垂直切片坑' },
           { field: 'session_total_chars', label: '会话手册整本' },
         ] as const).map((item) => (
           <label key={item.field} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

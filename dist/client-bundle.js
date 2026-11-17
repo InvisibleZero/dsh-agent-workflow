@@ -551,6 +551,7 @@ window.__ModuleLoader__.load({
         { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项' },
         { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
         { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
+        { id: 8, name: '收尾', needs_command: false, judge: '把新决策 / 新坑 / 文档一致性写进项目手册，然后推进到已完结（自动，不再要人同意）' },
     ];
     /** 标记的显示符号：徽标、菜单、注入文本共用一套，避免三处各写一份。 */
     function verifyMarkSymbol(mark) {
@@ -665,11 +666,11 @@ window.__ModuleLoader__.load({
         { id: 'implementing', label: '实现中' },
         { id: 'verifying', label: '验收中' },
     ];
-    /** 节点弹窗的三个页签：操作细节 / 会话手册 / 项目手册。 */
+    /** 节点弹窗的三个页签：会话手册 / 项目手册 / 会话操作细节。 */
     const NODE_DETAIL_TABS = [
-        { id: 'detail', label: '会话操作细节' },
         { id: 'sessionManual', label: '会话手册' },
         { id: 'globalManual', label: '项目手册' },
+        { id: 'detail', label: '会话操作细节' },
     ];
     /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
     const APPENDIX_TAB = { id: 'appendix', label: '附表' };
@@ -1135,7 +1136,8 @@ window.__ModuleLoader__.load({
                         color: 'var(--dsw-alias-label-secondary)',
                     }, children: [(0, jsx_runtime_1.jsx)("span", { children: "\u624B\u518C\u5B57\u6570\u4E0A\u9650" }), [
                             { field: 'constraints_chars', label: '约束 / 红线' },
-                            { field: 'plan_chars', label: '方案' },
+                            { field: 'plan_chars', label: '方案（每层）' },
+                            { field: 'slice_pitfalls_chars', label: '垂直切片坑' },
                             { field: 'session_total_chars', label: '会话手册整本' },
                         ].map((item) => ((0, jsx_runtime_1.jsxs)("label", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, children: [(0, jsx_runtime_1.jsx)("span", { children: item.label }), (0, jsx_runtime_1.jsx)("input", { type: "number", min: manual_limits_1.MANUAL_LIMIT_MIN_CHARS, max: manual_limits_1.MANUAL_LIMIT_MAX_CHARS, value: limits[item.field], onChange: (event) => setLimits({ ...limits, [item.field]: Number(event.target.value) }), onBlur: (event) => { void saveLimit(item.field, event.target.value); }, style: {
                                         width: 72,
@@ -1454,7 +1456,8 @@ window.__ModuleLoader__.load({
     exports.assertSessionManualTotal = assertSessionManualTotal;
     exports.DEFAULT_MANUAL_LIMITS = {
         constraints_chars: 300,
-        plan_chars: 1200,
+        plan_chars: 500,
+        slice_pitfalls_chars: 300,
         session_total_chars: 2000,
     };
     /** 合法区间：太小会把模板本身卡死，太大会把系统提示撑爆。 */
@@ -1494,6 +1497,7 @@ window.__ModuleLoader__.load({
         return {
             constraints_chars: read(source.constraints_chars, exports.DEFAULT_MANUAL_LIMITS.constraints_chars),
             plan_chars: read(source.plan_chars, exports.DEFAULT_MANUAL_LIMITS.plan_chars),
+            slice_pitfalls_chars: read(source.slice_pitfalls_chars, exports.DEFAULT_MANUAL_LIMITS.slice_pitfalls_chars),
             session_total_chars: read(source.session_total_chars, exports.DEFAULT_MANUAL_LIMITS.session_total_chars),
         };
     }
@@ -1501,11 +1505,13 @@ window.__ModuleLoader__.load({
     const SECTION_LIMIT_FIELD = {
         约束: 'constraints_chars',
         方案: 'plan_chars',
+        垂直切片坑: 'slice_pitfalls_chars',
     };
     /** 超限时给的具体删法：报错要能照着改，不能只说"请精简"。 */
     const SECTION_TRIM_HINTS = {
         约束: '删掉已被测试或代码固化验证过的条目、只对某个分支成立的临时约定；同类禁令合并成一条。',
         方案: '把已落地的实现细节挪回代码，方案里只留目标、分层和层间契约；长篇论证换成一句"不这么做会怎样"。',
+        垂直切片坑: '只留「做完再改就贵」的坑（依赖方向 / 跨层 / 契约不一致），细节实现坑写项目手册，别塞这里。',
     };
     /** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */
     class ManualLimitError extends Error {

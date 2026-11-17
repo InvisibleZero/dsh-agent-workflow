@@ -2,6 +2,26 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.2] - 2026-11-17
+
+实现阶段加「垂直切片」层 + 会话手册「按层注入」，验收加第 8 项「收尾」并自动推进已完结。
+
+### 新增
+
+- **垂直切片层**：实施顺序 4→5 层；小验收只验 hard-to-reverse（垂直切片→`check_deps`、接口层→`check_contract`、表现层→新增 `check_build`），数据 / 领域层轻。
+- **会话手册按层注入**（`session-manual-slices.ts`）：目标常驻 + 当前层小节 + 已完成层契约一句；`pickCurrentLayer` / `accumulateContracts` / `parseSummary` 三个纯函数。
+- **「垂直切片坑」小节**：300 字，仅实现中注入，喂后续四层。
+- **`check_build` 检查器**（`build.ts` + `build-check.mjs`）：跑 `npm run build && npm run smoke`，任一退出码非 0 报不合格。
+- **验收第 8 项「收尾」**：写项目手册四件事后自动推进已完结（不再要人点同意）。
+
+### 变更
+
+- `VERIFY_CHECKS` 7→8 项（徽标 n/7→n/8）；方案上限 `plan_chars` 1200→每层 500，新增 `slice_pitfalls_chars` 300；目标与验收改「总分」格式；节点弹窗页签顺序改「会话手册 / 项目手册 / 会话操作细节」。
+
+### 修复
+
+- 埋点扫描跳过注释与字符串里的 `logEvent(` 字样（`findCalls`）。
+
 ## [0.8.1] - 2026-11-17
 
 七项验收第 6 项「埋点检测」接上**协助工具** `check_instrumentation`：扫已有埋点回填 → 建排查路径树 + 节点 KV → 工具按函数名锚点直接补插埋点 → 校验计划结构。第 6 项报 pass 前本轮至少要跑过一次扫描（结果仍由 AI 判）。

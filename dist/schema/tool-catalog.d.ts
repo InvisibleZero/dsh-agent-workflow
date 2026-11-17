@@ -75,4 +75,13 @@ export declare const BASE_TOOLS: ToolEntry[];
  * 开发期仍可用 `workflow_tool_add` 往 `tools/tool-registry.json` 加额外工具，那是增量，不在这里。
  */
 export declare const EXTENSION_TOOLS: ToolEntry[];
+/**
+ * 实现五层的小验收映射：只对「做完再改贵」的层强制跑过检查器（require_run），
+ * 其余层轻（不强制）。layer 名 = 实施顺序条目 label 的前缀。
+ */
+export interface LayerGate {
+    checker: string;
+    require_run: boolean;
+}
+export declare const LAYER_GATES: Record<string, LayerGate>;
 //# sourceMappingURL=tool-catalog.d.ts.map

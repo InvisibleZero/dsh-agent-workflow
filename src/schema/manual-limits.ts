@@ -8,19 +8,22 @@
  * 客户端设置页还要显示默认值；不能把 zod 或仓储实现带进客户端包。
  */
 
-/** 三档上限：约束 / 红线、方案、会话手册整本。 */
+/** 四档上限：约束 / 红线、方案（当前层）、垂直切片坑、会话手册整本。 */
 export interface ManualLimits {
   /** 项目手册「约束 / 红线」的字符上限。 */
   constraints_chars: number;
-  /** 会话手册「方案」小节的字符上限。 */
+  /** 会话手册「方案」每层小节的字符上限（按当前层判，不再整份 1200）。 */
   plan_chars: number;
+  /** 会话手册「垂直切片坑」小节的字符上限。 */
+  slice_pitfalls_chars: number;
   /** 会话手册整本的字符上限（勾选证据不计入）。 */
   session_total_chars: number;
 }
 
 export const DEFAULT_MANUAL_LIMITS: ManualLimits = {
   constraints_chars: 300,
-  plan_chars: 1200,
+  plan_chars: 500,
+  slice_pitfalls_chars: 300,
   session_total_chars: 2000,
 };
 
@@ -64,6 +67,7 @@ export function sanitizeManualLimits(raw: unknown): ManualLimits {
   return {
     constraints_chars: read(source.constraints_chars, DEFAULT_MANUAL_LIMITS.constraints_chars),
     plan_chars: read(source.plan_chars, DEFAULT_MANUAL_LIMITS.plan_chars),
+    slice_pitfalls_chars: read(source.slice_pitfalls_chars, DEFAULT_MANUAL_LIMITS.slice_pitfalls_chars),
     session_total_chars: read(source.session_total_chars, DEFAULT_MANUAL_LIMITS.session_total_chars),
   };
 }
@@ -72,12 +76,14 @@ export function sanitizeManualLimits(raw: unknown): ManualLimits {
 const SECTION_LIMIT_FIELD: Record<string, keyof ManualLimits> = {
   约束: 'constraints_chars',
   方案: 'plan_chars',
+  垂直切片坑: 'slice_pitfalls_chars',
 };
 
 /** 超限时给的具体删法：报错要能照着改，不能只说"请精简"。 */
 const SECTION_TRIM_HINTS: Record<string, string> = {
   约束: '删掉已被测试或代码固化验证过的条目、只对某个分支成立的临时约定；同类禁令合并成一条。',
   方案: '把已落地的实现细节挪回代码，方案里只留目标、分层和层间契约；长篇论证换成一句"不这么做会怎样"。',
+  垂直切片坑: '只留「做完再改就贵」的坑（依赖方向 / 跨层 / 契约不一致），细节实现坑写项目手册，别塞这里。',
 };
 
 /** 超限错误：带 code，调用方（工具埋点）靠它把"被闸门拒"和"参数错"分开。 */

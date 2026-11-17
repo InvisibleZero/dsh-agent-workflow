@@ -7,14 +7,15 @@ import { depsChecker } from '../src/engine/checkers/deps';
 import { regressionChecker } from '../src/engine/checkers/regression';
 
 describe('检查器注册表', () => {
-  it('6 个检查器都在，id 不重复', () => {
-    expect(CHECKER_IDS.sort()).toEqual(['boundary', 'contract', 'deadcode', 'deps', 'instrumentation', 'regression']);
+  it('7 个检查器都在，id 不重复', () => {
+    expect(CHECKER_IDS.sort()).toEqual(['boundary', 'build', 'contract', 'deadcode', 'deps', 'instrumentation', 'regression']);
     expect(new Set(CHECKER_IDS).size).toBe(CHECKERS.length);
   });
 
   it('findChecker 按 id 找到，找不到返回 undefined', () => {
     expect(findChecker('deps')?.name).toBe('依赖检查');
     expect(findChecker('instrumentation')?.name).toBe('埋点检测');
+    expect(findChecker('build')?.name).toBe('构建与冒烟');
     expect(findChecker('nope')).toBeUndefined();
   });
 });

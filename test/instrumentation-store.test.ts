@@ -68,9 +68,9 @@ describe('迁移：第 6 项从无检查器改成协助型', () => {
     expect(VERIFY_CHECKS.find((entry) => entry.id === 5)?.checker).toBeUndefined();
   });
 
-  it('旧快照（没有 verification）回落七项全空，第 6 项是 ○', () => {
+  it('旧快照（没有 verification）回落八项全空，第 6 项是 ○', () => {
     const state = pickVerification(undefined);
-    expect(state.items).toHaveLength(7);
+    expect(state.items).toHaveLength(8);
     expect(state.items.every((item) => item.mark === 'pending')).toBe(true);
   });
 });

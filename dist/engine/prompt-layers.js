@@ -9,6 +9,7 @@
  */
 import { parseChecklist, parseHasPlan, pickSectionBody } from './manual-parse';
 import { countUtf8Bytes } from './text-budget';
+import { pickPerLayerPlanFromManual } from './session-manual-slices';
 /**
  * 八层。顺序 = 用户认可的那条：硬规则 → 全局细节 → 状态细节 → 节点附加 → 约束 → 手册引导 → 会话手册。
  *
@@ -93,9 +94,11 @@ export function assemblePromptLayers(input, budgetBytes) {
 export function pickSessionManualParts(manual) {
     const items = parseChecklist(manual);
     const unchecked = items.filter((item) => !item.done).map((item) => item.label);
-    const plan = pickSectionBody(manual, ['方案']);
+    // 按层注入：不再注入方案全文，只给目标与验收 + 当前层 + 已完成层契约。
+    const plan = pickPerLayerPlanFromManual(manual, items);
     return {
         plan,
+        pitfalls: pickSectionBody(manual, ['垂直切片坑']),
         unchecked,
         checkedCount: items.filter((item) => item.done).length,
         totalItems: items.length,

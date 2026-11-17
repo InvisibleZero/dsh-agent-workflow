@@ -9,6 +9,7 @@
  */
 import { parseChecklist, parseHasPlan, pickSectionBody } from './manual-parse';
 import { countUtf8Bytes } from './text-budget';
+import { pickPerLayerPlanFromManual } from './session-manual-slices';
 
 export interface PromptLayerSpec {
   /** 层名：同时用作系统提示里 context 名后缀（workflow:<name>）。 */
@@ -129,9 +130,11 @@ export function assemblePromptLayers(input: PromptLayerInput[], budgetBytes: num
   return { layers, keptBytes, dropped, truncated: droppedNames.size > 0 };
 }
 
-/** 会话手册拆出来的三块：方案全文、未勾条目、已勾条数。 */
+/** 会话手册拆出来的几块：按层注入的方案、垂直切片坑、未勾条目、已勾条数。 */
 export interface SessionManualParts {
   plan: string;
+  /** 「垂直切片坑」小节正文（垂直切片挖出的坑，喂后续层）。 */
+  pitfalls: string;
   unchecked: string[];
   checkedCount: number;
   totalItems: number;
@@ -147,9 +150,11 @@ export interface SessionManualParts {
 export function pickSessionManualParts(manual: string): SessionManualParts {
   const items = parseChecklist(manual);
   const unchecked = items.filter((item) => !item.done).map((item) => item.label);
-  const plan = pickSectionBody(manual, ['方案']);
+  // 按层注入：不再注入方案全文，只给目标与验收 + 当前层 + 已完成层契约。
+  const plan = pickPerLayerPlanFromManual(manual, items);
   return {
     plan,
+    pitfalls: pickSectionBody(manual, ['垂直切片坑']),
     unchecked,
     checkedCount: items.filter((item) => item.done).length,
     totalItems: items.length,

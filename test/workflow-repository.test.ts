@@ -291,7 +291,7 @@ describe('WorkflowRepository：会话绑定 / 回收站 / 手册读取', () => {
     expect(manual?.notesDir).toBe(join(workDir, '.workflow'));
 
     const meta = await repo.getManualMeta(node.workflowId, node.nodeId);
-    expect(meta?.checklist).toHaveLength(4);
+    expect(meta?.checklist).toHaveLength(5);
     expect(meta?.hasPlan).toBe(false);
   });
 
@@ -507,7 +507,7 @@ describe('WorkflowRepository：切回讨论中清空实施顺序', () => {
     for (const to of ['implementing', 'verifying', 'completed']) {
       await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to });
     }
-    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(5);
 
     await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
 
@@ -524,7 +524,7 @@ describe('WorkflowRepository：切回讨论中清空实施顺序', () => {
     const node = await repo.ensureNode({ sessionId: 's-2', workingDirectory: workDir });
     await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'implementing' });
     await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'verifying' });
-    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(5);
 
     await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
     expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toEqual([]);
@@ -534,6 +534,6 @@ describe('WorkflowRepository：切回讨论中清空实施顺序', () => {
     const repo = new WorkflowRepository(dir);
     const node = await repo.ensureNode({ sessionId: 's-3', workingDirectory: workDir });
     await repo.transitionNode({ id: node.workflowId, nodeId: node.nodeId, to: 'discussing' });
-    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(4);
+    expect((await repo.getManualMeta(node.workflowId, node.nodeId))?.checklist).toHaveLength(5);
   });
 });

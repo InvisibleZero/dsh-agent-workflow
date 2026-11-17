@@ -7,6 +7,7 @@
  * 第 5 项（命名与边界审查）暂不做检查器，保留原验收方式。
  */
 import { boundaryChecker } from './boundary';
+import { buildChecker } from './build';
 import { contractChecker } from './contract';
 import { deadcodeChecker } from './deadcode';
 import { depsChecker } from './deps';
@@ -21,6 +22,7 @@ export const CHECKERS: Checker[] = [
   boundaryChecker,
   regressionChecker,
   instrumentationChecker,
+  buildChecker,
 ];
 
 export const CHECKER_IDS: string[] = CHECKERS.map((checker) => checker.id);

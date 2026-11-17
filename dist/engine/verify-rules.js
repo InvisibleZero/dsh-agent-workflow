@@ -17,7 +17,7 @@ export function resolveVerifyCheckId(raw) {
     const byName = VERIFY_CHECKS.find((check) => check.name === text);
     if (byName !== undefined)
         return byName.id;
-    throw new Error(`「${text}」不是验收项：用 id 1-7 或名称（${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(' / ')}）`);
+    throw new Error(`「${text}」不是验收项：用 id 1-${VERIFY_CHECKS.length} 或名称（${VERIFY_CHECKS.map((check) => `${check.id} ${check.name}`).join(' / ')}）`);
 }
 /** 证据路径的形状限制：只允许工作目录内的相对路径，挡绝对路径与 ../。 */
 export function assertAnchorPathShape(file) {

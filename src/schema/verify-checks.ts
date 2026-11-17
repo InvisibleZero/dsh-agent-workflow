@@ -40,6 +40,7 @@ export const VERIFY_CHECKS: readonly VerifyCheckDefinition[] = [
   { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项' },
   { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
   { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
+  { id: 8, name: '收尾', needs_command: false, judge: '把新决策 / 新坑 / 文档一致性写进项目手册，然后推进到已完结（自动，不再要人同意）' },
 ];
 
 /** 条目状态：○ 待处理 / ✓ 通过 / ？ 问询（查出问题但本轮不修）。 */

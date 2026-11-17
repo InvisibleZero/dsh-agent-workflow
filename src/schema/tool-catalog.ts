@@ -238,7 +238,7 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
     description: '跑契约测试并判结果。先执行 vitest run test 生成证据，再判用例数与失败数：0 个用例、有失败都报不合格。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'contract' },
-    allowed_states: ['verifying'],
+    allowed_states: ['implementing', 'verifying'],
     effect: 'read-state',
     parameters: { type: 'object', properties: {}, additionalProperties: true },
     version: 1,
@@ -248,7 +248,7 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
     description: '跑依赖边界检查并判结果。先执行 dependency-cruiser 扫描 src，再把循环依赖与跨层引用报成不合格。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'deps' },
-    allowed_states: ['verifying'],
+    allowed_states: ['implementing', 'verifying'],
     effect: 'read-state',
     parameters: { type: 'object', properties: {}, additionalProperties: true },
     version: 1,
@@ -293,4 +293,31 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
     parameters: { type: 'object', properties: {}, additionalProperties: true },
     version: 1,
   },
+  {
+    name: 'check_build',
+    description: '跑构建与冒烟并判结果：先 npm run build 再 npm run smoke，任一退出码非 0 报不合格。改产物后表现层勾选前用它验证 build + smoke 通过。',
+    kind: TOOL_KIND.extension,
+    run: { kind: 'checker', checker: 'build' },
+    allowed_states: ['implementing', 'verifying'],
+    effect: 'exec',
+    parameters: { type: 'object', properties: {}, additionalProperties: true },
+    version: 1,
+  },
 ];
+
+/**
+ * 实现五层的小验收映射：只对「做完再改贵」的层强制跑过检查器（require_run），
+ * 其余层轻（不强制）。layer 名 = 实施顺序条目 label 的前缀。
+ */
+export interface LayerGate {
+  checker: string;
+  require_run: boolean;
+}
+
+export const LAYER_GATES: Record<string, LayerGate> = {
+  垂直切片: { checker: 'deps', require_run: true },
+  数据层: { checker: '', require_run: false },
+  领域层: { checker: '', require_run: false },
+  接口层: { checker: 'contract', require_run: true },
+  表现层: { checker: 'build', require_run: true },
+};

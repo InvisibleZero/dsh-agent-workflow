@@ -50,9 +50,11 @@ export interface PromptAssembly {
  * 软层按 priority 从高到低丢，丢到装得下就停。
  */
 export declare function assemblePromptLayers(input: PromptLayerInput[], budgetBytes: number): PromptAssembly;
-/** 会话手册拆出来的三块：方案全文、未勾条目、已勾条数。 */
+/** 会话手册拆出来的几块：按层注入的方案、垂直切片坑、未勾条目、已勾条数。 */
 export interface SessionManualParts {
     plan: string;
+    /** 「垂直切片坑」小节正文（垂直切片挖出的坑，喂后续层）。 */
+    pitfalls: string;
     unchecked: string[];
     checkedCount: number;
     totalItems: number;

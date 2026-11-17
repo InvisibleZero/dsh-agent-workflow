@@ -59,7 +59,7 @@ function clipChars(text: string, limit: number): { text: string; clipped: boolea
 }
 
 /**
- * 渲染「会话手册」这一层：方案全文 + 未勾清单。
+ * 渲染「会话手册」这一层：按层注入的方案 + 垂直切片坑 + 未勾清单。
  *
  * 自带降级：清单短、方案长，所以先保证清单装得下，剩下预算给方案；
  * 方案再超就按字节截断并标注（不重演"尾部 2000 字"那种反向取舍）。
@@ -67,6 +67,8 @@ function clipChars(text: string, limit: number): { text: string; clipped: boolea
 function renderSessionManual(input: {
   path: string;
   plan: string;
+  /** 垂直切片坑（仅实现中注入；其余状态传空串）。 */
+  pitfalls: string;
   unchecked: string[];
   checkedCount: number;
   totalItems: number;
@@ -79,12 +81,15 @@ function renderSessionManual(input: {
       ...input.unchecked.map((label: string, index: number) => `${index + 1}. ${label}`),
     ];
   const listText = listLines.join('\n');
+  const pitfallsRaw = input.pitfalls.trim();
+  const pitfallsBlock = pitfallsRaw === '' ? '' : `垂直切片坑（做完再改贵，绕开）：\n${pitfallsRaw}`;
   const overhead = countUtf8Bytes(`${head}\n\n方案：\n\n\n${listText}`);
   const planBudget = Math.max(300, SESSION_MANUAL_BUDGET_BYTES - overhead);
   const rawPlan = input.plan.trim();
   const planText = rawPlan === '' ? '（还没写）' : truncateToBytes(rawPlan, planBudget);
+  const middle = [planText, pitfallsBlock].filter((part) => part !== '').join('\n\n');
   return {
-    text: `${head}\n\n方案：\n${planText}\n\n${listText}`,
+    text: `${head}\n\n方案：\n${middle}\n\n${listText}`,
     planTruncated: rawPlan !== '' && planText !== rawPlan,
   };
 }
@@ -192,7 +197,7 @@ export function registerWorkflowStateContext(
       verifyProgress = lines.join('\n');
     }
 
-    // 会话手册：方案全文 + 未勾清单（不再取"尾部 2000 字"）。
+    // 会话手册：按层注入的方案 + 垂直切片坑（仅实现中）+ 未勾清单。
     const manualData = await repository.readNodeManual(found.workflowId, found.nodeId);
     let sessionManual = '';
     if (manualData !== null) {
@@ -200,6 +205,7 @@ export function registerWorkflowStateContext(
       const rendered = renderSessionManual({
         path: join(manualData.notesDir, `会话手册-${found.nodeId}.md`),
         plan: parts.plan,
+        pitfalls: node.current_state === 'implementing' ? parts.pitfalls : '',
         unchecked: parts.unchecked,
         checkedCount: parts.checkedCount,
         totalItems: parts.totalItems,
