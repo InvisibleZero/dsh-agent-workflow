@@ -71,6 +71,19 @@ export interface WorkflowToolsDeps {
      * 只能等页面刷新才看得见——验收时会被当成「没打勾」。
      */
     notify?: (sessionId: string, reason: string) => void;
+    /**
+     * 门禁自身异常上报：非空字符串 = 记录「插件坏了」（徽标变红），null = 清除。
+     * 和「被正常拦截」分开——一个看不见却报告没问题的门禁，比没有门禁更危险。
+     */
+    reportGuardError?: (sessionId: string, message: string | null) => void;
+    /**
+     * 实现中范围拦截的同步缓存：{ workingDir, scope（相对路径数组）}；null = 无范围限制。
+     * 清单没声明范围、不在实现中、或还没算好都返回 null——按放行处理（保守）。
+     */
+    getScope?: (sessionId: string) => {
+        workingDir: string;
+        scope: string[];
+    } | null;
 }
 /** 注册门禁：只在「讨论中」拦截写操作。 */
 export declare function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void;

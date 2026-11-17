@@ -80,6 +80,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [returnToDetail, setReturnToDetail] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** 门禁自身异常：非空 = 插件坏了（徽标变红），不是模型被正常拦截。 */
+  const [guardError, setGuardError] = useState<string | null>(null);
   /** 这个会话有没有对话过：没有就轮询（预设随时可能被切过来），有就完全靠推送。 */
   const hasMessagesRef = useRef(false);
   /** 上一次上报给宿主的节点 id：只上报「拿到/丢掉节点」这两个跳，不逐帧刷。 */
@@ -157,6 +159,8 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       const responseBody = await response.json().catch(() => null);
       // 宿主顺带告诉「这个会话有没有对话过」：空会话要轮询，聊过的靠推送。
       hasMessagesRef.current = responseBody?.hasMessages === true;
+      // 门禁异常：徽标变红 + 悬停显示原因。
+      setGuardError(typeof responseBody?.guardError === 'string' && responseBody.guardError !== '' ? responseBody.guardError : null);
       const node = responseBody?.ok === true ? responseBody.node : null;
       if (node === null || node === undefined) {
         reportNodeChange(null);
@@ -402,18 +406,21 @@ function WorkflowStateBadge(props: { sessionId?: string; inputActions?: any; use
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         <button
           type="button"
-          title="查看本节点的操作细节 / 工作手册"
+          title={guardError !== null ? `门禁异常：${guardError}` : '查看本节点的操作细节 / 工作手册'}
           onClick={() => setDetailOpen(true)}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px',
-            borderRadius: 6, border: '1px solid transparent', background: 'var(--dsw-alias-bg-layer-1)',
-            color: 'var(--dsw-alias-label-secondary)', fontSize: 11, lineHeight: '22px',
+            borderRadius: 6,
+            border: guardError !== null ? '1px solid var(--dsw-alias-state-error-primary)' : '1px solid transparent',
+            background: 'var(--dsw-alias-bg-layer-1)',
+            color: guardError !== null ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-secondary)',
+            fontSize: 11, lineHeight: '22px',
             whiteSpace: 'nowrap', cursor: 'pointer',
           }}
-          onMouseEnter={(event) => { event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
-          onMouseLeave={(event) => { event.currentTarget.style.borderColor = 'transparent'; }}
+          onMouseEnter={(event) => { if (guardError === null) event.currentTarget.style.borderColor = 'var(--dsw-alias-border-l1)'; }}
+          onMouseLeave={(event) => { if (guardError === null) event.currentTarget.style.borderColor = 'transparent'; }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', display: 'block', background: guardError !== null ? 'var(--dsw-alias-state-error-primary)' : (NODE_STATE_COLOR[nodeInfo.state] ?? 'transparent') }} />
           {label}
         </button>
         {nodeInfo.pendingAdvance !== null ? (

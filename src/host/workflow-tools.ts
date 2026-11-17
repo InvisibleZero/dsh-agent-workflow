@@ -14,7 +14,7 @@
  *   - 「分步绝对」落在推进前置上：方案没写不能进实现中，清单没勾完不能进验收中。
  */
 import { mkdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
 import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
@@ -106,6 +106,16 @@ export interface WorkflowToolsDeps {
    * 只能等页面刷新才看得见——验收时会被当成「没打勾」。
    */
   notify?: (sessionId: string, reason: string) => void;
+  /**
+   * 门禁自身异常上报：非空字符串 = 记录「插件坏了」（徽标变红），null = 清除。
+   * 和「被正常拦截」分开——一个看不见却报告没问题的门禁，比没有门禁更危险。
+   */
+  reportGuardError?: (sessionId: string, message: string | null) => void;
+  /**
+   * 实现中范围拦截的同步缓存：{ workingDir, scope（相对路径数组）}；null = 无范围限制。
+   * 清单没声明范围、不在实现中、或还没算好都返回 null——按放行处理（保守）。
+   */
+  getScope?: (sessionId: string) => { workingDir: string; scope: string[] } | null;
 }
 
 function labelOf(state: string): string {
@@ -118,6 +128,30 @@ function denialFor(state: string, toolName: string): string | undefined {
   return `当前状态是「讨论中」，不允许执行 ${toolName}：讨论阶段只出方案、不改代码。先调用 workflow_tool_call({ name: "workflow_advance", args: { to: "implementing" } }) 推进到「实现中」（需要先把方案写进会话手册），或请用户点状态胶囊的 →。`;
 }
 
+/** 从写工具的入参里尽量取出目标文件路径；取不到返回 null（保守放行）。 */
+function extractWritePath(exec: any): string | null {
+  const containers = [exec?.args, exec?.arguments, exec?.input, exec?.params];
+  for (const container of containers) {
+    if (typeof container !== 'object' || container === null || Array.isArray(container)) continue;
+    for (const key of ['path', 'file_path', 'filePath', 'file', 'filename', 'target', 'output', 'output_path', 'to']) {
+      const value = (container as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value.trim() !== '') return value.trim();
+    }
+  }
+  return null;
+}
+
+/** 归一化后判断写入路径是否落在声明范围内（目录前缀匹配或精确匹配，大小写不敏感）。 */
+function isWithinScope(writeAbs: string, scopes: string[]): boolean {
+  const target = writeAbs.replace(/\\/g, '/').toLowerCase();
+  for (const scope of scopes) {
+    const base = scope.replace(/\\/g, '/').toLowerCase();
+    if (target === base) return true;
+    if (target.startsWith(`${base}/`)) return true;
+  }
+  return false;
+}
+
 /** 注册门禁：只在「讨论中」拦截写操作。 */
 export function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void {
   ctx.inject(['tools'], (toolCtx: any) => {
@@ -125,20 +159,55 @@ export function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void {
       const sessionId = exec?.agent?.session?.id;
       if (!deps.isPresetSession(sessionId)) return undefined;
       const toolName = String(exec?.name ?? '');
-      if (!SIDE_EFFECT_TOOLS.has(toolName)) return undefined;
-      const state = deps.getState(sessionId);
-      if (state === undefined) {
-        // 状态表缺这一条（认领发生在节点绑定之前 / 宿主刚重启）时**默认拦住**：
-        // 放行等于"讨论中也能改代码"，漏拦比误拦危险。同时排一次回填，重试即可恢复。
-        void deps.refreshState?.(sessionId);
-        logEvent(ctx.logger, 'warn', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=unknown)`);
-        return `当前会话的工作流状态还没同步好（状态表缺这一条），为防绕过阶段限制，先拦住这次写操作。已触发同步，请重试一次；若反复出现，说明这个会话还没绑定 workflow 节点。`;
+      try {
+        if (!SIDE_EFFECT_TOOLS.has(toolName)) {
+          deps.reportGuardError?.(sessionId, null);
+          return undefined;
+        }
+        const state = deps.getState(sessionId);
+        if (state === undefined) {
+          // 状态表缺这一条（认领发生在节点绑定之前 / 宿主刚重启）时**默认拦住**：
+          // 放行等于"讨论中也能改代码"，漏拦比误拦危险。同时排一次回填，重试即可恢复。
+          void deps.refreshState?.(sessionId);
+          logEvent(ctx.logger, 'warn', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=unknown)`);
+          deps.reportGuardError?.(sessionId, null);
+          return `当前会话的工作流状态还没同步好（状态表缺这一条），为防绕过阶段限制，先拦住这次写操作。已触发同步，请重试一次；若反复出现，说明这个会话还没绑定 workflow 节点。`;
+        }
+        const reason = denialFor(state, toolName);
+        if (reason !== undefined) {
+          logEvent(ctx.logger, 'info', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=${state})`);
+          deps.reportGuardError?.(sessionId, null);
+          return reason;
+        }
+        // 实现中范围拦截（保守版）：清单声明了范围、能确定写入路径、且路径明显越界时才拦。
+        // 拿不到路径（bash/pwsh 等命令串）或没声明范围都放行，只留痕，别误伤正常开发。
+        if (state === 'implementing') {
+          const scopeInfo = deps.getScope?.(sessionId) ?? null;
+          if (scopeInfo !== null && scopeInfo.scope.length > 0) {
+            const writePath = extractWritePath(exec);
+            if (writePath !== null) {
+              const writeAbs = resolve(isAbsolute(writePath) ? writePath : join(scopeInfo.workingDir, writePath));
+              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve(scopeInfo.workingDir, scopePath));
+              if (!isWithinScope(writeAbs, scopeAbs)) {
+                logEvent(ctx.logger, 'info', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=implementing, reason=out-of-scope)`);
+                deps.reportGuardError?.(sessionId, null);
+                return `当前「实现中」的实施范围只允许改动：${scopeInfo.scope.join(' / ')}。要写「${writePath}」超出了声明范围；先返工回「讨论中」补方案/范围（workflow_advance to: discussing，带 reason），或确认这是方案里已声明的改动。`;
+              }
+            } else {
+              logEvent(ctx.logger, 'info', `[workflow] guard scope-unknown (session=${sessionId}, tool=${toolName}, state=implementing)`);
+            }
+          }
+        }
+        deps.reportGuardError?.(sessionId, null);
+        return undefined;
+      } catch (error) {
+        // guard 自己抛异常（不是"模型被管住"，而是"插件坏了"）：仍按 fail-closed 拒绝，
+        // 但必须让用户能区分这两种——记 guard-error + 让徽标变红提示。
+        const message = String((error as Error)?.message ?? error);
+        deps.reportGuardError?.(sessionId, message);
+        logEvent(ctx.logger, 'warn', `[workflow] guard-error (session=${sessionId}, tool=${toolName}): ${message}`);
+        return `门禁判定时发生内部错误（已按 fail-closed 拒绝本次写操作）：${message}。这表示插件本身出了问题，不是模型被正常拦截；请查看事件日志或重启插件。`;
       }
-      const reason = denialFor(state, toolName);
-      if (reason !== undefined) {
-        logEvent(ctx.logger, 'info', `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=${state})`);
-      }
-      return reason;
     }));
   });
 }
@@ -713,16 +782,20 @@ async function invokeManual(deps: WorkflowToolsDeps, sessionId: string, args: an
     throw new Error(`「${target}」手册只能改这些小节：${writable.join(' / ')}；${section === '实施顺序' ? '清单请用 workflow_check 勾选。' : ''}`);
   }
   if (typeof args?.content !== 'string' || args.content.trim() === '') throw new Error('content 不能为空');
-  // 「实施顺序」只在讨论中定义；进入实现中之后只能勾选，不能重排或改写条目。
-  if (target === 'session' && section === '实施顺序') {
+  // 「方案」「实施顺序」都只在讨论中定义；进入实现中之后方案锁定、清单只能勾选。
+  if (target === 'session' && (section === '实施顺序' || section === '方案')) {
     // 状态表可能还没回填（认领早于绑节点）：先补一次，否则"讨论中"会被误判。
     if (deps.getState(sessionId) === undefined) await deps.refreshState?.(sessionId);
     const state = deps.getState(sessionId);
     if (state === undefined) {
-      throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）：先让宿主完成认领，再定义实施顺序。');
+      throw new Error('读不到这个会话的工作流状态（可能还没绑定 workflow 节点）：先让宿主完成认领，再写入。');
     }
     if (state !== 'discussing') {
-      throw new Error('「实施顺序」只能在「讨论中」定义；进入实现中之后请用 workflow_check 逐条勾选，不要改写条目。');
+      throw new Error(
+        section === '实施顺序'
+          ? '「实施顺序」只能在「讨论中」定义；进入实现中之后请用 workflow_check 逐条勾选，不要改写条目。'
+          : '「方案」只能在「讨论中」定义；进入实现中之后方案已锁定，要改请先返工回「讨论中」（workflow_advance to: discussing，带 reason）。',
+      );
     }
   }
   let result: { bytes: number; section: string; chars: number };
@@ -958,5 +1031,7 @@ export async function assertAdvanceAllowed(repository: any, found: any, from: st
         + '（pass 记 ✓，deferred 记 ？），全部处理完才能进「已完结」。',
       );
     }
+    // 跨态失效：required 型检查器跑完后源码又有改动，证据就过期了，必须重跑再报备。
+    await repository.assertVerificationFresh(found.workflowId, found.nodeId);
   }
 }

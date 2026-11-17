@@ -17,7 +17,7 @@ import { effectiveDetail } from './engine/state-machine';
 import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
 import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host/session-claim';
-import { logEvent, newTraceId, recentEvents } from './host/event-log';
+import { configureEventLog, logEvent, newTraceId, recentEvents } from './host/event-log';
 import { ToolRegistryStore } from './host/tool-registry';
 import { recordToolEvent, recentToolEvents } from './host/tool-ledger';
 import { BASE_TOOLS, EXTENSION_TOOLS } from './schema/tool-catalog';
@@ -141,6 +141,8 @@ export function apply(ctx: any) {
   const toolsDir = join(packageRoot, 'tools');
   // 插件自带的工具二进制目录：检查器跑命令时加进 PATH，让命令直接用插件 node_modules 里的工具、不触发 npx 下载。
   const nodeModulesBin = join(packageRoot, 'node_modules', '.bin');
+  // 审计事件落盘到运行数据目录：内存环重启即丢，这里补一份可存档的 append-only 记录。
+  configureEventLog(resolveDataDir());
   const repository = new WorkflowRepository(resolveDataDir(), settingsDir);
 
   /**
@@ -238,12 +240,33 @@ export function apply(ctx: any) {
    * 都同步更新这张表。所有状态变化的入口都经过本插件，因此不会长期失真。
    */
   const sessionState = new Map<string, string>();
+  /** 实现中范围缓存：sessionId → { workingDir, scope（相对路径数组）}；只在「实现中」且有声明范围时存在。 */
+  const sessionScope = new Map<string, { workingDir: string; scope: string[] }>();
   async function refreshSessionState(sessionId: string): Promise<void> {
     try {
       const found = await repository.findBySession(sessionId);
       if (found !== null) sessionState.set(sessionId, String(found.current_state));
     } catch {
       // 读失败保持旧值，下一次状态变化会再刷新。
+    }
+    await refreshSessionScope(sessionId);
+  }
+  /** 刷新「实现中」范围缓存：实施顺序在实现中锁定，所以范围一旦算好就不再变，只在此处与状态迁移后重算。 */
+  async function refreshSessionScope(sessionId: string): Promise<void> {
+    try {
+      const found = await repository.findBySession(sessionId);
+      if (found === null || found.current_state !== 'implementing') {
+        sessionScope.delete(sessionId);
+        return;
+      }
+      const info = await repository.getChecklistScope(found.workflowId, found.nodeId);
+      if (info === null || info.scope.length === 0) {
+        sessionScope.delete(sessionId);
+      } else {
+        sessionScope.set(sessionId, { workingDir: info.workingDir, scope: info.scope });
+      }
+    } catch {
+      sessionScope.delete(sessionId);
     }
   }
 
@@ -401,6 +424,12 @@ export function apply(ctx: any) {
    */
   const PENDING_ADVANCE_TTL_MS = 5 * 60 * 1000;
   const pendingAdvances = new Map<string, { to: string; reason?: string; at: number }>();
+
+  /**
+   * 门禁异常表：guard 抛异常时把错误记进来，/node-by-session 读给前端（徽标变红）。
+   * 只存「最近一次」错误；guard 下一次正常判定就会清掉。
+   */
+  const guardErrors = new Map<string, string>();
   const readPendingAdvance = (sessionId: string): { to: string; reason?: string } | null => {
     const pending = pendingAdvances.get(sessionId);
     if (pending === undefined) return null;
@@ -445,6 +474,8 @@ export function apply(ctx: any) {
       }
     },
     getState: (sessionId: string) => sessionState.get(sessionId),
+    /** 实现中范围拦截的同步缓存：null = 无范围限制（保守放行）。 */
+    getScope: (sessionId: string) => sessionScope.get(sessionId) ?? null,
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
     refreshState: (sessionId: string) => refreshSessionState(sessionId),
     setState: (sessionId: string, state: string) => sessionState.set(sessionId, state),
@@ -465,6 +496,17 @@ export function apply(ctx: any) {
     },
     // 报备 / 撤勾不动状态，但徽标 n/7 会变：复用同一条推送通道让页面重取。
     notify: (sessionId: string, reason: string) => broadcast(sessionId, reason),
+    // 门禁异常：记录错误（徽标变红）或清除；变化时推一帧让开着的那一页立刻重取。
+    reportGuardError: (sessionId: string, message: string | null) => {
+      if (typeof message === 'string' && message !== '') {
+        if (guardErrors.get(sessionId) !== message) {
+          guardErrors.set(sessionId, message);
+          broadcast(sessionId, 'guard');
+        }
+      } else if (guardErrors.delete(sessionId)) {
+        broadcast(sessionId, 'guard');
+      }
+    },
   };
   // 硬机制：写操作门禁 + 模型专用工具（请求推进 / 写手册 / 勾选清单）。
   registerWorkflowGuard(ctx, toolsDeps);
@@ -759,7 +801,7 @@ export function apply(ctx: any) {
           enterTrigger = typeof effective.enter_trigger === 'string' ? effective.enter_trigger : '';
         }
         logEvent(ctx.logger, 'info', `[workflow] node-by-session ok (node=${node.nodeId}, state=${node.current_state}, ${Date.now() - startedAt}ms)`, traceId);
-        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), hasMessages };
+        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), guardError: guardErrors.get(sessionId) ?? null, hasMessages };
       }),
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -885,6 +927,7 @@ export function apply(ctx: any) {
         const snapshot = await repository.transitionNode({ id: found.workflowId, nodeId: found.nodeId, to: pending.to, by: 'agent-request' });
         pendingAdvances.delete(body.sessionId);
         markState(body.sessionId, pending.to);
+        await refreshSessionScope(body.sessionId);
         await stateContext.refreshNow(body.sessionId);
         logEvent(ctx.logger, 'info', `[workflow] advance accepted by user (session=${body.sessionId}, ${from}→${pending.to})`);
         broadcast(body.sessionId, 'state', pending.to);
@@ -1017,6 +1060,50 @@ export function apply(ctx: any) {
         };
       }),
     }));
+    // 验收证据详情：节点弹窗「验收」页签一次取全（命令 / 退出码 / 用例数 / findings / 检查器运行）。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/node-verification',
+      handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
+        const id = query.get('id');
+        const nodeId = query.get('nodeId');
+        if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
+        if (typeof nodeId !== 'string' || nodeId === '') throw new Error('缺少 nodeId');
+        const verification = await repository.getVerification(id, nodeId);
+        const items = verification.items.map((item) => {
+          const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+          const report = item.report;
+          const runs = verification.checker_runs.filter((run) => run.checker_id === check?.checker?.id);
+          const latestRun = runs.length > 0 ? runs[runs.length - 1] : undefined;
+          return {
+            id: item.id,
+            name: check?.name ?? '',
+            mark: item.mark,
+            summary: report?.summary ?? '',
+            command: typeof report?.command === 'string' ? report.command : '',
+            checker: report?.checker ?? null,
+            findings: Array.isArray(report?.findings) ? report.findings : [],
+            at: report?.at ?? '',
+            latestRun: latestRun ?? null,
+          };
+        });
+        logEvent(ctx.logger, 'info', `[workflow] node-verification (node=${nodeId}, round=${verification.round}, runs=${verification.checker_runs.length})`, traceId);
+        return { round: verification.round, items, checkerRuns: verification.checker_runs };
+      }),
+    }));
+    // 交付物导出：把验收证据 + 时间线 + 手册摘要写成一份 markdown，落 .workflow/ 下（可进 git、可存档）。
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: 'exact',
+      path: '/dsh-agent-workflow/export-report',
+      handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
+        if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
+        if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
+        const exported = await repository.exportVerificationReport(body.id, body.nodeId);
+        spawn('explorer.exe', [dirname(exported.path)], { stdio: 'ignore', detached: true }).unref();
+        logEvent(ctx.logger, 'info', `[workflow] export-report ok (node=${body.nodeId}, name=${exported.name})`, traceId);
+        return exported;
+      }),
+    }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
       path: '/dsh-agent-workflow/open-folder',
@@ -1081,6 +1168,7 @@ export function apply(ctx: any) {
             // 人工切换后，模型之前挂着的推进请求就作废了。
             pendingAdvances.delete(moved.session_id);
             markState(moved.session_id, body.to);
+            await refreshSessionScope(moved.session_id);
             await stateContext.refreshNow(moved.session_id);
             broadcast(moved.session_id, 'state', body.to);
           }

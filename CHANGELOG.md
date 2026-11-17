@@ -2,6 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] - 2026-11-17
+
+评审反馈落地：实现中范围门禁（保守版）、验收跨态失效校验、方案锁定、交付物导出、验收证据上 UI、事件日志落盘、第三方工具版本锁定；并做全量八项验收（含回归 + 压测）。
+
+### 新增
+
+- **实现中范围门禁（保守版）**：实施顺序条目可带 ` ｜ 范围：目录1,目录2` 声明改动范围，进入实现中后越界写操作被拒；拿不到明确路径（bash/pwsh 命令串）或没声明范围则放行并留痕。`CHECK_SCOPE_MARK` / `parseChecklistLine` / `collectChecklistScope` / `getChecklistScope`。
+- **验收跨态失效校验**：进「已完结」前，required 型检查器跑完后工作目录又有源码改动 → 判证据过期、要求重跑（`assertVerificationFresh` + `computeSourceStamp`，用源码 mtime 粗判）。
+- **交付物导出**：节点弹窗「验收」页签新增「导出验收报告」按钮，把验收证据 + 状态时间线写成 markdown 落 `.workflow/` 下（`exportVerificationReport` + `POST /export-report`）。
+- **验收证据上 UI**：节点弹窗新增「验收」页签（`GET /node-verification`），七项展示复跑命令 / 退出码 / findings / 最近一次检查器运行。
+- **事件日志落盘**：审计事件追加写 `events.jsonl`（`configureEventLog` / `flushEventLog`），内存环重启即丢、这份不丢。
+- **门禁异常告警**：guard 抛异常（「插件坏了」而非「模型被管住」）时按 fail-closed 拒绝，状态徽标变红、悬停显示原因（`guardErrors` + `reportGuardError`）。
+
+### 变更
+
+- **方案锁定**：「方案」与「实施顺序」进入实现中后都不能用 `workflow_manual` 改写，要改只能返工回「讨论中」。
+- **返工复位**：已完结 → 实现中返工时，实施清单勾选复位成未勾（条目保留），避免上一轮进度被顺过去。
+- **regression 命令修正**：`npx autocannon` → 直接 `autocannon`（随插件分发，不触发 npx 下载）。
+- **第三方工具版本锁定**：4 个检查器工具在 `package.json` 固定精确版本，THIRD-PARTY.md 写明「谁跟进产物格式变更」。
+
+### 修复
+
+- e2e regression-stress 脚本按「七项」写死，与代码「八项」不符导致 18/21 → 循环改 `[1..8]`、断言改 `length===8`，21/21 全绿。
+- 事件日志异步写盘与测试清理竞争（`rmdir ENOTEMPTY`）→ 暴露 `flushEventLog()`，测试清理前先 await。
+
 ## [0.8.2] - 2026-11-17
 
 实现阶段加「垂直切片」层 + 会话手册「按层注入」，验收加第 8 项「收尾」并自动推进已完结。

@@ -9,6 +9,8 @@
  * 这样「日志里有、调用方没钥匙」的黑盒断点不会出现。
  */
 import { randomUUID } from 'node:crypto';
+import { appendFile, mkdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 export interface WorkflowEventLog {
   at: string;
@@ -21,6 +23,34 @@ export interface WorkflowEventLog {
 const MAX_EVENTS = 500;
 const events: WorkflowEventLog[] = [];
 
+/**
+ * 审计落盘：内存环只留最近 500 条、重启即丢；落一份 append-only JSONL 进运行数据目录，
+ * 让「谁批准了推进 / 哪条被拒」不随重启消失。文件路径由宿主在 apply() 里配置一次；
+ * 没配置时退化为纯内存（不抛错）。
+ */
+let logFilePath: string | null = null;
+let writeChain: Promise<void> = Promise.resolve();
+
+/** 宿主启动时调用一次：指定事件日志落盘文件所在目录。 */
+export function configureEventLog(dir: string): void {
+  if (typeof dir !== 'string' || dir.trim() === '') return;
+  logFilePath = join(dir, 'events.jsonl');
+}
+
+/** 按顺序异步追加一行；写失败只影响持久化，不影响内存环与功能。 */
+function persistEvent(entry: WorkflowEventLog): void {
+  if (logFilePath === null) return;
+  const line = `${JSON.stringify(entry)}\n`;
+  writeChain = writeChain
+    .then(async () => {
+      await mkdir(dirname(logFilePath as string), { recursive: true });
+      await appendFile(logFilePath as string, line, 'utf8');
+    })
+    .catch(() => {
+      // 落盘失败静默：审计持久化是附加能力，不能反过来拖垮主流程。
+    });
+}
+
 /** 每次请求生成一个短 id：足够在日志里对上一条，又不用读全 uuid。 */
 function newTraceId(): string {
   return `wf-${randomUUID().slice(0, 8)}`;
@@ -31,6 +61,7 @@ function recordEvent(level: 'info' | 'warn', message: string, trace?: string): v
   if (typeof trace === 'string' && trace !== '') entry.trace = trace;
   events.push(entry);
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  persistEvent(entry);
 }
 
 export function recentEvents(limit = 100): WorkflowEventLog[] {
@@ -46,3 +77,8 @@ export function logEvent(logger: any, level: 'info' | 'warn', message: string, t
 }
 
 export { newTraceId };
+
+/** 等当前已排队的落盘写全部完成。测试清理临时目录前先 await 它，避免 rm 与异步 append 竞争。 */
+export async function flushEventLog(): Promise<void> {
+  await writeChain;
+}

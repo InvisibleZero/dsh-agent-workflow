@@ -77,7 +77,8 @@ export const BASE_TOOLS = [
     {
         name: 'workflow_manual',
         description: '读写会话手册与项目手册。'
-            + '会话手册只能改「方案」和「实施顺序」（后者仅讨论中，之后只能勾选）；项目手册条目用 append_entry / update_entry 写，必须带 1 个以上标签。'
+            + '会话手册只能改「方案」和「实施顺序」（两者都仅在「讨论中」可写：进入实现中后方案锁定、实施顺序只能勾选）；项目手册条目用 append_entry / update_entry 写，必须带 1 个以上标签。'
+            + '实施顺序每条可带「 ｜ 范围：目录1,目录2」声明改动范围（实现中越界改动会被拦）。'
             + 'replace_section 只替换一个小节正文；remove_entry 删除条目、rename_tag 合并标签。'
             + '方案上限 1200 字、约束 300 字、会话手册整本 2000 字，超了拒写；勾选证据不计入。',
         kind: TOOL_KIND.base,

@@ -11,6 +11,7 @@ import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { TOOL_KIND_LABEL } from '../schema/tool-kind';
 import { DEFAULT_HARD_RULES } from '../schema/hard-rules';
 import { DEFAULT_MANUAL_LIMITS, MANUAL_LIMIT_MAX_CHARS, MANUAL_LIMIT_MIN_CHARS } from '../schema/manual-limits';
+import { verifyMarkSymbol } from '../schema/verify-checks';
 import { NODE_STATE_COLOR, WORKFLOW_FLOW } from './node-state-color';
 import { reportClientEvent } from './client-log';
 
@@ -113,10 +114,11 @@ const STATE_TABS = [
   { id: 'verifying', label: '验收中' },
 ];
 
-/** 节点弹窗的三个页签：会话手册 / 项目手册 / 会话操作细节。 */
+/** 节点弹窗的四个页签：会话手册 / 项目手册 / 验收 / 会话操作细节。 */
 const NODE_DETAIL_TABS = [
   { id: 'sessionManual', label: '会话手册' },
   { id: 'globalManual', label: '项目手册' },
+  { id: 'verification', label: '验收' },
   { id: 'detail', label: '会话操作细节' },
 ];
 
@@ -1130,6 +1132,9 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const [payload, setPayload] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [manualData, setManualData] = useState<{ manual: string; notesDir: string; globalManual: string } | null>(null);
+  const [verification, setVerification] = useState<any>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1168,6 +1173,45 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     })();
     return () => { cancelled = true; };
   }, [workflowId, nodeId]);
+
+  // 验收证据（命令 / 退出码 / 用例数 / findings / 检查器运行）只读展示。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/dsh-agent-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+        const responseBody = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (responseBody?.ok === true) setVerification(responseBody);
+        else setVerificationError(String(responseBody?.error ?? '读取验收失败'));
+      } catch (reason) {
+        if (!cancelled) setVerificationError(String(reason));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [workflowId, nodeId]);
+
+  /** 导出验收报告：写成一份 markdown 到 .workflow/ 下，并打开所在文件夹。 */
+  const exportReport = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch('/dsh-agent-workflow/export-report', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: workflowId, nodeId }),
+      });
+      const body = await response.json().catch(() => null);
+      if (body?.ok === true) {
+        void reportClientEvent('info', `[verification] 导出报告：${body.name}`);
+      } else {
+        window.alert(String(body?.error ?? '导出失败'));
+      }
+    } catch (reason) {
+      window.alert(String(reason));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const currentState = payload?.node?.current_state ?? null;
   const labels: Record<string, string> = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
@@ -1337,6 +1381,67 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
               <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
                 {manualData === null ? '加载中…' : (manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）')}
               </div>
+            </div>
+          ) : activeTab === 'verification' ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                  验收证据（只读）{verification !== null ? ` · 轮次 ${verification.round}` : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { void exportReport(); }}
+                  disabled={exporting}
+                  style={{
+                    height: 26, padding: '0 10px', borderRadius: 6, cursor: exporting ? 'progress' : 'pointer',
+                    border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent',
+                    color: 'var(--dsw-alias-label-primary)', fontSize: 12, opacity: exporting ? 0.6 : 1,
+                  }}
+                >{exporting ? '导出中…' : '导出验收报告'}</button>
+              </div>
+              {verificationError !== null ? (
+                <div style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 }}>{verificationError}</div>
+              ) : null}
+              {verification === null ? (
+                <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>加载中…</div>
+              ) : (
+                <div style={{ overflow: 'auto', maxHeight: 470 }}>
+                  {verification.items.map((item: any) => (
+                    <div key={item.id} style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
+                        {verifyMarkSymbol(item.mark)} {item.id} {item.name}
+                      </div>
+                      {item.summary !== '' ? (
+                        <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>摘要：{item.summary}</div>
+                      ) : null}
+                      {item.command !== '' ? (
+                        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>
+                          复跑命令：<code>{item.command}</code>
+                        </div>
+                      ) : null}
+                      {item.checker !== null ? (
+                        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>
+                          检查器 {item.checker.checker_id}：ok={String(item.checker.ok)} · findings={item.checker.findings} · exit={item.checker.exit_code ?? 'n/a'}
+                        </div>
+                      ) : null}
+                      {item.latestRun !== null ? (
+                        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>
+                          最近一次运行：{item.latestRun.at.slice(11, 19)} · exit={item.latestRun.exit_code ?? 'n/a'} · findings={item.latestRun.findings}{item.latestRun.evidence ? ` · 证据 ${item.latestRun.evidence}` : ''}
+                        </div>
+                      ) : null}
+                      {Array.isArray(item.findings) && item.findings.length > 0 ? (
+                        <div style={{ marginTop: 4 }}>
+                          {item.findings.map((finding: any, index: number) => (
+                            <div key={index} style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>
+                              位置 {finding.location}　问题 {finding.problem}　不修因 {finding.why_not_fixed}　影响 {finding.impact}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }}>

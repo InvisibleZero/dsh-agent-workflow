@@ -1,6 +1,6 @@
 // src/host.ts
 import { homedir } from "node:os";
-import { dirname as dirname2, join as join5 } from "node:path";
+import { dirname as dirname3, join as join6 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -314,7 +314,7 @@ var JsonStorageAdapter = class {
       } catch (error) {
         const code = error.code;
         if ((code === "EPERM" || code === "EACCES") && attempt < 6) {
-          await new Promise((resolve2) => setTimeout(resolve2, 8 * (attempt + 1)));
+          await new Promise((resolve3) => setTimeout(resolve3, 8 * (attempt + 1)));
           continue;
         }
         await fs.rm(tmp, { force: true }).catch(() => {
@@ -335,6 +335,7 @@ var DEFAULT_MANUAL_LIMITS = {
 var MANUAL_LIMIT_MIN_CHARS = 20;
 var MANUAL_LIMIT_MAX_CHARS = 2e4;
 var CHECK_EVIDENCE_MARK = " \uFF5C \u81EA\u68C0\uFF1A";
+var CHECK_SCOPE_MARK = " \uFF5C \u8303\u56F4\uFF1A";
 function countManualChars(text) {
   return Array.from(text).length;
 }
@@ -603,6 +604,21 @@ function stripHtmlComments(text) {
 function pickSectionBody(manual, prefixes) {
   return splitManualSections(manual).find((section) => prefixes.some((prefix) => section.title.startsWith(prefix)))?.body ?? "";
 }
+function parseChecklistLine(raw) {
+  let text = raw;
+  let scope = [];
+  const scopeCut = text.indexOf(CHECK_SCOPE_MARK);
+  if (scopeCut !== -1) {
+    const rest = text.slice(scopeCut + CHECK_SCOPE_MARK.length);
+    const evidenceCut2 = rest.indexOf(CHECK_EVIDENCE_MARK);
+    const scopeText = evidenceCut2 === -1 ? rest : rest.slice(0, evidenceCut2);
+    scope = scopeText.split(/[,，]/).map((segment) => segment.trim()).filter((segment) => segment !== "");
+    text = text.slice(0, scopeCut);
+  }
+  const evidenceCut = text.indexOf(CHECK_EVIDENCE_MARK);
+  const label = (evidenceCut === -1 ? text : text.slice(0, evidenceCut)).trim();
+  return { label, scope };
+}
 function parseChecklist(manual) {
   const lines = manual.split(/\r?\n/);
   let inSection = false;
@@ -616,12 +632,21 @@ function parseChecklist(manual) {
     if (!inSection) continue;
     const match = /^\s*-\s+\[([ xX])\]\s*(.+)$/.exec(line);
     if (match !== null) {
-      const raw = (match[2] ?? "").trim();
-      const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
-      items.push({ label: cut === -1 ? raw : raw.slice(0, cut).trim(), done: match[1] !== " " });
+      const parsed = parseChecklistLine((match[2] ?? "").trim());
+      items.push({ label: parsed.label, done: match[1] !== " ", scope: parsed.scope });
     }
   }
   return items;
+}
+function collectChecklistScope(items) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const item of items) {
+    for (const path2 of item.scope) {
+      const normalized = path2.replace(/\\/g, "/");
+      if (normalized !== "" && !seen.has(normalized)) seen.add(normalized);
+    }
+  }
+  return [...seen];
 }
 function parseHasPlan(manual) {
   const lines = manual.split(/\r?\n/);
@@ -752,6 +777,7 @@ var SESSION_MANUAL_TEMPLATE = [
   "<!-- \u5782\u76F4\u5207\u7247\u6316\u51FA\u7684\u300C\u505A\u5B8C\u518D\u6539\u8D35\u300D\u7684\u5751\uFF0C\u53EA\u6311\u5173\u952E\u51E0\u6761\u5582\u7ED9\u540E\u7EED\u5C42 -->",
   "",
   "## \u5B9E\u65BD\u987A\u5E8F",
+  "<!-- \u6BCF\u6761\u53EF\u9009\u52A0\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8BE5\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\uFF1B\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A -->",
   "- [ ] \u5782\u76F4\u5207\u7247 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u7AEF\u5230\u7AEF\u8DD1\u901A",
   "- [ ] \u6570\u636E\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u80FD\u8BFB\u5199\u3001\u8FC1\u79FB\u53EF\u8DD1",
   "- [ ] \u9886\u57DF\u5C42 \u2014\u2014 \u5B8C\u6210\u6807\u51C6\uFF1A\u903B\u8F91\u72EC\u7ACB\u53EF\u6D4B",
@@ -828,12 +854,11 @@ function toggleChecklistLine(manual, label, done, evidence) {
     if (!inSection) continue;
     const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
     if (match === null || match[4] === void 0) continue;
-    const raw = match[4].trim();
-    const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
-    const lineLabel = cut === -1 ? raw : raw.slice(0, cut).trim();
-    if (lineLabel !== label) continue;
+    const parsed = parseChecklistLine(match[4].trim());
+    if (parsed.label !== label) continue;
+    const scopeSuffix = parsed.scope.length > 0 ? `${CHECK_SCOPE_MARK}${parsed.scope.join(",")}` : "";
     const suffix = done && evidence !== "" ? `${CHECK_EVIDENCE_MARK}${evidence}` : "";
-    lines[index] = `${match[1] ?? ""}${done ? "x" : " "}${match[3] ?? ""}${label}${suffix}`;
+    lines[index] = `${match[1] ?? ""}${done ? "x" : " "}${match[3] ?? ""}${label}${scopeSuffix}${suffix}`;
     return lines.join("\n");
   }
   throw new Error(`\u6CA1\u80FD\u5B9A\u4F4D\u5230\u6761\u76EE\u300C${label}\u300D`);
@@ -876,6 +901,54 @@ async function appendGitignore(workingDir) {
 `, "utf8");
   } catch {
   }
+}
+var SOURCE_STAMP_SKIP_DIRS = /* @__PURE__ */ new Set([
+  ".workflow",
+  "node_modules",
+  ".git",
+  ".hg",
+  ".svn",
+  "dist",
+  "build",
+  "out",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".vitest",
+  ".vite",
+  ".cache",
+  ".idea"
+]);
+var SOURCE_STAMP_MAX_FILES = 3e4;
+async function computeSourceStamp(workingDir) {
+  let mtimeMax = 0;
+  let count = 0;
+  async function walk(dir) {
+    if (count >= SOURCE_STAMP_MAX_FILES) return;
+    let entries2;
+    try {
+      entries2 = await fs2.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries2) {
+      if (count >= SOURCE_STAMP_MAX_FILES) return;
+      if (entry.isDirectory()) {
+        if (SOURCE_STAMP_SKIP_DIRS.has(entry.name)) continue;
+        await walk(join(dir, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      try {
+        const stat = await fs2.stat(join(dir, entry.name));
+        count += 1;
+        if (stat.mtimeMs > mtimeMax) mtimeMax = stat.mtimeMs;
+      } catch {
+      }
+    }
+  }
+  await walk(workingDir);
+  return { mtimeMax, count };
 }
 var WorkflowRepository = class {
   /**
@@ -1327,6 +1400,9 @@ var WorkflowRepository = class {
       if (input.to === "discussing" && from !== "discussing") {
         await this.clearChecklistOnReturnToDiscussion(snapshot, input.nodeId);
       }
+      if (input.to === "implementing" && from === "completed") {
+        await this.resetChecklistToUnchecked(snapshot, input.nodeId);
+      }
       const updated = {
         ...snapshot,
         nodes: snapshot.nodes.map(
@@ -1373,6 +1449,46 @@ var WorkflowRepository = class {
       await writeTextAtomic(file, next);
     } catch (error) {
       throw new Error(`\u5207\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u65F6\u8981\u6E05\u7A7A\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF0C\u4F46\u4F1A\u8BDD\u624B\u518C\u5199\u5165\u5931\u8D25\uFF1A${String(error?.message ?? error)}`);
+    }
+    this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
+  }
+  /**
+   * 返工回「实现中」时把「实施顺序」里的勾选复位成未勾、清掉行尾证据，但保留条目本身。
+   * 与 clearChecklistOnReturnToDiscussion（清空条目）不同：实现中不能重定义清单，只能勾选，
+   * 所以这里必须保留条目文字，只把勾选状态打回。
+   */
+  async resetChecklistToUnchecked(snapshot, nodeId) {
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return;
+    const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
+    let current;
+    try {
+      current = await fs2.readFile(file, "utf8");
+    } catch {
+      return;
+    }
+    const lines = current.split(/\r?\n/);
+    let inSection = false;
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line === void 0) continue;
+      if (line.trim() === "## \u5B9E\u65BD\u987A\u5E8F") {
+        inSection = true;
+        continue;
+      }
+      if (inSection && line.startsWith("## ")) break;
+      if (!inSection) continue;
+      const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
+      if (match === null || match[4] === void 0) continue;
+      const parsed = parseChecklistLine(match[4].trim());
+      const scopeSuffix = parsed.scope.length > 0 ? `${CHECK_SCOPE_MARK}${parsed.scope.join(",")}` : "";
+      lines[index] = `${match[1] ?? ""} ${match[3] ?? ""}${parsed.label}${scopeSuffix}`;
+    }
+    const next = lines.join("\n");
+    try {
+      await writeTextAtomic(file, next);
+    } catch (error) {
+      throw new Error(`\u8FD4\u5DE5\u56DE\u300C\u5B9E\u73B0\u4E2D\u300D\u8981\u590D\u4F4D\u5B9E\u65BD\u6E05\u5355\u52FE\u9009\uFF0C\u4F46\u4F1A\u8BDD\u624B\u518C\u5199\u5165\u5931\u8D25\uFF1A${String(error?.message ?? error)}`);
     }
     this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
   }
@@ -1589,6 +1705,21 @@ var WorkflowRepository = class {
     const meta = { mtimeMs, checklist: parseChecklist(manual), hasPlan: parseHasPlan(manual) };
     this.manualMetaCache.set(key, meta);
     return { checklist: meta.checklist, hasPlan: meta.hasPlan };
+  }
+  /**
+   * 取当前节点实施清单声明的范围（去重后的相对路径数组 + 工作目录）。
+   * 没声明范围时 scope 为空数组——调用方据此决定「要不要做范围拦截」（空 = 不拦）。
+   */
+  async getChecklistScope(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) return null;
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0) return null;
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return null;
+    const meta = await this.getManualMeta(workflowId, nodeId);
+    const scope = collectChecklistScope(meta?.checklist ?? []);
+    return { workingDir, scope };
   }
   /**
    * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
@@ -1876,6 +2007,106 @@ ${entry}`;
     return pickVerification(node.verification);
   }
   /**
+   * 跨态失效校验（进「已完结」前）：对每个 required 型且已报 pass 的验收项，找它最近一次
+   * check_* 运行时间，若工作目录里还有源码改动发生在该运行之后，判证据过期、要求重跑。
+   * 只卡「源码 mtime > 运行时刻」这一种漏法；没有 checker 运行记录的项（旧快照）不卡。
+   */
+  async assertVerificationFresh(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) return;
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0) return;
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") return;
+    const verification = pickVerification(node.verification);
+    const stamp = await computeSourceStamp(workingDir);
+    const staleChecks = [];
+    for (const item of verification.items) {
+      if (item.mark !== "pass") continue;
+      const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+      if (check?.checker?.enforcement !== "required") continue;
+      const runs = verification.checker_runs.filter((run) => run.checker_id === check.checker?.id);
+      const latest = runs.length > 0 ? runs[runs.length - 1] : void 0;
+      if (latest === void 0) continue;
+      if (stamp.mtimeMax > Date.parse(latest.at)) {
+        staleChecks.push(check.name);
+      }
+    }
+    if (staleChecks.length > 0) {
+      throw new Error(
+        `\u4EE5\u4E0B\u9A8C\u6536\u9879\u7684\u68C0\u67E5\u5668\u8DD1\u5B8C\u540E\uFF0C\u5DE5\u4F5C\u76EE\u5F55\u91CC\u53C8\u6709\u6E90\u7801\u6539\u52A8\uFF0C\u8BC1\u636E\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u8DD1\u5BF9\u5E94 check_* \u518D\u91CD\u65B0\u62A5\u5907\uFF1A${staleChecks.join(" / ")}`
+      );
+    }
+  }
+  /**
+   * 把某个节点的验收证据 + 状态时间线 + 检查器运行记录导出成一份 markdown，写回 .workflow/ 下。
+   * 「交付」定位要求交付物能出门：这份文件可进 git、可存档，验收不再是只能靠截图。
+   */
+  async exportVerificationReport(workflowId, nodeId) {
+    const snapshot = await this.storage.load(workflowId);
+    if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+    const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+    if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const workingDir = snapshot.working_directory;
+    if (typeof workingDir !== "string" || workingDir === "") throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u65E0\u6CD5\u5BFC\u51FA");
+    const verification = pickVerification(node.verification);
+    const symbol = (mark) => mark === "pass" ? "\u2713" : mark === "deferred" ? "\uFF1F" : "\u25CB";
+    const lines = [];
+    lines.push(`# \u9A8C\u6536\u62A5\u544A \xB7 ${node.title ?? "\u8282\u70B9"}`);
+    lines.push("");
+    lines.push(`- \u5BFC\u51FA\u65F6\u95F4\uFF1A${(/* @__PURE__ */ new Date()).toISOString()}`);
+    lines.push(`- \u5DE5\u4F5C\u76EE\u5F55\uFF1A${workingDir}`);
+    lines.push(`- \u5F53\u524D\u72B6\u6001\uFF1A${node.current_state}`);
+    lines.push(`- \u9A8C\u6536\u8F6E\u6B21\uFF1A${verification.round}`);
+    lines.push("");
+    if ((node.history ?? []).length > 0) {
+      lines.push("## \u72B6\u6001\u65F6\u95F4\u7EBF");
+      lines.push("");
+      for (const entry of node.history ?? []) {
+        lines.push(`- ${entry.at.slice(0, 16).replace("T", " ")}\u3000${entry.from} \u2192 ${entry.to}${entry.by ? `\uFF08${entry.by}\uFF09` : ""}`);
+      }
+      lines.push("");
+    }
+    lines.push("## \u9A8C\u6536\u4E03\u9879");
+    lines.push("");
+    for (const item of verification.items) {
+      const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+      const report = item.report;
+      lines.push(`### ${item.id}. ${check?.name ?? ""} \u2014 ${symbol(item.mark)}`);
+      if (report !== null) {
+        lines.push("");
+        lines.push(`- \u7ED3\u8BBA\uFF1A${report.result === "pass" ? "\u901A\u8FC7" : "\u95EE\u8BE2\uFF08\u672C\u8F6E\u4E0D\u4FEE\uFF09"}`);
+        lines.push(`- \u6458\u8981\uFF1A${report.summary}`);
+        if (typeof report.command === "string" && report.command !== "") lines.push(`- \u590D\u8DD1\u547D\u4EE4\uFF1A\`${report.command}\``);
+        if (report.checker !== void 0) {
+          lines.push(`- \u68C0\u67E5\u5668\uFF1A${report.checker.checker_id}\u3000ok=${report.checker.ok}\u3000findings=${report.checker.findings}\u3000exit=${report.checker.exit_code ?? "n/a"}`);
+        }
+        for (const anchor of report.anchors) lines.push(`- \u951A\u70B9\uFF1A${anchor.file}${anchor.line !== void 0 ? `:${anchor.line}` : ""}`);
+        if (Array.isArray(report.findings) && report.findings.length > 0) {
+          for (const finding of report.findings) {
+            lines.push(`  - \u4F4D\u7F6E ${finding.location}\u3000\u95EE\u9898 ${finding.problem}\u3000\u4E0D\u4FEE\u56E0 ${finding.why_not_fixed}\u3000\u5F71\u54CD ${finding.impact}`);
+          }
+        }
+      }
+      lines.push("");
+    }
+    if (verification.checker_runs.length > 0) {
+      lines.push("## \u68C0\u67E5\u5668\u8FD0\u884C\u8BB0\u5F55");
+      lines.push("");
+      for (const run of verification.checker_runs) {
+        lines.push(`- ${run.at.slice(0, 16).replace("T", " ")}\u3000${run.checker_id}\u3000ok=${run.ok}\u3000findings=${run.findings}\u3000exit=${run.exit_code ?? "n/a"}${run.evidence ? `\u3000${run.evidence}` : ""}`);
+      }
+      lines.push("");
+    }
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const name = `\u9A8C\u6536\u62A5\u544A-${nodeId}-${stamp}.md`;
+    const dir = join(workingDir, WORKFLOW_SUBDIR);
+    await fs2.mkdir(dir, { recursive: true });
+    const path2 = join(dir, name);
+    await writeTextAtomic(path2, lines.join("\n"));
+    return { path: path2, name };
+  }
+  /**
    * 记录一次真实检查器运行（随本轮 verification 落盘）。
    *
    * 门禁靠它核对「这一项报 pass 前真的跑过 check_*、且提交的 checker 与真实输出一致」，
@@ -2055,8 +2286,8 @@ var NODE_STATE_LABEL = {
 
 // src/schema/hard-rules.ts
 var DEFAULT_HARD_RULES = {
-  discussing: `\uFF08\u6536\u5C3E\uFF09\u8BA8\u8BBA\u9636\u6BB5\u4E0D\u5199\u624B\u518C\u4E5F\u4E0D\u4F1A\u5361\u4F4F\uFF0C\u5199\u4E0D\u5199\u7531\u6211\u51B3\u5B9A\uFF1B\u53EA\u6709\u51C6\u5907\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u65F6\uFF0C\u624D\u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u6570\u636E\u5C42 \u2192 \u9886\u57DF\u5C42 \u2192 \u63A5\u53E3\u5C42 \u2192 \u8868\u73B0\u5C42\u300D\u5199\u8FDB\u672C\u8282\u70B9\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF08\u6BCF\u5C42\u5199\u6E05\u5C42\u95F4\u5951\u7EA6\uFF09\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\u3002\u63A8\u8FDB\u9700\u8981\u6211\u70B9\u540C\u610F\uFF0C\u4E0D\u8981\u81EA\u5DF1\u50AC\u3002`,
-  implementing: `\uFF08\u7EAA\u5F8B\uFF09\u6309\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u4ECE\u4E0B\u5230\u4E0A\u8FDE\u7EED\u5B8C\u6210\u6240\u6709\u5C42\uFF1A\u6BCF\u5B8C\u6210\u4E00\u5C42\uFF0C\u6309\u8BE5\u5C42\u300C\u5B8C\u6210\u6807\u51C6\u300D\u81EA\u68C0\uFF0C\u7528 workflow_check \u628A\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\uFF0C\u7136\u540E\u76F4\u63A5\u7EE7\u7EED\u4E0B\u4E00\u5C42\uFF0C\u4E0D\u8981\u9010\u5C42\u7B49\u6211\u786E\u8BA4\u3002\u53EA\u6709\u547D\u4E2D\u4EE5\u4E0B\u60C5\u51B5\u624D\u505C\u4E0B\u6765\u95EE\u6211\uFF1A\u2460 \u65B9\u6848\u6709\u6D1E\u6216\u81EA\u76F8\u77DB\u76FE\uFF0C\u9700\u8981\u6211\u62CD\u677F\uFF1B\u2461 \u8BE5\u5C42\u81EA\u68C0\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u5728\u672C\u5C42\u81EA\u884C\u4FEE\u590D\uFF1B\u2462 \u9700\u8981\u505A\u8D85\u51FA\u65B9\u6848\u8303\u56F4\u7684\u6539\u52A8\uFF1B\u2463 \u6D89\u53CA\u5220\u9664 / \u8986\u76D6\u4E0D\u53EF\u9006\u7684\u6570\u636E\u6216\u914D\u7F6E\uFF1B\u2464 \u9700\u8981\u6211\u63D0\u4F9B\u5916\u90E8\u8D44\u6E90\uFF08\u8D26\u53F7\u3001\u6587\u4EF6\u3001\u73AF\u5883\uFF09\u3002\u5168\u90E8\u5C42\u5B8C\u6210\u540E\uFF0C\u4E00\u6B21\u6027\u6C47\u62A5\u6BCF\u5C42\u505A\u4E86\u4EC0\u4E48\u3001\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF0C\u7136\u540E\u8BF7\u6C42\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002`,
+  discussing: `\uFF08\u6536\u5C3E\uFF09\u8BA8\u8BBA\u9636\u6BB5\u4E0D\u5199\u624B\u518C\u4E5F\u4E0D\u4F1A\u5361\u4F4F\uFF0C\u5199\u4E0D\u5199\u7531\u6211\u51B3\u5B9A\uFF1B\u53EA\u6709\u51C6\u5907\u63A8\u8FDB\u5230\u5B9E\u73B0\u4E2D\u65F6\uFF0C\u624D\u628A\u65B9\u6848\u6309\u300C\u76EE\u6807\u4E0E\u9A8C\u6536 \u2192 \u6570\u636E\u5C42 \u2192 \u9886\u57DF\u5C42 \u2192 \u63A5\u53E3\u5C42 \u2192 \u8868\u73B0\u5C42\u300D\u5199\u8FDB\u672C\u8282\u70B9\u4F1A\u8BDD\u624B\u518C\u7684\u300C\u65B9\u6848\u300D\u5C0F\u8282\uFF08\u6BCF\u5C42\u5199\u6E05\u5C42\u95F4\u5951\u7EA6\uFF09\uFF0C\u5E76\u5728\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u91CC\u5217\u51FA\u5F85\u529E\u3002\u6BCF\u6761\u5B9E\u65BD\u987A\u5E8F\u5C3D\u91CF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u8FD9\u4E00\u6B65\u8981\u6539\u52A8\u7684\u76F8\u5BF9\u8DEF\u5F84\u2014\u2014\u58F0\u660E\u540E\u8FDB\u5165\u5B9E\u73B0\u4E2D\uFF0C\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u95E8\u7981\u62E6\u622A\uFF1B\u4E0D\u58F0\u660E\u5219\u4E0D\u505A\u8303\u56F4\u62E6\u622A\u3002\u63A8\u8FDB\u9700\u8981\u6211\u70B9\u540C\u610F\uFF0C\u4E0D\u8981\u81EA\u5DF1\u50AC\u3002`,
+  implementing: `\uFF08\u7EAA\u5F8B\uFF09\u6309\u4F1A\u8BDD\u624B\u518C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u4ECE\u4E0B\u5230\u4E0A\u8FDE\u7EED\u5B8C\u6210\u6240\u6709\u5C42\uFF1A\u6BCF\u5B8C\u6210\u4E00\u5C42\uFF0C\u6309\u8BE5\u5C42\u300C\u5B8C\u6210\u6807\u51C6\u300D\u81EA\u68C0\uFF0C\u7528 workflow_check \u628A\u8BC1\u636E\u5199\u8FDB\u6E05\u5355\uFF0C\u7136\u540E\u76F4\u63A5\u7EE7\u7EED\u4E0B\u4E00\u5C42\uFF0C\u4E0D\u8981\u9010\u5C42\u7B49\u6211\u786E\u8BA4\u3002\u6CE8\u610F\uFF1A\u8FDB\u5165\u300C\u5B9E\u73B0\u4E2D\u300D\u540E\u300C\u65B9\u6848\u300D\u5DF2\u9501\u5B9A\uFF0C\u4E0D\u80FD\u7528 workflow_manual \u6539\u5199\u2014\u2014\u53D1\u73B0\u65B9\u6848\u6709\u6D1E\u8981\u6539\uFF0C\u5C31\u8BF7\u6C42\u8FD4\u5DE5\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u3002\u53EA\u6709\u547D\u4E2D\u4EE5\u4E0B\u60C5\u51B5\u624D\u505C\u4E0B\u6765\u95EE\u6211\uFF1A\u2460 \u65B9\u6848\u6709\u6D1E\u6216\u81EA\u76F8\u77DB\u76FE\uFF0C\u9700\u8981\u6211\u62CD\u677F\uFF1B\u2461 \u8BE5\u5C42\u81EA\u68C0\u5931\u8D25\uFF0C\u4E14\u65E0\u6CD5\u5728\u672C\u5C42\u81EA\u884C\u4FEE\u590D\uFF1B\u2462 \u9700\u8981\u505A\u8D85\u51FA\u65B9\u6848\u8303\u56F4\u7684\u6539\u52A8\uFF1B\u2463 \u6D89\u53CA\u5220\u9664 / \u8986\u76D6\u4E0D\u53EF\u9006\u7684\u6570\u636E\u6216\u914D\u7F6E\uFF1B\u2464 \u9700\u8981\u6211\u63D0\u4F9B\u5916\u90E8\u8D44\u6E90\uFF08\u8D26\u53F7\u3001\u6587\u4EF6\u3001\u73AF\u5883\uFF09\u3002\u5168\u90E8\u5C42\u5B8C\u6210\u540E\uFF0C\u4E00\u6B21\u6027\u6C47\u62A5\u6BCF\u5C42\u505A\u4E86\u4EC0\u4E48\u3001\u600E\u4E48\u9A8C\u7684\u3001\u7ED3\u679C\u5982\u4F55\uFF0C\u7136\u540E\u8BF7\u6C42\u8FDB\u300C\u9A8C\u6536\u4E2D\u300D\u3002`,
   verifying: `\uFF08\u7EAA\u5F8B\uFF09\u9A8C\u6536\u5FC5\u987B\u7ED9\u53EF\u590D\u8DD1\u7684\u8BC1\u636E\uFF1A\u6BCF\u4E00\u9879\u300C\u901A\u8FC7\u300D\u90FD\u8981\u9644\u547D\u4EE4 + \u8F93\u51FA\uFF0C\u6216\u6307\u5411\u5177\u4F53\u6D4B\u8BD5\u6587\u4EF6\uFF08\u8DEF\u5F84 + \u8DD1\u6CD5\uFF09\uFF1B\u6CA1\u6709\u8BC1\u636E\u7684\u300C\u901A\u8FC7\u300D\u4E0D\u7B97\u901A\u8FC7\u3002
 
 \u4E03\u9879\u53EA\u8BA4\u5DE5\u5177\u62A5\u5907\uFF0C\u4E0D\u8BA4\u300C\u6211\u68C0\u67E5\u8FC7\u4E86\u300D\uFF1A
@@ -2067,8 +2298,26 @@ var DEFAULT_HARD_RULES = {
 
 // src/host/event-log.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join as join2 } from "node:path";
 var MAX_EVENTS = 500;
 var events = [];
+var logFilePath = null;
+var writeChain = Promise.resolve();
+function configureEventLog(dir) {
+  if (typeof dir !== "string" || dir.trim() === "") return;
+  logFilePath = join2(dir, "events.jsonl");
+}
+function persistEvent(entry) {
+  if (logFilePath === null) return;
+  const line = `${JSON.stringify(entry)}
+`;
+  writeChain = writeChain.then(async () => {
+    await mkdir(dirname(logFilePath), { recursive: true });
+    await appendFile(logFilePath, line, "utf8");
+  }).catch(() => {
+  });
+}
 function newTraceId() {
   return `wf-${randomUUID3().slice(0, 8)}`;
 }
@@ -2077,6 +2326,7 @@ function recordEvent(level, message, trace) {
   if (typeof trace === "string" && trace !== "") entry.trace = trace;
   events.push(entry);
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  persistEvent(entry);
 }
 function recentEvents(limit = 100) {
   const n = Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_EVENTS) : 100;
@@ -2089,7 +2339,7 @@ function logEvent(logger, level, message, trace) {
 }
 
 // src/host/workflow-state-context.ts
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // src/engine/text-budget.ts
 function countUtf8Bytes(text) {
@@ -2352,7 +2602,7 @@ ${projectSections.tags.join(" / ")}`;
     if (manualData !== null) {
       const parts = pickSessionManualParts(manualData.manual);
       const rendered = renderSessionManual({
-        path: join2(manualData.notesDir, `\u4F1A\u8BDD\u624B\u518C-${found.nodeId}.md`),
+        path: join3(manualData.notesDir, `\u4F1A\u8BDD\u624B\u518C-${found.nodeId}.md`),
         plan: parts.plan,
         pitfalls: node.current_state === "implementing" ? parts.pitfalls : "",
         unchecked: parts.unchecked,
@@ -2522,8 +2772,8 @@ function pickSessionId(context) {
 }
 
 // src/host/workflow-tools.ts
-import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join as join3 } from "node:path";
+import { mkdir as mkdir2, readFile } from "node:fs/promises";
+import { dirname as dirname2, isAbsolute, join as join4, resolve as resolve2 } from "node:path";
 
 // src/schema/tool-kind.ts
 var TOOL_KIND = { base: "base", extension: "extension" };
@@ -2588,7 +2838,7 @@ var BASE_TOOLS = [
   },
   {
     name: "workflow_manual",
-    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u540E\u8005\u4EC5\u8BA8\u8BBA\u4E2D\uFF0C\u4E4B\u540E\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u4E0A\u9650 1200 \u5B57\u3001\u7EA6\u675F 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
+    description: "\u8BFB\u5199\u4F1A\u8BDD\u624B\u518C\u4E0E\u9879\u76EE\u624B\u518C\u3002\u4F1A\u8BDD\u624B\u518C\u53EA\u80FD\u6539\u300C\u65B9\u6848\u300D\u548C\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\uFF08\u4E24\u8005\u90FD\u4EC5\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u53EF\u5199\uFF1A\u8FDB\u5165\u5B9E\u73B0\u4E2D\u540E\u65B9\u6848\u9501\u5B9A\u3001\u5B9E\u65BD\u987A\u5E8F\u53EA\u80FD\u52FE\u9009\uFF09\uFF1B\u9879\u76EE\u624B\u518C\u6761\u76EE\u7528 append_entry / update_entry \u5199\uFF0C\u5FC5\u987B\u5E26 1 \u4E2A\u4EE5\u4E0A\u6807\u7B7E\u3002\u5B9E\u65BD\u987A\u5E8F\u6BCF\u6761\u53EF\u5E26\u300C \uFF5C \u8303\u56F4\uFF1A\u76EE\u5F551,\u76EE\u5F552\u300D\u58F0\u660E\u6539\u52A8\u8303\u56F4\uFF08\u5B9E\u73B0\u4E2D\u8D8A\u754C\u6539\u52A8\u4F1A\u88AB\u62E6\uFF09\u3002replace_section \u53EA\u66FF\u6362\u4E00\u4E2A\u5C0F\u8282\u6B63\u6587\uFF1Bremove_entry \u5220\u9664\u6761\u76EE\u3001rename_tag \u5408\u5E76\u6807\u7B7E\u3002\u65B9\u6848\u4E0A\u9650 1200 \u5B57\u3001\u7EA6\u675F 300 \u5B57\u3001\u4F1A\u8BDD\u624B\u518C\u6574\u672C 2000 \u5B57\uFF0C\u8D85\u4E86\u62D2\u5199\uFF1B\u52FE\u9009\u8BC1\u636E\u4E0D\u8BA1\u5165\u3002",
     kind: TOOL_KIND.base,
     allowed_states: [...ALL_STATES],
     effect: "write-state",
@@ -3108,7 +3358,7 @@ var instrumentationChecker = {
 // src/engine/checkers/regression.ts
 var EVIDENCE7 = "regression.json";
 function buildCommand5(target) {
-  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE7}`;
+  return `autocannon ${target} -j > .workflow/evidence/${EVIDENCE7}`;
 }
 var regressionChecker = {
   id: "regression",
@@ -3388,7 +3638,7 @@ import { delimiter } from "node:path";
 var COMMAND_TIMEOUT_MS = 12e4;
 var TAIL_LIMIT = 4096;
 function runCommand(input) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const startedAt = Date.now();
     const timeoutMs = typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : COMMAND_TIMEOUT_MS;
     let tail = "";
@@ -3397,7 +3647,7 @@ function runCommand(input) {
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      resolve2(result);
+      resolve3(result);
     };
     let child;
     try {
@@ -3484,24 +3734,75 @@ function denialFor(state, toolName) {
   if (state !== "discussing") return void 0;
   return `\u5F53\u524D\u72B6\u6001\u662F\u300C\u8BA8\u8BBA\u4E2D\u300D\uFF0C\u4E0D\u5141\u8BB8\u6267\u884C ${toolName}\uFF1A\u8BA8\u8BBA\u9636\u6BB5\u53EA\u51FA\u65B9\u6848\u3001\u4E0D\u6539\u4EE3\u7801\u3002\u5148\u8C03\u7528 workflow_tool_call({ name: "workflow_advance", args: { to: "implementing" } }) \u63A8\u8FDB\u5230\u300C\u5B9E\u73B0\u4E2D\u300D\uFF08\u9700\u8981\u5148\u628A\u65B9\u6848\u5199\u8FDB\u4F1A\u8BDD\u624B\u518C\uFF09\uFF0C\u6216\u8BF7\u7528\u6237\u70B9\u72B6\u6001\u80F6\u56CA\u7684 \u2192\u3002`;
 }
+function extractWritePath(exec) {
+  const containers = [exec?.args, exec?.arguments, exec?.input, exec?.params];
+  for (const container of containers) {
+    if (typeof container !== "object" || container === null || Array.isArray(container)) continue;
+    for (const key of ["path", "file_path", "filePath", "file", "filename", "target", "output", "output_path", "to"]) {
+      const value = container[key];
+      if (typeof value === "string" && value.trim() !== "") return value.trim();
+    }
+  }
+  return null;
+}
+function isWithinScope(writeAbs, scopes) {
+  const target = writeAbs.replace(/\\/g, "/").toLowerCase();
+  for (const scope of scopes) {
+    const base = scope.replace(/\\/g, "/").toLowerCase();
+    if (target === base) return true;
+    if (target.startsWith(`${base}/`)) return true;
+  }
+  return false;
+}
 function registerWorkflowGuard(ctx, deps) {
   ctx.inject(["tools"], (toolCtx) => {
     toolCtx.effect(() => toolCtx.tools.guard((exec) => {
       const sessionId = exec?.agent?.session?.id;
       if (!deps.isPresetSession(sessionId)) return void 0;
       const toolName = String(exec?.name ?? "");
-      if (!SIDE_EFFECT_TOOLS.has(toolName)) return void 0;
-      const state = deps.getState(sessionId);
-      if (state === void 0) {
-        void deps.refreshState?.(sessionId);
-        logEvent(ctx.logger, "warn", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=unknown)`);
-        return `\u5F53\u524D\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\u8FD8\u6CA1\u540C\u6B65\u597D\uFF08\u72B6\u6001\u8868\u7F3A\u8FD9\u4E00\u6761\uFF09\uFF0C\u4E3A\u9632\u7ED5\u8FC7\u9636\u6BB5\u9650\u5236\uFF0C\u5148\u62E6\u4F4F\u8FD9\u6B21\u5199\u64CD\u4F5C\u3002\u5DF2\u89E6\u53D1\u540C\u6B65\uFF0C\u8BF7\u91CD\u8BD5\u4E00\u6B21\uFF1B\u82E5\u53CD\u590D\u51FA\u73B0\uFF0C\u8BF4\u660E\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\u3002`;
+      try {
+        if (!SIDE_EFFECT_TOOLS.has(toolName)) {
+          deps.reportGuardError?.(sessionId, null);
+          return void 0;
+        }
+        const state = deps.getState(sessionId);
+        if (state === void 0) {
+          void deps.refreshState?.(sessionId);
+          logEvent(ctx.logger, "warn", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=unknown)`);
+          deps.reportGuardError?.(sessionId, null);
+          return `\u5F53\u524D\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\u8FD8\u6CA1\u540C\u6B65\u597D\uFF08\u72B6\u6001\u8868\u7F3A\u8FD9\u4E00\u6761\uFF09\uFF0C\u4E3A\u9632\u7ED5\u8FC7\u9636\u6BB5\u9650\u5236\uFF0C\u5148\u62E6\u4F4F\u8FD9\u6B21\u5199\u64CD\u4F5C\u3002\u5DF2\u89E6\u53D1\u540C\u6B65\uFF0C\u8BF7\u91CD\u8BD5\u4E00\u6B21\uFF1B\u82E5\u53CD\u590D\u51FA\u73B0\uFF0C\u8BF4\u660E\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\u3002`;
+        }
+        const reason = denialFor(state, toolName);
+        if (reason !== void 0) {
+          logEvent(ctx.logger, "info", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=${state})`);
+          deps.reportGuardError?.(sessionId, null);
+          return reason;
+        }
+        if (state === "implementing") {
+          const scopeInfo = deps.getScope?.(sessionId) ?? null;
+          if (scopeInfo !== null && scopeInfo.scope.length > 0) {
+            const writePath = extractWritePath(exec);
+            if (writePath !== null) {
+              const writeAbs = resolve2(isAbsolute(writePath) ? writePath : join4(scopeInfo.workingDir, writePath));
+              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve2(scopeInfo.workingDir, scopePath));
+              if (!isWithinScope(writeAbs, scopeAbs)) {
+                logEvent(ctx.logger, "info", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=implementing, reason=out-of-scope)`);
+                deps.reportGuardError?.(sessionId, null);
+                return `\u5F53\u524D\u300C\u5B9E\u73B0\u4E2D\u300D\u7684\u5B9E\u65BD\u8303\u56F4\u53EA\u5141\u8BB8\u6539\u52A8\uFF1A${scopeInfo.scope.join(" / ")}\u3002\u8981\u5199\u300C${writePath}\u300D\u8D85\u51FA\u4E86\u58F0\u660E\u8303\u56F4\uFF1B\u5148\u8FD4\u5DE5\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\u8865\u65B9\u6848/\u8303\u56F4\uFF08workflow_advance to: discussing\uFF0C\u5E26 reason\uFF09\uFF0C\u6216\u786E\u8BA4\u8FD9\u662F\u65B9\u6848\u91CC\u5DF2\u58F0\u660E\u7684\u6539\u52A8\u3002`;
+              }
+            } else {
+              logEvent(ctx.logger, "info", `[workflow] guard scope-unknown (session=${sessionId}, tool=${toolName}, state=implementing)`);
+            }
+          }
+        }
+        deps.reportGuardError?.(sessionId, null);
+        return void 0;
+      } catch (error) {
+        const message = String(error?.message ?? error);
+        deps.reportGuardError?.(sessionId, message);
+        logEvent(ctx.logger, "warn", `[workflow] guard-error (session=${sessionId}, tool=${toolName}): ${message}`);
+        return `\u95E8\u7981\u5224\u5B9A\u65F6\u53D1\u751F\u5185\u90E8\u9519\u8BEF\uFF08\u5DF2\u6309 fail-closed \u62D2\u7EDD\u672C\u6B21\u5199\u64CD\u4F5C\uFF09\uFF1A${message}\u3002\u8FD9\u8868\u793A\u63D2\u4EF6\u672C\u8EAB\u51FA\u4E86\u95EE\u9898\uFF0C\u4E0D\u662F\u6A21\u578B\u88AB\u6B63\u5E38\u62E6\u622A\uFF1B\u8BF7\u67E5\u770B\u4E8B\u4EF6\u65E5\u5FD7\u6216\u91CD\u542F\u63D2\u4EF6\u3002`;
       }
-      const reason = denialFor(state, toolName);
-      if (reason !== void 0) {
-        logEvent(ctx.logger, "info", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=${state})`);
-      }
-      return reason;
     }));
   });
 }
@@ -3883,7 +4184,7 @@ function commandForChecker(checker, target, packageRoot) {
     if (typeof packageRoot !== "string" || packageRoot === "") {
       throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u7528\u811A\u672C\u6267\u884C\uFF0C\u4F46\u5BBF\u4E3B\u6CA1\u7ED9\u51FA packageRoot\uFF1A\u5148\u4FEE\u5BBF\u4E3B\u6CE8\u5165`);
     }
-    return `node "${join3(packageRoot, "scripts", checker.script)}"`;
+    return `node "${join4(packageRoot, "scripts", checker.script)}"`;
   }
   if (typeof checker.buildCommand !== "function") {
     throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u65E2\u6CA1\u6709 script \u4E5F\u6CA1\u6709 buildCommand`);
@@ -3905,8 +4206,8 @@ async function invokeChecker(deps, entry, args, sessionId) {
   }
   const target = resolveCheckerTarget(args?.target, checker);
   const command = commandForChecker(checker, target, deps.packageRoot);
-  const evidencePath = join3(workingDirectory, ".workflow", "evidence", checker.evidence);
-  await mkdir(dirname(evidencePath), { recursive: true });
+  const evidencePath = join4(workingDirectory, ".workflow", "evidence", checker.evidence);
+  await mkdir2(dirname2(evidencePath), { recursive: true });
   let commandResult = null;
   if (checker.autoRun) {
     const execute = deps.runCommand ?? runCommand;
@@ -4070,14 +4371,16 @@ async function invokeManual(deps, sessionId, args) {
     throw new Error(`\u300C${target}\u300D\u624B\u518C\u53EA\u80FD\u6539\u8FD9\u4E9B\u5C0F\u8282\uFF1A${writable.join(" / ")}\uFF1B${section === "\u5B9E\u65BD\u987A\u5E8F" ? "\u6E05\u5355\u8BF7\u7528 workflow_check \u52FE\u9009\u3002" : ""}`);
   }
   if (typeof args?.content !== "string" || args.content.trim() === "") throw new Error("content \u4E0D\u80FD\u4E3A\u7A7A");
-  if (target === "session" && section === "\u5B9E\u65BD\u987A\u5E8F") {
+  if (target === "session" && (section === "\u5B9E\u65BD\u987A\u5E8F" || section === "\u65B9\u6848")) {
     if (deps.getState(sessionId) === void 0) await deps.refreshState?.(sessionId);
     const state = deps.getState(sessionId);
     if (state === void 0) {
-      throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09\uFF1A\u5148\u8BA9\u5BBF\u4E3B\u5B8C\u6210\u8BA4\u9886\uFF0C\u518D\u5B9A\u4E49\u5B9E\u65BD\u987A\u5E8F\u3002");
+      throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD\u7684\u5DE5\u4F5C\u6D41\u72B6\u6001\uFF08\u53EF\u80FD\u8FD8\u6CA1\u7ED1\u5B9A workflow \u8282\u70B9\uFF09\uFF1A\u5148\u8BA9\u5BBF\u4E3B\u5B8C\u6210\u8BA4\u9886\uFF0C\u518D\u5199\u5165\u3002");
     }
     if (state !== "discussing") {
-      throw new Error("\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u53EA\u80FD\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u5B9A\u4E49\uFF1B\u8FDB\u5165\u5B9E\u73B0\u4E2D\u4E4B\u540E\u8BF7\u7528 workflow_check \u9010\u6761\u52FE\u9009\uFF0C\u4E0D\u8981\u6539\u5199\u6761\u76EE\u3002");
+      throw new Error(
+        section === "\u5B9E\u65BD\u987A\u5E8F" ? "\u300C\u5B9E\u65BD\u987A\u5E8F\u300D\u53EA\u80FD\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u5B9A\u4E49\uFF1B\u8FDB\u5165\u5B9E\u73B0\u4E2D\u4E4B\u540E\u8BF7\u7528 workflow_check \u9010\u6761\u52FE\u9009\uFF0C\u4E0D\u8981\u6539\u5199\u6761\u76EE\u3002" : "\u300C\u65B9\u6848\u300D\u53EA\u80FD\u5728\u300C\u8BA8\u8BBA\u4E2D\u300D\u5B9A\u4E49\uFF1B\u8FDB\u5165\u5B9E\u73B0\u4E2D\u4E4B\u540E\u65B9\u6848\u5DF2\u9501\u5B9A\uFF0C\u8981\u6539\u8BF7\u5148\u8FD4\u5DE5\u56DE\u300C\u8BA8\u8BBA\u4E2D\u300D\uFF08workflow_advance to: discussing\uFF0C\u5E26 reason\uFF09\u3002"
+      );
     }
   }
   let result;
@@ -4284,6 +4587,7 @@ async function assertAdvanceAllowed(repository, found, from, to) {
         `\u9A8C\u6536\u8FD8\u6709 ${summary.pending} \u9879\u6CA1\u5904\u7406\uFF08${describePendingItems(verification)}\uFF09\uFF1A\u9010\u9879\u7528 workflow_verify_report \u62A5\u5907\uFF08pass \u8BB0 \u2713\uFF0Cdeferred \u8BB0 \uFF1F\uFF09\uFF0C\u5168\u90E8\u5904\u7406\u5B8C\u624D\u80FD\u8FDB\u300C\u5DF2\u5B8C\u7ED3\u300D\u3002`
       );
     }
+    await repository.assertVerificationFresh(found.workflowId, found.nodeId);
   }
 }
 
@@ -4328,7 +4632,7 @@ async function ensureClaimedSessionNode(deps, sessionId, trigger) {
 
 // src/host/tool-registry.ts
 import { promises as fs3 } from "node:fs";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 var FILE_VERSION = 2;
 var FILE_NAME = "tool-registry.json";
 var EFFECTS2 = ["read-state", "write-state", "exec"];
@@ -4392,7 +4696,7 @@ var ToolRegistryStore = class {
   /** 同一文件的读改写串行：并发 save 不会互相覆盖。 */
   chain = Promise.resolve();
   filePath() {
-    return join4(this.toolsDir, FILE_NAME);
+    return join5(this.toolsDir, FILE_NAME);
   }
   serial(task) {
     const run = this.chain.then(task, task);
@@ -4494,11 +4798,11 @@ function plan_sections_from_template(template) {
 var inject = [];
 function resolveDataDir() {
   const profileDir = process.env.DSH_PROFILE_DIR;
-  const base = profileDir && profileDir.trim() !== "" ? profileDir : join5(homedir(), ".dsh");
-  return join5(base, "dsh-agent-workflow");
+  const base = profileDir && profileDir.trim() !== "" ? profileDir : join6(homedir(), ".dsh");
+  return join6(base, "dsh-agent-workflow");
 }
 function resolvePackageRoot() {
-  return join5(dirname2(fileURLToPath(import.meta.url)), "..");
+  return join6(dirname3(fileURLToPath(import.meta.url)), "..");
 }
 function isLoopbackRequest(req) {
   try {
@@ -4523,7 +4827,7 @@ function sendJson(res, status, value) {
   }
 }
 function readJsonBody(req) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
@@ -4537,7 +4841,7 @@ function readJsonBody(req) {
     });
     req.on("end", () => {
       try {
-        resolve2(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+        resolve3(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
         reject(new Error("JSON \u89E3\u6790\u5931\u8D25"));
       }
@@ -4579,9 +4883,10 @@ function makeHandler(ctx, repository, method, run) {
 }
 function apply(ctx) {
   const packageRoot = resolvePackageRoot();
-  const settingsDir = join5(packageRoot, "settings");
-  const toolsDir = join5(packageRoot, "tools");
-  const nodeModulesBin = join5(packageRoot, "node_modules", ".bin");
+  const settingsDir = join6(packageRoot, "settings");
+  const toolsDir = join6(packageRoot, "tools");
+  const nodeModulesBin = join6(packageRoot, "node_modules", ".bin");
+  configureEventLog(resolveDataDir());
   const repository = new WorkflowRepository(resolveDataDir(), settingsDir);
   const streamClients = /* @__PURE__ */ new Set();
   const CLIENT_LOG_LIMIT = 30;
@@ -4643,11 +4948,30 @@ function apply(ctx) {
     return next();
   });
   const sessionState = /* @__PURE__ */ new Map();
+  const sessionScope = /* @__PURE__ */ new Map();
   async function refreshSessionState(sessionId) {
     try {
       const found = await repository.findBySession(sessionId);
       if (found !== null) sessionState.set(sessionId, String(found.current_state));
     } catch {
+    }
+    await refreshSessionScope(sessionId);
+  }
+  async function refreshSessionScope(sessionId) {
+    try {
+      const found = await repository.findBySession(sessionId);
+      if (found === null || found.current_state !== "implementing") {
+        sessionScope.delete(sessionId);
+        return;
+      }
+      const info = await repository.getChecklistScope(found.workflowId, found.nodeId);
+      if (info === null || info.scope.length === 0) {
+        sessionScope.delete(sessionId);
+      } else {
+        sessionScope.set(sessionId, { workingDir: info.workingDir, scope: info.scope });
+      }
+    } catch {
+      sessionScope.delete(sessionId);
     }
   }
   const releaseClaim = (sessionId, reason) => {
@@ -4743,6 +5067,7 @@ function apply(ctx) {
   };
   const PENDING_ADVANCE_TTL_MS = 5 * 60 * 1e3;
   const pendingAdvances = /* @__PURE__ */ new Map();
+  const guardErrors = /* @__PURE__ */ new Map();
   const readPendingAdvance = (sessionId) => {
     const pending = pendingAdvances.get(sessionId);
     if (pending === void 0) return null;
@@ -4786,6 +5111,8 @@ function apply(ctx) {
       }
     },
     getState: (sessionId) => sessionState.get(sessionId),
+    /** 实现中范围拦截的同步缓存：null = 无范围限制（保守放行）。 */
+    getScope: (sessionId) => sessionScope.get(sessionId) ?? null,
     /** 状态表里没有这条时由工具调用方补一次（异步，能读盘）：修「认领早于绑节点 → 永久缺条」。 */
     refreshState: (sessionId) => refreshSessionState(sessionId),
     setState: (sessionId, state) => sessionState.set(sessionId, state),
@@ -4804,7 +5131,18 @@ function apply(ctx) {
       broadcast(sessionId, "pending-cleared");
     },
     // 报备 / 撤勾不动状态，但徽标 n/7 会变：复用同一条推送通道让页面重取。
-    notify: (sessionId, reason) => broadcast(sessionId, reason)
+    notify: (sessionId, reason) => broadcast(sessionId, reason),
+    // 门禁异常：记录错误（徽标变红）或清除；变化时推一帧让开着的那一页立刻重取。
+    reportGuardError: (sessionId, message) => {
+      if (typeof message === "string" && message !== "") {
+        if (guardErrors.get(sessionId) !== message) {
+          guardErrors.set(sessionId, message);
+          broadcast(sessionId, "guard");
+        }
+      } else if (guardErrors.delete(sessionId)) {
+        broadcast(sessionId, "guard");
+      }
+    }
   };
   registerWorkflowGuard(ctx, toolsDeps);
   registerWorkflowTools(ctx, toolsDeps);
@@ -4995,7 +5333,7 @@ function apply(ctx) {
       path: "/dsh-agent-workflow/profiles-export",
       handler: makeHandler(ctx, repository, "POST", async (_body, _query, traceId) => {
         const exported = await repository.exportActiveProfile();
-        spawn2("explorer.exe", [join5(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
+        spawn2("explorer.exe", [join6(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] profiles-export ok (name=${exported.name})`, traceId);
         return exported;
       })
@@ -5079,7 +5417,7 @@ function apply(ctx) {
           enterTrigger = typeof effective.enter_trigger === "string" ? effective.enter_trigger : "";
         }
         logEvent(ctx.logger, "info", `[workflow] node-by-session ok (node=${node.nodeId}, state=${node.current_state}, ${Date.now() - startedAt}ms)`, traceId);
-        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), hasMessages };
+        return { node: { ...node, enter_trigger: enterTrigger }, pendingAdvance: readPendingAdvance(sessionId), guardError: guardErrors.get(sessionId) ?? null, hasMessages };
       })
     }));
     webCtx.effect(() => webCtx.webServer.register({
@@ -5195,6 +5533,7 @@ function apply(ctx) {
         const snapshot = await repository.transitionNode({ id: found.workflowId, nodeId: found.nodeId, to: pending.to, by: "agent-request" });
         pendingAdvances.delete(body.sessionId);
         markState(body.sessionId, pending.to);
+        await refreshSessionScope(body.sessionId);
         await stateContext.refreshNow(body.sessionId);
         logEvent(ctx.logger, "info", `[workflow] advance accepted by user (session=${body.sessionId}, ${from}\u2192${pending.to})`);
         broadcast(body.sessionId, "state", pending.to);
@@ -5318,6 +5657,48 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
+      path: "/dsh-agent-workflow/node-verification",
+      handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
+        const id = query.get("id");
+        const nodeId = query.get("nodeId");
+        if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof nodeId !== "string" || nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        const verification = await repository.getVerification(id, nodeId);
+        const items = verification.items.map((item) => {
+          const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+          const report = item.report;
+          const runs = verification.checker_runs.filter((run) => run.checker_id === check?.checker?.id);
+          const latestRun = runs.length > 0 ? runs[runs.length - 1] : void 0;
+          return {
+            id: item.id,
+            name: check?.name ?? "",
+            mark: item.mark,
+            summary: report?.summary ?? "",
+            command: typeof report?.command === "string" ? report.command : "",
+            checker: report?.checker ?? null,
+            findings: Array.isArray(report?.findings) ? report.findings : [],
+            at: report?.at ?? "",
+            latestRun: latestRun ?? null
+          };
+        });
+        logEvent(ctx.logger, "info", `[workflow] node-verification (node=${nodeId}, round=${verification.round}, runs=${verification.checker_runs.length})`, traceId);
+        return { round: verification.round, items, checkerRuns: verification.checker_runs };
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
+      path: "/dsh-agent-workflow/export-report",
+      handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
+        if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
+        if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
+        const exported = await repository.exportVerificationReport(body.id, body.nodeId);
+        spawn2("explorer.exe", [dirname3(exported.path)], { stdio: "ignore", detached: true }).unref();
+        logEvent(ctx.logger, "info", `[workflow] export-report ok (node=${body.nodeId}, name=${exported.name})`, traceId);
+        return exported;
+      })
+    }));
+    webCtx.effect(() => webCtx.webServer.register({
+      kind: "exact",
       path: "/dsh-agent-workflow/open-folder",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         const target = body?.path;
@@ -5376,6 +5757,7 @@ function apply(ctx) {
           if (typeof moved?.session_id === "string" && moved.session_id !== "") {
             pendingAdvances.delete(moved.session_id);
             markState(moved.session_id, body.to);
+            await refreshSessionScope(moved.session_id);
             await stateContext.refreshNow(moved.session_id);
             broadcast(moved.session_id, "state", body.to);
           }

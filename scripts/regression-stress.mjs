@@ -192,14 +192,15 @@ async function main() {
   if (toVerifying?.ok !== true || detailVerifying?.node?.current_state !== 'verifying') chainOk = false;
   last = 'verifying';
 
-  // 七项验收：在验收中逐项报备（HTTP 入口，模型平时走 workflow_verify_report 工具）
-  await writeFile(join(dir, 'verify-evidence.md'), '# e2e 验收证据\n\n七项按 pass 报备，用于验证推进闭环。\n', 'utf8');
+  // 八项验收：在验收中逐项报备（HTTP 入口，模型平时走 workflow_verify_report 工具）
+  await writeFile(join(dir, 'verify-evidence.md'), '# e2e 验收证据\n\n八项按 pass 报备，用于验证推进闭环。\n', 'utf8');
   const verifyAnchor = [{ file: 'verify-evidence.md' }];
   // 有检查器的验收项（1/2/3/4/7）报 pass 必须带 checker 结果（第一层门禁），
   // 与 workflow_verify_report 的新契约一致；检查器 id 与 EXTENSION_TOOLS 的 run.checker 对应。
+  // 第 8 项「收尾」没有检查器、不需要复跑命令，但要报备才能进已完结。
   const CHECKER_OF = { 1: 'contract', 2: 'deps', 3: 'deadcode', 4: 'boundary', 7: 'regression' };
   const verifyFailures = [];
-  for (const item of [1, 2, 3, 4, 5, 6, 7]) {
+  for (const item of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const body = {
       id: wfId,
       nodeId: nodeA,
@@ -213,10 +214,10 @@ async function main() {
     const r = await json(port, 'verify-report', { method: 'POST', body });
     if (r?.ok !== true) verifyFailures.push(`${item}:${String(r?.error ?? 'unknown').slice(0, 60)}`);
   }
-  report('七项报备全部成功', verifyFailures.length === 0, verifyFailures.join(' | '));
+  report('八项报备全部成功', verifyFailures.length === 0, verifyFailures.join(' | '));
   const afterVerify = await json(port, `node-checklist?id=${wfId}&nodeId=${nodeA}`);
   const marks = (afterVerify?.verification ?? []).map((entry) => entry.mark).join(',');
-  report('报备后七项全部非 ○', (afterVerify?.verification ?? []).length === 7
+  report('报备后八项全部非 ○', (afterVerify?.verification ?? []).length === 8
     && (afterVerify?.verification ?? []).every((entry) => entry.mark !== 'pending'), `marks=${marks}`);
 
   const toCompleted = await json(port, 'transition', { method: 'POST', body: { id: wfId, nodeId: nodeA, to: 'completed' } });

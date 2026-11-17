@@ -1,1 +1,1 @@
-{"version":3,"file":"hard-rules.js","sourceRoot":"","sources":["../../src/schema/hard-rules.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AACH,MAAM,CAAC,MAAM,kBAAkB,GAAG;IAChC,UAAU,EAAE,oIAAoI;IAChJ,YAAY,EAAE,kPAAkP;IAChQ,SAAS,EAAE;;;;;mDAKsC;CACzC,CAAC"}
+{"version":3,"file":"hard-rules.js","sourceRoot":"","sources":["../../src/schema/hard-rules.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AACH,MAAM,CAAC,MAAM,kBAAkB,GAAG;IAChC,UAAU,EAAE,0MAA0M;IACtN,YAAY,EAAE,kTAAkT;IAChU,SAAS,EAAE;;;;;mDAKsC;CACzC,CAAC"}

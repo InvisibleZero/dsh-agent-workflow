@@ -18,6 +18,7 @@ const node_state_label_1 = require("../schema/node-state-label");
 const tool_kind_1 = require("../schema/tool-kind");
 const hard_rules_1 = require("../schema/hard-rules");
 const manual_limits_1 = require("../schema/manual-limits");
+const verify_checks_1 = require("../schema/verify-checks");
 const node_state_color_1 = require("./node-state-color");
 const client_log_1 = require("./client-log");
 const LABEL_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginBottom: 4, display: 'block' };
@@ -92,10 +93,11 @@ const STATE_TABS = [
     { id: 'implementing', label: '实现中' },
     { id: 'verifying', label: '验收中' },
 ];
-/** 节点弹窗的三个页签：会话手册 / 项目手册 / 会话操作细节。 */
+/** 节点弹窗的四个页签：会话手册 / 项目手册 / 验收 / 会话操作细节。 */
 const NODE_DETAIL_TABS = [
     { id: 'sessionManual', label: '会话手册' },
     { id: 'globalManual', label: '项目手册' },
+    { id: 'verification', label: '验收' },
     { id: 'detail', label: '会话操作细节' },
 ];
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
@@ -690,6 +692,9 @@ function WorkflowNodeDetailDialog(props) {
     const [payload, setPayload] = (0, react_1.useState)(null);
     const [error, setError] = (0, react_1.useState)(null);
     const [manualData, setManualData] = (0, react_1.useState)(null);
+    const [verification, setVerification] = (0, react_1.useState)(null);
+    const [verificationError, setVerificationError] = (0, react_1.useState)(null);
+    const [exporting, setExporting] = (0, react_1.useState)(false);
     (0, react_1.useEffect)(() => {
         let cancelled = false;
         void (async () => {
@@ -733,6 +738,51 @@ function WorkflowNodeDetailDialog(props) {
         })();
         return () => { cancelled = true; };
     }, [workflowId, nodeId]);
+    // 验收证据（命令 / 退出码 / 用例数 / findings / 检查器运行）只读展示。
+    (0, react_1.useEffect)(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const response = await fetch(`/dsh-agent-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const responseBody = await response.json().catch(() => null);
+                if (cancelled)
+                    return;
+                if (responseBody?.ok === true)
+                    setVerification(responseBody);
+                else
+                    setVerificationError(String(responseBody?.error ?? '读取验收失败'));
+            }
+            catch (reason) {
+                if (!cancelled)
+                    setVerificationError(String(reason));
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [workflowId, nodeId]);
+    /** 导出验收报告：写成一份 markdown 到 .workflow/ 下，并打开所在文件夹。 */
+    const exportReport = async () => {
+        setExporting(true);
+        try {
+            const response = await fetch('/dsh-agent-workflow/export-report', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: workflowId, nodeId }),
+            });
+            const body = await response.json().catch(() => null);
+            if (body?.ok === true) {
+                void (0, client_log_1.reportClientEvent)('info', `[verification] 导出报告：${body.name}`);
+            }
+            else {
+                window.alert(String(body?.error ?? '导出失败'));
+            }
+        }
+        catch (reason) {
+            window.alert(String(reason));
+        }
+        finally {
+            setExporting(false);
+        }
+    };
     const currentState = payload?.node?.current_state ?? null;
     const labels = { discussing: '讨论中', implementing: '实现中', verifying: '验收中' };
     const [notes, setNotes] = (0, react_1.useState)({});
@@ -819,6 +869,10 @@ function WorkflowNodeDetailDialog(props) {
                                         marginBottom: 10,
                                         background: currentState === state ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
                                     }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: [labels[state], currentState === state ? (0, jsx_runtime_1.jsx)("span", { style: { marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }, children: "\u5F53\u524D\u6001" }) : null] }), (0, jsx_runtime_1.jsx)("textarea", { style: { ...FIELD_STYLE, minHeight: 52 }, placeholder: "\u7559\u7A7A\u5219\u4E0D\u8FFD\u52A0", value: notes[state] ?? '', onChange: (event) => saveNote(state, event.target.value) })] }, state));
-                            }), payload?.node?.history !== undefined && payload.node.history.length > 0 ? ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u72B6\u6001\u65F6\u95F4\u7EBF" }), payload.node.history.map((entry, index) => ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }, children: [entry.at.slice(0, 16).replace('T', ' '), "\u3000", node_state_label_1.NODE_STATE_LABEL[entry.from] ?? entry.from, " \u2192 ", node_state_label_1.NODE_STATE_LABEL[entry.to] ?? entry.to] }, index)))] })) : null] })) : activeTab === 'sessionManual' ? ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u4F1A\u8BDD\u624B\u518C\uFF08\u65B9\u6848 / \u5B9E\u65BD\u987A\u5E8F\uFF0CAI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData === null ? '加载中…' : (manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）') })] })) : ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u9879\u76EE\u624B\u518C\uFF08\u603B\u89C8 / \u51B3\u7B56 / \u8981\u70B9\uFF0CAI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData === null ? '加载中…' : (manualData.globalManual.trim() !== '' ? manualData.globalManual : '（还没有内容）') })] }))] }))] }));
+                            }), payload?.node?.history !== undefined && payload.node.history.length > 0 ? ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u72B6\u6001\u65F6\u95F4\u7EBF" }), payload.node.history.map((entry, index) => ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.7 }, children: [entry.at.slice(0, 16).replace('T', ' '), "\u3000", node_state_label_1.NODE_STATE_LABEL[entry.from] ?? entry.from, " \u2192 ", node_state_label_1.NODE_STATE_LABEL[entry.to] ?? entry.to] }, index)))] })) : null] })) : activeTab === 'sessionManual' ? ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u4F1A\u8BDD\u624B\u518C\uFF08\u65B9\u6848 / \u5B9E\u65BD\u987A\u5E8F\uFF0CAI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData === null ? '加载中…' : (manualData.manual.trim() !== '' ? manualData.manual : '（还没有内容）') })] })) : activeTab === 'verification' ? ((0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }, children: [(0, jsx_runtime_1.jsxs)("span", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u9A8C\u6536\u8BC1\u636E\uFF08\u53EA\u8BFB\uFF09", verification !== null ? ` · 轮次 ${verification.round}` : ''] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void exportReport(); }, disabled: exporting, style: {
+                                            height: 26, padding: '0 10px', borderRadius: 6, cursor: exporting ? 'progress' : 'pointer',
+                                            border: '1px solid var(--dsw-alias-border-l1)', background: 'transparent',
+                                            color: 'var(--dsw-alias-label-primary)', fontSize: 12, opacity: exporting ? 0.6 : 1,
+                                        }, children: exporting ? '导出中…' : '导出验收报告' })] }), verificationError !== null ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-state-error-primary)', lineHeight: 1.5 }, children: verificationError })) : null, verification === null ? ((0, jsx_runtime_1.jsx)("div", { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: "\u52A0\u8F7D\u4E2D\u2026" })) : ((0, jsx_runtime_1.jsx)("div", { style: { overflow: 'auto', maxHeight: 470 }, children: verification.items.map((item) => ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 8 }, children: [(0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12.5, fontWeight: 600, marginBottom: 4 }, children: [(0, verify_checks_1.verifyMarkSymbol)(item.mark), " ", item.id, " ", item.name] }), item.summary !== '' ? ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u6458\u8981\uFF1A", item.summary] })) : null, item.command !== '' ? ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u590D\u8DD1\u547D\u4EE4\uFF1A", (0, jsx_runtime_1.jsx)("code", { children: item.command })] })) : null, item.checker !== null ? ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u68C0\u67E5\u5668 ", item.checker.checker_id, "\uFF1Aok=", String(item.checker.ok), " \u00B7 findings=", item.checker.findings, " \u00B7 exit=", item.checker.exit_code ?? 'n/a'] })) : null, item.latestRun !== null ? ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u6700\u8FD1\u4E00\u6B21\u8FD0\u884C\uFF1A", item.latestRun.at.slice(11, 19), " \u00B7 exit=", item.latestRun.exit_code ?? 'n/a', " \u00B7 findings=", item.latestRun.findings, item.latestRun.evidence ? ` · 证据 ${item.latestRun.evidence}` : ''] })) : null, Array.isArray(item.findings) && item.findings.length > 0 ? ((0, jsx_runtime_1.jsx)("div", { style: { marginTop: 4 }, children: item.findings.map((finding, index) => ((0, jsx_runtime_1.jsxs)("div", { style: { fontSize: 11.5, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }, children: ["\u4F4D\u7F6E ", finding.location, "\u3000\u95EE\u9898 ", finding.problem, "\u3000\u4E0D\u4FEE\u56E0 ", finding.why_not_fixed, "\u3000\u5F71\u54CD ", finding.impact] }, index))) })) : null] }, item.id))) }))] })) : ((0, jsx_runtime_1.jsxs)("div", { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10 }, children: [(0, jsx_runtime_1.jsx)("div", { style: { fontWeight: 600, marginBottom: 6 }, children: "\u9879\u76EE\u624B\u518C\uFF08\u603B\u89C8 / \u51B3\u7B56 / \u8981\u70B9\uFF0CAI \u81EA\u7559\uFF0C\u53EA\u8BFB\uFF09" }), (0, jsx_runtime_1.jsx)("div", { style: { whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 380, overflow: 'auto', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }, children: manualData === null ? '加载中…' : (manualData.globalManual.trim() !== '' ? manualData.globalManual : '（还没有内容）') })] }))] }))] }));
 }
 //# sourceMappingURL=workflow-dialogs.js.map

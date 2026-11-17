@@ -176,6 +176,12 @@ export declare class WorkflowRepository {
      */
     private clearChecklistOnReturnToDiscussion;
     /**
+     * 返工回「实现中」时把「实施顺序」里的勾选复位成未勾、清掉行尾证据，但保留条目本身。
+     * 与 clearChecklistOnReturnToDiscussion（清空条目）不同：实现中不能重定义清单，只能勾选，
+     * 所以这里必须保留条目文字，只把勾选状态打回。
+     */
+    private resetChecklistToUnchecked;
+    /**
      * 把节点绑定到一个 dsh 会话（点节点时打开）。
      * 传空字符串表示解绑；只改我们自己的快照，不碰宿主的会话存储。
      */
@@ -220,6 +226,7 @@ export declare class WorkflowRepository {
         checklist: Array<{
             label: string;
             done: boolean;
+            scope: string[];
         }>;
     } | null>;
     /** 会话手册模板原文（方案五小节 + 实施顺序清单）：设置页「附表」按它现读，不另存第二份。 */
@@ -236,8 +243,17 @@ export declare class WorkflowRepository {
         checklist: Array<{
             label: string;
             done: boolean;
+            scope: string[];
         }>;
         hasPlan: boolean;
+    } | null>;
+    /**
+     * 取当前节点实施清单声明的范围（去重后的相对路径数组 + 工作目录）。
+     * 没声明范围时 scope 为空数组——调用方据此决定「要不要做范围拦截」（空 = 不拦）。
+     */
+    getChecklistScope(workflowId: string, nodeId: string): Promise<{
+        workingDir: string;
+        scope: string[];
     } | null>;
     /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
@@ -364,6 +380,20 @@ export declare class WorkflowRepository {
      * 旧快照没有 verification 字段时回落到「七项全空」，不做数据迁移。
      */
     getVerification(workflowId: string, nodeId: string): Promise<VerificationState>;
+    /**
+     * 跨态失效校验（进「已完结」前）：对每个 required 型且已报 pass 的验收项，找它最近一次
+     * check_* 运行时间，若工作目录里还有源码改动发生在该运行之后，判证据过期、要求重跑。
+     * 只卡「源码 mtime > 运行时刻」这一种漏法；没有 checker 运行记录的项（旧快照）不卡。
+     */
+    assertVerificationFresh(workflowId: string, nodeId: string): Promise<void>;
+    /**
+     * 把某个节点的验收证据 + 状态时间线 + 检查器运行记录导出成一份 markdown，写回 .workflow/ 下。
+     * 「交付」定位要求交付物能出门：这份文件可进 git、可存档，验收不再是只能靠截图。
+     */
+    exportVerificationReport(workflowId: string, nodeId: string): Promise<{
+        path: string;
+        name: string;
+    }>;
     /**
      * 记录一次真实检查器运行（随本轮 verification 落盘）。
      *

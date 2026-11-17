@@ -23,7 +23,9 @@ const EVIDENCE = 'regression.json';
 
 /** 命令模板：target 是压测地址。 */
 function buildCommand(target: string): string {
-  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE}`;
+  // 直接调 autocannon（随插件 dependencies 分发，command-runner 会把插件 node_modules/.bin 加进 PATH），
+  // 不用 npx——npx 在无网/离线时会去下载，跟「随插件分发、拉下即用」的承诺冲突。
+  return `autocannon ${target} -j > .workflow/evidence/${EVIDENCE}`;
 }
 
 export const regressionChecker: Checker = {

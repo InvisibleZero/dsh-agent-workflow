@@ -3,10 +3,10 @@ import { basename, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { JsonStorageAdapter } from '../adapter/json-storage';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL, DEFAULT_SETTINGS, GlobalOperationDetail } from '../schema/workflow';
-import { CHECK_EVIDENCE_MARK, DEFAULT_MANUAL_LIMITS, assertSectionLimit, assertSessionManualTotal, sanitizeManualLimits, } from '../schema/manual-limits';
+import { CHECK_EVIDENCE_MARK, CHECK_SCOPE_MARK, DEFAULT_MANUAL_LIMITS, assertSectionLimit, assertSessionManualTotal, sanitizeManualLimits, } from '../schema/manual-limits';
 import { VERIFY_CHECKS, createVerification } from '../schema/verify-checks';
 import { pickVerification } from '../engine/verify-rules';
-import { headingText, parseChecklist, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
+import { collectChecklistScope, headingText, parseChecklist, parseChecklistLine, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
 import { TAG_TABLE_MAX, TAG_TABLE_SECTION, dedupeTags, findEntryLineIndexes, normalizeTag, parseTagTable, renderEntryLine, renderTagTable, rewriteEntryTag, } from '../engine/manual-tags';
 /** 随插件提供的内置存档名：只读，不可改不可删，缺省时就用它。 */
 const BUILTIN_PROFILE_NAME = '默认存档';
@@ -62,6 +62,7 @@ const SESSION_MANUAL_TEMPLATE = [
     '<!-- 垂直切片挖出的「做完再改贵」的坑，只挑关键几条喂给后续层 -->',
     '',
     '## 实施顺序',
+    '<!-- 每条可选加「 ｜ 范围：目录1,目录2」声明该步要改动的相对路径；声明后进入实现中，越界改动会被门禁拦截 -->',
     '- [ ] 垂直切片 —— 完成标准：端到端跑通',
     '- [ ] 数据层 —— 完成标准：能读写、迁移可跑',
     '- [ ] 领域层 —— 完成标准：逻辑独立可测',
@@ -164,13 +165,12 @@ function toggleChecklistLine(manual, label, done, evidence) {
         const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
         if (match === null || match[4] === undefined)
             continue;
-        const raw = match[4].trim();
-        const cut = raw.indexOf(CHECK_EVIDENCE_MARK);
-        const lineLabel = cut === -1 ? raw : raw.slice(0, cut).trim();
-        if (lineLabel !== label)
+        const parsed = parseChecklistLine(match[4].trim());
+        if (parsed.label !== label)
             continue;
+        const scopeSuffix = parsed.scope.length > 0 ? `${CHECK_SCOPE_MARK}${parsed.scope.join(',')}` : '';
         const suffix = done && evidence !== '' ? `${CHECK_EVIDENCE_MARK}${evidence}` : '';
-        lines[index] = `${match[1] ?? ''}${done ? 'x' : ' '}${match[3] ?? ''}${label}${suffix}`;
+        lines[index] = `${match[1] ?? ''}${done ? 'x' : ' '}${match[3] ?? ''}${label}${scopeSuffix}${suffix}`;
         return lines.join('\n');
     }
     throw new Error(`没能定位到条目「${label}」`);
@@ -221,6 +221,51 @@ async function appendGitignore(workingDir) {
     catch {
         // 读写失败不阻塞建节点。
     }
+}
+/** 源码指纹：递归扫描工作目录，跳过依赖/构建/缓存目录，取文件 mtime 最大值与数量。
+ *  用于「跨态失效」校验：检查器跑完后源码又有改动 → 判定证据过期。 */
+const SOURCE_STAMP_SKIP_DIRS = new Set([
+    '.workflow', 'node_modules', '.git', '.hg', '.svn',
+    'dist', 'build', 'out', 'coverage', '.next', '.turbo', '.vitest', '.vite', '.cache', '.idea',
+]);
+const SOURCE_STAMP_MAX_FILES = 30000;
+async function computeSourceStamp(workingDir) {
+    let mtimeMax = 0;
+    let count = 0;
+    async function walk(dir) {
+        if (count >= SOURCE_STAMP_MAX_FILES)
+            return;
+        let entries;
+        try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (count >= SOURCE_STAMP_MAX_FILES)
+                return;
+            if (entry.isDirectory()) {
+                if (SOURCE_STAMP_SKIP_DIRS.has(entry.name))
+                    continue;
+                await walk(join(dir, entry.name));
+                continue;
+            }
+            if (!entry.isFile())
+                continue;
+            try {
+                const stat = await fs.stat(join(dir, entry.name));
+                count += 1;
+                if (stat.mtimeMs > mtimeMax)
+                    mtimeMax = stat.mtimeMs;
+            }
+            catch {
+                // 读不到就跳过。
+            }
+        }
+    }
+    await walk(workingDir);
+    return { mtimeMax, count };
 }
 export class WorkflowRepository {
     baseDir;
@@ -749,6 +794,11 @@ export class WorkflowRepository {
             if (input.to === 'discussing' && from !== 'discussing') {
                 await this.clearChecklistOnReturnToDiscussion(snapshot, input.nodeId);
             }
+            // 从「已完结」返工回「实现中」：上一轮的勾选与证据作废（复位成未勾，条目保留），
+            // 否则「清单全勾才能进验收中」会被上一轮的进度顺过去，等于没重做就进了实现中。
+            if (input.to === 'implementing' && from === 'completed') {
+                await this.resetChecklistToUnchecked(snapshot, input.nodeId);
+            }
             const updated = {
                 ...snapshot,
                 nodes: snapshot.nodes.map((candidate) => candidate.node_id === input.nodeId
@@ -799,6 +849,53 @@ export class WorkflowRepository {
         }
         catch (error) {
             throw new Error(`切回「讨论中」时要清空「实施顺序」，但会话手册写入失败：${String(error?.message ?? error)}`);
+        }
+        this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
+    }
+    /**
+     * 返工回「实现中」时把「实施顺序」里的勾选复位成未勾、清掉行尾证据，但保留条目本身。
+     * 与 clearChecklistOnReturnToDiscussion（清空条目）不同：实现中不能重定义清单，只能勾选，
+     * 所以这里必须保留条目文字，只把勾选状态打回。
+     */
+    async resetChecklistToUnchecked(snapshot, nodeId) {
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            return;
+        const file = join(workingDir, WORKFLOW_SUBDIR, sessionManualFileName(nodeId));
+        let current;
+        try {
+            current = await fs.readFile(file, 'utf8');
+        }
+        catch {
+            return;
+        }
+        const lines = current.split(/\r?\n/);
+        let inSection = false;
+        for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index];
+            if (line === undefined)
+                continue;
+            if (line.trim() === '## 实施顺序') {
+                inSection = true;
+                continue;
+            }
+            if (inSection && line.startsWith('## '))
+                break;
+            if (!inSection)
+                continue;
+            const match = /^(\s*-\s+\[)([ xX])(\]\s*)(.+)$/.exec(line);
+            if (match === null || match[4] === undefined)
+                continue;
+            const parsed = parseChecklistLine(match[4].trim());
+            const scopeSuffix = parsed.scope.length > 0 ? `${CHECK_SCOPE_MARK}${parsed.scope.join(',')}` : '';
+            lines[index] = `${match[1] ?? ''} ${match[3] ?? ''}${parsed.label}${scopeSuffix}`;
+        }
+        const next = lines.join('\n');
+        try {
+            await writeTextAtomic(file, next);
+        }
+        catch (error) {
+            throw new Error(`返工回「实现中」要复位实施清单勾选，但会话手册写入失败：${String(error?.message ?? error)}`);
         }
         this.manualMetaCache.delete(`${snapshot.workspace_id}:${nodeId}`);
     }
@@ -1047,6 +1144,24 @@ export class WorkflowRepository {
         const meta = { mtimeMs, checklist: parseChecklist(manual), hasPlan: parseHasPlan(manual) };
         this.manualMetaCache.set(key, meta);
         return { checklist: meta.checklist, hasPlan: meta.hasPlan };
+    }
+    /**
+     * 取当前节点实施清单声明的范围（去重后的相对路径数组 + 工作目录）。
+     * 没声明范围时 scope 为空数组——调用方据此决定「要不要做范围拦截」（空 = 不拦）。
+     */
+    async getChecklistScope(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            return null;
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined)
+            return null;
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            return null;
+        const meta = await this.getManualMeta(workflowId, nodeId);
+        const scope = collectChecklistScope(meta?.checklist ?? []);
+        return { workingDir, scope };
     }
     /**
      * 应用级设置：切换状态时是否自动发送默认输入 + 手册字数上限。
@@ -1357,6 +1472,115 @@ export class WorkflowRepository {
         if (node === undefined)
             throw new Error('找不到节点');
         return pickVerification(node.verification);
+    }
+    /**
+     * 跨态失效校验（进「已完结」前）：对每个 required 型且已报 pass 的验收项，找它最近一次
+     * check_* 运行时间，若工作目录里还有源码改动发生在该运行之后，判证据过期、要求重跑。
+     * 只卡「源码 mtime > 运行时刻」这一种漏法；没有 checker 运行记录的项（旧快照）不卡。
+     */
+    async assertVerificationFresh(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            return;
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined)
+            return;
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            return;
+        const verification = pickVerification(node.verification);
+        const stamp = await computeSourceStamp(workingDir);
+        const staleChecks = [];
+        for (const item of verification.items) {
+            if (item.mark !== 'pass')
+                continue;
+            const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+            if (check?.checker?.enforcement !== 'required')
+                continue;
+            const runs = verification.checker_runs.filter((run) => run.checker_id === check.checker?.id);
+            const latest = runs.length > 0 ? runs[runs.length - 1] : undefined;
+            if (latest === undefined)
+                continue;
+            if (stamp.mtimeMax > Date.parse(latest.at)) {
+                staleChecks.push(check.name);
+            }
+        }
+        if (staleChecks.length > 0) {
+            throw new Error(`以下验收项的检查器跑完后，工作目录里又有源码改动，证据已过期，请重跑对应 check_* 再重新报备：${staleChecks.join(' / ')}`);
+        }
+    }
+    /**
+     * 把某个节点的验收证据 + 状态时间线 + 检查器运行记录导出成一份 markdown，写回 .workflow/ 下。
+     * 「交付」定位要求交付物能出门：这份文件可进 git、可存档，验收不再是只能靠截图。
+     */
+    async exportVerificationReport(workflowId, nodeId) {
+        const snapshot = await this.storage.load(workflowId);
+        if (snapshot === null)
+            throw new Error('找不到该 workflow');
+        const node = snapshot.nodes.find((candidate) => candidate.node_id === nodeId);
+        if (node === undefined)
+            throw new Error('找不到节点');
+        const workingDir = snapshot.working_directory;
+        if (typeof workingDir !== 'string' || workingDir === '')
+            throw new Error('该 workflow 没有工作目录，无法导出');
+        const verification = pickVerification(node.verification);
+        const symbol = (mark) => (mark === 'pass' ? '✓' : mark === 'deferred' ? '？' : '○');
+        const lines = [];
+        lines.push(`# 验收报告 · ${node.title ?? '节点'}`);
+        lines.push('');
+        lines.push(`- 导出时间：${new Date().toISOString()}`);
+        lines.push(`- 工作目录：${workingDir}`);
+        lines.push(`- 当前状态：${node.current_state}`);
+        lines.push(`- 验收轮次：${verification.round}`);
+        lines.push('');
+        if ((node.history ?? []).length > 0) {
+            lines.push('## 状态时间线');
+            lines.push('');
+            for (const entry of node.history ?? []) {
+                lines.push(`- ${entry.at.slice(0, 16).replace('T', ' ')}　${entry.from} → ${entry.to}${entry.by ? `（${entry.by}）` : ''}`);
+            }
+            lines.push('');
+        }
+        lines.push('## 验收七项');
+        lines.push('');
+        for (const item of verification.items) {
+            const check = VERIFY_CHECKS.find((candidate) => candidate.id === item.id);
+            const report = item.report;
+            lines.push(`### ${item.id}. ${check?.name ?? ''} — ${symbol(item.mark)}`);
+            if (report !== null) {
+                lines.push('');
+                lines.push(`- 结论：${report.result === 'pass' ? '通过' : '问询（本轮不修）'}`);
+                lines.push(`- 摘要：${report.summary}`);
+                if (typeof report.command === 'string' && report.command !== '')
+                    lines.push(`- 复跑命令：\`${report.command}\``);
+                if (report.checker !== undefined) {
+                    lines.push(`- 检查器：${report.checker.checker_id}　ok=${report.checker.ok}　findings=${report.checker.findings}　exit=${report.checker.exit_code ?? 'n/a'}`);
+                }
+                for (const anchor of report.anchors)
+                    lines.push(`- 锚点：${anchor.file}${anchor.line !== undefined ? `:${anchor.line}` : ''}`);
+                if (Array.isArray(report.findings) && report.findings.length > 0) {
+                    for (const finding of report.findings) {
+                        lines.push(`  - 位置 ${finding.location}　问题 ${finding.problem}　不修因 ${finding.why_not_fixed}　影响 ${finding.impact}`);
+                    }
+                }
+            }
+            lines.push('');
+        }
+        if (verification.checker_runs.length > 0) {
+            lines.push('## 检查器运行记录');
+            lines.push('');
+            for (const run of verification.checker_runs) {
+                lines.push(`- ${run.at.slice(0, 16).replace('T', ' ')}　${run.checker_id}　ok=${run.ok}　findings=${run.findings}　exit=${run.exit_code ?? 'n/a'}${run.evidence ? `　${run.evidence}` : ''}`);
+            }
+            lines.push('');
+        }
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const name = `验收报告-${nodeId}-${stamp}.md`;
+        const dir = join(workingDir, WORKFLOW_SUBDIR);
+        await fs.mkdir(dir, { recursive: true });
+        const path = join(dir, name);
+        await writeTextAtomic(path, lines.join('\n'));
+        return { path, name };
     }
     /**
      * 记录一次真实检查器运行（随本轮 verification 落盘）。

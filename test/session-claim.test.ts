@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from '../src/host/session-claim';
 import { WorkflowRepository } from '../src/host/workflow-repository';
-import { recentEvents } from '../src/host/event-log';
+import { flushEventLog, recentEvents } from '../src/host/event-log';
 import { apply } from '../src/host';
 
 /**
@@ -210,6 +210,8 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
   afterEach(async () => {
     if (previousProfileDir === undefined) delete process.env.DSH_PROFILE_DIR;
     else process.env.DSH_PROFILE_DIR = previousProfileDir;
+    // 事件日志是异步落盘的：先等它排空，否则 rm 会和 append 竞争（rmdir ENOTEMPTY）。
+    await flushEventLog();
     await rm(profileDir, { recursive: true, force: true });
     await rm(workDir, { recursive: true, force: true });
   });

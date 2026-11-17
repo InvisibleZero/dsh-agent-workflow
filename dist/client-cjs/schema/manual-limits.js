@@ -9,7 +9,7 @@
  * 客户端设置页还要显示默认值；不能把 zod 或仓储实现带进客户端包。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
+exports.CHECK_SCOPE_MARK = exports.CHECK_EVIDENCE_MARK = exports.MANUAL_LIMIT_MAX_CHARS = exports.MANUAL_LIMIT_MIN_CHARS = exports.DEFAULT_MANUAL_LIMITS = void 0;
 exports.countManualChars = countManualChars;
 exports.stripManualEvidence = stripManualEvidence;
 exports.sanitizeManualLimits = sanitizeManualLimits;
@@ -26,6 +26,9 @@ exports.MANUAL_LIMIT_MIN_CHARS = 20;
 exports.MANUAL_LIMIT_MAX_CHARS = 20000;
 /** 清单行里「自检证据」的分隔标记：- [x] 条目 ｜ 自检：<证据> */
 exports.CHECK_EVIDENCE_MARK = ' ｜ 自检：';
+/** 清单行里可选的「实施范围」分隔标记：- [ ] 条目 ｜ 范围：src/a,src/b。
+ *  用于实现中的越界拦截：改动路径不在声明范围内就拒绝（没声明范围则不做范围限制）。 */
+exports.CHECK_SCOPE_MARK = ' ｜ 范围：';
 /**
  * 按字符（码点）计数。
  *
