@@ -10,3 +10,4 @@ coverage/
 workflows/
 logs/
 .acl-recovery/
+.workflow/

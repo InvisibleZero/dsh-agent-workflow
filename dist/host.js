@@ -117,7 +117,15 @@ var AgentNode = z2.object({
         })).optional(),
         at: z2.string()
       }).nullable()
-    }))
+    })),
+    checker_runs: z2.array(z2.object({
+      checker_id: z2.string(),
+      ok: z2.boolean(),
+      exit_code: z2.number().int().nullable(),
+      findings: z2.number().int().nonnegative(),
+      evidence: z2.string().optional(),
+      at: z2.string()
+    })).optional()
   }).optional(),
   /**
    * 状态迁移时间线：每次推进追加一条 { at, from, to }。
@@ -169,8 +177,8 @@ var WorkflowSnapshot = z3.object({
   /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
   working_directory: z3.string().optional(),
   /**
-   * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
-   * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+   * 对应的宿主「目录工作区」id（这里的 host 指 DSH 宿主 App，不是本插件 src/host 模块）。
+   * 外部契约（落盘字段名）：旧快照已按这个键落盘，改名要迁移，故保持原名、勿改名。
    */
   host_workspace_id: z3.string().optional(),
   /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */
@@ -390,13 +398,13 @@ function assertSessionManualTotal(manual, limits) {
 
 // src/schema/verify-checks.ts
 var VERIFY_CHECKS = [
-  { id: 1, name: "\u5951\u7EA6\u6D4B\u8BD5", needs_command: true, judge: "\u5BF9\u5916\u884C\u4E3A\u4E0E\u539F\u5B9E\u73B0\u4E00\u81F4\u6216\u6309\u65B0\u5951\u7EA6\u9A8C\u8BC1\uFF0C\u8981\u6709\u53EF\u590D\u73B0\u5BF9\u7167" },
-  { id: 2, name: "\u4F9D\u8D56\u68C0\u67E5", needs_command: false, judge: "\u65E0\u53CD\u5411\u4F9D\u8D56\u3001\u65E0\u5FAA\u73AF\u4F9D\u8D56\u3001\u65E0\u8DE8\u5C42\u5F15\u7528" },
-  { id: 3, name: "\u6B7B\u4EE3\u7801\u626B\u63CF", needs_command: false, judge: "\u65E0\u7528\u5BFC\u51FA / \u53C2\u6570 / \u5B57\u6BB5\uFF0C\u4E14\u8981\u8BC1\u660E\u786E\u5B9E\u53EF\u5220\uFF08\u5F15\u7528\u8BA1\u6570\u4E3A\u96F6\uFF09" },
-  { id: 4, name: "\u8FB9\u754C\u6D4B\u8BD5", needs_command: true, judge: "\u5916\u90E8\u4F9D\u8D56\u53EF mock\uFF0C\u6A21\u5757\u80FD\u72EC\u7ACB\u6D4B\u8BD5" },
+  { id: 1, name: "\u5951\u7EA6\u6D4B\u8BD5", needs_command: true, judge: "\u5BF9\u5916\u884C\u4E3A\u4E0E\u539F\u5B9E\u73B0\u4E00\u81F4\u6216\u6309\u65B0\u5951\u7EA6\u9A8C\u8BC1\uFF0C\u8981\u6709\u53EF\u590D\u73B0\u5BF9\u7167", checker: { id: "contract", enforcement: "required" } },
+  { id: 2, name: "\u4F9D\u8D56\u68C0\u67E5", needs_command: false, judge: "\u65E0\u53CD\u5411\u4F9D\u8D56\u3001\u65E0\u5FAA\u73AF\u4F9D\u8D56\u3001\u65E0\u8DE8\u5C42\u5F15\u7528", checker: { id: "deps", enforcement: "required" } },
+  { id: 3, name: "\u6B7B\u4EE3\u7801\u626B\u63CF", needs_command: false, judge: "\u65E0\u7528\u5BFC\u51FA / \u53C2\u6570 / \u5B57\u6BB5\uFF0C\u4E14\u8981\u8BC1\u660E\u786E\u5B9E\u53EF\u5220\uFF08\u5F15\u7528\u8BA1\u6570\u4E3A\u96F6\uFF09", checker: { id: "deadcode", enforcement: "required" } },
+  { id: 4, name: "\u8FB9\u754C\u6D4B\u8BD5", needs_command: true, judge: "\u5916\u90E8\u4F9D\u8D56\u53EF mock\uFF0C\u6A21\u5757\u80FD\u72EC\u7ACB\u6D4B\u8BD5", checker: { id: "boundary", enforcement: "required" } },
   { id: 5, name: "\u547D\u540D\u4E0E\u8FB9\u754C\u5BA1\u67E5", needs_command: false, judge: "\u6CDB\u5316\u8BCD\u3001\u8DE8\u6A21\u5757\u66B4\u9732\u3001\u53CD\u5411\u5197\u957F\u3001\u524D\u7F00\u8D8A\u754C\u56DB\u9879" },
-  { id: 6, name: "\u57CB\u70B9\u68C0\u6D4B", needs_command: false, judge: "\u9ED1\u76D2\u9010\u8DF3\u4E09\u95EE + \u767D\u76D2\u4E94\u5B57\u6BB5\uFF0C\u4E09\u7C7B\u7ED3\u8BBA\uFF1A\u65AD\u70B9 / \u65E0\u6548\u57CB\u70B9 / \u8D28\u91CF\u76F2\u533A" },
-  { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09" }
+  { id: 6, name: "\u57CB\u70B9\u68C0\u6D4B", needs_command: false, judge: "\u9ED1\u76D2\u9010\u8DF3\u4E09\u95EE + \u767D\u76D2\u4E94\u5B57\u6BB5\uFF0C\u4E09\u7C7B\u7ED3\u8BBA\uFF1A\u65AD\u70B9 / \u65E0\u6548\u57CB\u70B9 / \u8D28\u91CF\u76F2\u533A", checker: { id: "instrumentation", enforcement: "assistive", require_run: true } },
+  { id: 7, name: "\u56DE\u5F52\u4E0E\u538B\u6D4B", needs_command: true, judge: "\u8DD1\u73B0\u6709\u6D4B\u8BD5\u5957\u4EF6\uFF0C\u7ED9 pass / fail + \u8BC1\u636E\uFF08\u8017\u65F6\u3001\u9519\u8BEF\u7387\u3001\u57CB\u70B9\u62BD\u6837\uFF09", checker: { id: "regression", enforcement: "required" } }
 ];
 function verifyMarkSymbol(mark) {
   if (mark === "pass") return "\u2713";
@@ -406,7 +414,8 @@ function verifyMarkSymbol(mark) {
 function createVerification(round) {
   return {
     round,
-    items: VERIFY_CHECKS.map((check) => ({ id: check.id, mark: "pending", report: null }))
+    items: VERIFY_CHECKS.map((check) => ({ id: check.id, mark: "pending", report: null })),
+    checker_runs: []
   };
 }
 
@@ -433,6 +442,38 @@ function assertAnchorPathShape(file) {
   if (normalized.split("/").some((segment) => segment === "..")) {
     throw new Error(`\u8BC1\u636E\u8DEF\u5F84\u4E0D\u80FD\u542B ..\uFF08\u4E0D\u8BB8\u8DD1\u51FA\u5DE5\u4F5C\u76EE\u5F55\uFF09\uFF1A${file}`);
   }
+}
+function parseCheckerResult(raw) {
+  if (raw === void 0 || raw === null) return void 0;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("checker \u5FC5\u987B\u662F\u5BF9\u8C61\uFF1A{ checker_id, ok, findings, exit_code }");
+  }
+  const record = raw;
+  const checker_id = typeof record.checker_id === "string" ? record.checker_id.trim() : "";
+  if (checker_id === "") throw new Error("checker.checker_id \u4E0D\u80FD\u4E3A\u7A7A");
+  const ok = record.ok;
+  if (typeof ok !== "boolean") throw new Error("checker.ok \u5FC5\u987B\u662F\u5E03\u5C14\u503C");
+  const findings = record.findings;
+  if (typeof findings !== "number" || !Number.isInteger(findings) || findings < 0) {
+    throw new Error("checker.findings \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570");
+  }
+  const exitCodeRaw = record.exit_code;
+  if (exitCodeRaw !== null && exitCodeRaw !== void 0 && (typeof exitCodeRaw !== "number" || !Number.isInteger(exitCodeRaw))) {
+    throw new Error("checker.exit_code \u5FC5\u987B\u662F\u6574\u6570\u6216 null");
+  }
+  const exit_code = exitCodeRaw === void 0 || exitCodeRaw === null ? null : exitCodeRaw;
+  return { checker_id, ok, findings, exit_code };
+}
+function validateCheckerGate(check, checker, result, command) {
+  if (check.checker?.enforcement !== "required") return void 0;
+  if (result !== "pass") return void 0;
+  if (checker === void 0) {
+    return `\u300C${check.name}\u300D\u6709\u68C0\u67E5\u5668\uFF0C\u62A5 pass \u524D\u5FC5\u987B\u5148\u8DD1\u5BF9\u5E94 check_* \u5E76\u5E26 checker \u7ED3\u679C\uFF08\u7B2C\u4E00\u5C42\u95E8\u7981\uFF09`;
+  }
+  if (checker.ok === false && command === "") {
+    return `\u300C${check.name}\u300D\u68C0\u67E5\u5668\u5931\u8D25\uFF08\u62A5\u9519/\u975E0/\u8BC1\u636E\u7A7A\uFF09\uFF0C\u62A5 pass \u5C5E AI \u515C\u5E95\uFF0C\u5FC5\u987B\u5E26\u53EF\u590D\u8DD1\u547D\u4EE4 command\uFF08\u7B2C\u4E8C\u5C42\u95E8\u7981\uFF09`;
+  }
+  return void 0;
 }
 function validateVerifyReportInput(check, raw) {
   const result = raw?.result;
@@ -477,13 +518,30 @@ function validateVerifyReportInput(check, raw) {
       findings.push(parsed);
     });
   }
+  const checker = parseCheckerResult(raw?.checker);
+  const gateError = validateCheckerGate(check, checker, result, command);
+  if (gateError !== void 0) throw new Error(gateError);
   return {
     result,
     summary,
     anchors,
     ...command === "" ? {} : { command },
-    ...findings.length === 0 ? {} : { findings }
+    ...findings.length === 0 ? {} : { findings },
+    ...checker === void 0 ? {} : { checker }
   };
+}
+function normalizeCheckerRun(raw) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw;
+  const checker_id = typeof record.checker_id === "string" ? record.checker_id : "";
+  const at = typeof record.at === "string" ? record.at : "";
+  if (checker_id === "" || at === "") return null;
+  const ok = record.ok === true;
+  const findings = typeof record.findings === "number" && Number.isInteger(record.findings) && record.findings >= 0 ? record.findings : 0;
+  const exitRaw = record.exit_code;
+  const exit_code = typeof exitRaw === "number" || exitRaw === null ? exitRaw : null;
+  const evidence = typeof record.evidence === "string" && record.evidence !== "" ? record.evidence : void 0;
+  return { checker_id, ok, exit_code, findings, ...evidence === void 0 ? {} : { evidence }, at };
 }
 function pickVerification(raw) {
   if (raw === null || typeof raw !== "object") return createVerification(0);
@@ -497,7 +555,8 @@ function pickVerification(raw) {
     const report = mark !== "pending" && found.report !== null && typeof found.report === "object" ? found.report : null;
     return { id: check.id, mark: report === null ? "pending" : mark, report };
   });
-  return { round, items };
+  const checker_runs = Array.isArray(source.checker_runs) ? source.checker_runs.map((run) => normalizeCheckerRun(run)).filter((run) => run !== null) : [];
+  return { round, items, checker_runs };
 }
 function summarizeVerification(state) {
   const pass = state.items.filter((item) => item.mark === "pass").length;
@@ -1806,6 +1865,40 @@ ${entry}`;
     return pickVerification(node.verification);
   }
   /**
+   * 记录一次真实检查器运行（随本轮 verification 落盘）。
+   *
+   * 门禁靠它核对「这一项报 pass 前真的跑过 check_*、且提交的 checker 与真实输出一致」，
+   * 所以必须落快照而不是只留在进程内工具账里——宿主一重启工具账就清空，门禁会误伤。
+   * 它随 verification 一起在每次进「验收中」时被清掉，上一轮的运行不会带到下一轮。
+   */
+  async recordCheckerRun(input) {
+    await this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === void 0) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const current = pickVerification(node.verification);
+      const run = {
+        checker_id: input.checkerId,
+        ok: input.ok,
+        findings: input.findings,
+        exit_code: input.exit_code,
+        ...typeof input.evidence === "string" && input.evidence !== "" ? { evidence: input.evidence } : {},
+        at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      const nextState = {
+        round: current.round,
+        items: current.items,
+        checker_runs: [...current.checker_runs, run]
+      };
+      const updated = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate)
+      };
+      await this.storage.save(updated);
+    });
+  }
+  /**
    * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
    *
    * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。
@@ -1827,7 +1920,8 @@ ${entry}`;
       const mark = input.report.result === "pass" ? "pass" : "deferred";
       const nextState = {
         round: current.round,
-        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark, report } : entry)
+        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark, report } : entry),
+        checker_runs: current.checker_runs
       };
       const updated = {
         ...snapshot,
@@ -1850,7 +1944,8 @@ ${entry}`;
       if (!current.items.some((entry) => entry.id === input.itemId)) throw new Error(`\u6CA1\u6709 ${input.itemId} \u53F7\u9A8C\u6536\u9879`);
       const nextState = {
         round: current.round,
-        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark: "pending", report: null } : entry)
+        items: current.items.map((entry) => entry.id === input.itemId ? { id: entry.id, mark: "pending", report: null } : entry),
+        checker_runs: current.checker_runs
       };
       const updated = {
         ...snapshot,
@@ -2006,7 +2101,7 @@ var PROMPT_LAYER_SPECS = [
   { name: "state-detail", order: 150, hard: true, priority: 0 },
   { name: "node-addition", order: 155, hard: false, priority: 3 },
   { name: "verify-progress", order: 156, hard: false, priority: 1 },
-  { name: "tool-catalog", order: 158, hard: false, priority: 2 },
+  { name: "tool-catalog", order: 158, hard: true, priority: 0 },
   { name: "constraints", order: 160, hard: false, priority: 1 },
   { name: "manual-tags", order: 162, hard: false, priority: 2 },
   { name: "manual-cue", order: 165, hard: false, priority: 2 },
@@ -2067,7 +2162,7 @@ function pickSessionManualParts(manual) {
 }
 
 // src/host/workflow-state-context.ts
-var TOTAL_BUDGET_BYTES = 9e3;
+var TOTAL_BUDGET_BYTES = 11e3;
 function clipChars(text, limit) {
   const chars = Array.from(text);
   if (chars.length <= limit) return { text, clipped: false };
@@ -2367,6 +2462,17 @@ var FINDING_SCHEMA = {
     impact: { type: "string" }
   }
 };
+var CHECKER_RESULT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["checker_id", "ok", "findings"],
+  properties: {
+    checker_id: { type: "string", description: "\u68C0\u67E5\u5668 id\uFF1Acontract / deps / deadcode / boundary / regression / instrumentation" },
+    ok: { type: "boolean", description: "true = \u68C0\u67E5\u5668\u8DD1\u6210\u4E14\u8BC1\u636E\u975E\u7A7A\uFF1Bfalse = \u62A5\u9519/\u975E0/\u8BC1\u636E\u7A7A" },
+    findings: { type: "number", description: "\u4E0D\u5408\u683C\u6761\u6570\uFF08\u975E\u8D1F\u6574\u6570\uFF09" },
+    exit_code: { type: "number", description: "\u547D\u4EE4\u9000\u51FA\u7801\uFF1B\u672A\u6267\u884C\u547D\u4EE4\u65F6\u7701\u7565" }
+  }
+};
 var BASE_TOOLS = [
   {
     name: "workflow_advance",
@@ -2437,7 +2543,7 @@ var BASE_TOOLS = [
   },
   {
     name: "workflow_verify_report",
-    description: "\u4E3A\u4E03\u9879\u9A8C\u6536\u4E2D\u7684\u4E00\u9879\u63D0\u4EA4\u62A5\u5907\uFF1A\u901A\u8FC7\u8BB0 \u2713\uFF0C\u67E5\u51FA\u95EE\u9898\u4E0D\u4FEE\u8BB0 \uFF1F\u3002\u5FC5\u987B\u5E26\u81F3\u5C11\u4E00\u4E2A\u5DE5\u4F5C\u76EE\u5F55\u5185\u771F\u5B9E\u5B58\u5728\u7684\u951A\u70B9\uFF08\u6587\u4EF6 + \u53EF\u9009\u884C\u53F7\uFF09\uFF1Bdeferred \u8FD8\u8981\u5199 findings\uFF08\u4F4D\u7F6E/\u95EE\u9898/\u4E3A\u4EC0\u4E48\u4E0D\u4FEE/\u5F71\u54CD\uFF09\u3002\u7B2C 1/4/7 \u9879\u5FC5\u987B\u5E26\u590D\u8DD1\u547D\u4EE4\u3002\u6BCF\u6B21\u8FDB\u5165\u9A8C\u6536\u4E2D\u8F6E\u6B21 +1\uFF0C\u65E7\u62A5\u5907\u81EA\u52A8\u5931\u6548\u3002",
+    description: "\u4E3A\u4E03\u9879\u9A8C\u6536\u4E2D\u7684\u4E00\u9879\u63D0\u4EA4\u62A5\u5907\uFF1A\u901A\u8FC7\u8BB0 \u2713\uFF0C\u67E5\u51FA\u95EE\u9898\u4E0D\u4FEE\u8BB0 \uFF1F\u3002\u5FC5\u987B\u5E26\u81F3\u5C11\u4E00\u4E2A\u5DE5\u4F5C\u76EE\u5F55\u5185\u771F\u5B9E\u5B58\u5728\u7684\u951A\u70B9\uFF08\u6587\u4EF6 + \u53EF\u9009\u884C\u53F7\uFF09\uFF1Bdeferred \u8FD8\u8981\u5199 findings\uFF08\u4F4D\u7F6E/\u95EE\u9898/\u4E3A\u4EC0\u4E48\u4E0D\u4FEE/\u5F71\u54CD\uFF09\u3002\u7B2C 1/4/7 \u9879\u5FC5\u987B\u5E26\u590D\u8DD1\u547D\u4EE4\u3002\u6709\u5F3A\u5236\u68C0\u67E5\u5668\u7684\u9879\uFF081/2/3/4/7\uFF09\u62A5 pass \u524D\u5FC5\u987B\u5148\u771F\u8DD1\u8FC7\u5BF9\u5E94 check_*\uFF08\u7528 workflow_tool_call \u8C03\u7528\uFF09\uFF0C\u5E76\u63D0\u4EA4\u5B83\u7684\u771F\u5B9E checker \u7ED3\u679C\uFF08ok/findings \u8981\u4E00\u81F4\uFF09\uFF1B\u68C0\u67E5\u5668\u5931\u8D25\u62A5 pass \u5C5E\u515C\u5E95\uFF0C\u5FC5\u987B\u5E26\u590D\u8DD1\u547D\u4EE4\u3002\u7B2C 6 \u9879\u57CB\u70B9\u68C0\u6D4B\u662F\u534F\u52A9\u578B\uFF1A\u62A5 pass \u524D\u672C\u8F6E\u81F3\u5C11\u8981\u8DD1\u8FC7\u4E00\u6B21 check_instrumentation\uFF08\u626B\u63CF\uFF09\uFF0C\u7ED3\u679C\u4ECD\u7531 AI \u5224\u65AD\u3002\u6BCF\u6B21\u8FDB\u5165\u9A8C\u6536\u4E2D\u8F6E\u6B21 +1\uFF0C\u65E7\u62A5\u5907\u81EA\u52A8\u5931\u6548\u3002",
     kind: TOOL_KIND.base,
     allowed_states: ["verifying"],
     effect: "write-state",
@@ -2451,7 +2557,8 @@ var BASE_TOOLS = [
         summary: { type: "string", description: "\u7ED3\u8BBA\u6458\u8981\uFF1A\u505A\u4E86\u4EC0\u4E48\u3001\u770B\u5230\u4EC0\u4E48\u7ED3\u679C\u3002" },
         anchors: { type: "array", items: ANCHOR_SCHEMA, description: "\u8BC1\u636E\u951A\u70B9\uFF0C\u81F3\u5C11\u4E00\u6761\uFF1B\u6587\u4EF6\u5FC5\u987B\u5728\u5DE5\u4F5C\u76EE\u5F55\u5185\u3002" },
         command: { type: "string", description: "\u590D\u8DD1\u547D\u4EE4\uFF1B\u5951\u7EA6\u6D4B\u8BD5 / \u8FB9\u754C\u6D4B\u8BD5 / \u56DE\u5F52\u538B\u6D4B\u4E09\u9879\u5FC5\u586B\u3002" },
-        findings: { type: "array", items: FINDING_SCHEMA, description: "deferred \u65F6\u5FC5\u586B\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48\u3002" }
+        findings: { type: "array", items: FINDING_SCHEMA, description: "deferred \u65F6\u5FC5\u586B\uFF1A\u6BCF\u6761\u5199\u6E05 \u4F4D\u7F6E / \u95EE\u9898 / \u4E3A\u4EC0\u4E48\u4E0D\u4FEE / \u5F71\u54CD\u4EC0\u4E48\u3002" },
+        checker: CHECKER_RESULT_SCHEMA
       }
     }
   },
@@ -2522,6 +2629,16 @@ var EXTENSION_TOOLS = [
     effect: "read-state",
     parameters: { type: "object", properties: {}, additionalProperties: true },
     version: 1
+  },
+  {
+    name: "check_instrumentation",
+    description: "\u534F\u52A9\u578B\u57CB\u70B9\u68C0\u6D4B\uFF08\u4F1A\u6539\u9879\u76EE\u6E90\u7801\uFF09\uFF1A\u626B\u5DF2\u6709\u57CB\u70B9\u3001\u6309\u6811\u8282\u70B9\u951A\u70B9\u8865\u63D2\u3001\u91CD\u626B\u5E76\u6821\u9A8C\u8BA1\u5212\u7ED3\u6784\uFF08\u53BB\u91CD / \u6DF1\u5EA6 / \u5B64\u513F\uFF09\u3002\u5148\u6309\u683C\u5F0F\u628A tree + \u8282\u70B9 KV \u5199\u5230 .workflow/evidence/instrumentation.json\uFF0C\u518D\u8C03\u672C\u5DE5\u5177\uFF1B\u5DE5\u5177\u8BFB\u5B83\u3001\u8865\u63D2\u7F3A\u5931\u57CB\u70B9\u3001\u843D instrumentation-existing.json \u4E0E instrumentation-apply.json\u3002\u8DD1\u5B8C\u8BFB instrumentation-apply.json \u7684 scanned / existing / inserted\uFF0C\u628A\u300C\u626B\u5230 N\u3001\u65B0\u589E M\u300D\u5199\u8FDB\u7B2C 6 \u9879\u62A5\u5907 summary\u3002",
+    kind: TOOL_KIND.extension,
+    run: { kind: "checker", checker: "instrumentation" },
+    allowed_states: ["verifying"],
+    effect: "exec",
+    parameters: { type: "object", properties: {}, additionalProperties: true },
+    version: 1
   }
 ];
 
@@ -2552,9 +2669,9 @@ var DEFAULT_TARGET = "test";
 function buildCommand(target) {
   return `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`;
 }
-function failedCaseNames(data) {
+function failedCaseNames(evidence_json) {
   const names = [];
-  for (const suite of asArray(asRecord(data).testResults)) {
+  for (const suite of asArray(asRecord(evidence_json).testResults)) {
     for (const test of asArray(asRecord(suite).assertionResults)) {
       const record = asRecord(test);
       if (asString(record.status) !== "failed") continue;
@@ -2563,9 +2680,9 @@ function failedCaseNames(data) {
   }
   return names;
 }
-function checkTestEvidence(data, evidence, command) {
-  if (data === null) return missingEvidence(evidence, command);
-  const root = asRecord(data);
+function checkTestEvidence(evidence_json, evidence, command) {
+  if (evidence_json === null) return missingEvidence(evidence, command);
+  const root = asRecord(evidence_json);
   if (typeof root.numTotalTests !== "number" || typeof root.numFailedTests !== "number") {
     return {
       ok: false,
@@ -2580,7 +2697,7 @@ function checkTestEvidence(data, evidence, command) {
     findings.push({ location: evidence, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1\uFF080 \u4E2A\u7528\u4F8B \u2260 \u5168\u8FC7\uFF09" });
   }
   if (failed > 0) {
-    const names = failedCaseNames(data);
+    const names = failedCaseNames(evidence_json);
     if (names.length === 0) findings.push({ location: evidence, problem: `${failed} \u4E2A\u7528\u4F8B\u5931\u8D25` });
     else for (const name of names) findings.push({ location: name, problem: "\u7528\u4F8B\u5931\u8D25" });
   }
@@ -2596,8 +2713,8 @@ var contractChecker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommand,
-  check(data) {
-    return checkTestEvidence(data, EVIDENCE, buildCommand(DEFAULT_TARGET));
+  check(evidence_json) {
+    return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));
   }
 };
 
@@ -2614,8 +2731,8 @@ var boundaryChecker = {
   defaultTarget: DEFAULT_TARGET2,
   autoRun: true,
   buildCommand: buildCommand2,
-  check(data) {
-    return checkTestEvidence(data, EVIDENCE2, buildCommand2(DEFAULT_TARGET2));
+  check(evidence_json) {
+    return checkTestEvidence(evidence_json, EVIDENCE2, buildCommand2(DEFAULT_TARGET2));
   }
 };
 
@@ -2632,9 +2749,9 @@ var deadcodeChecker = {
   defaultTarget: "",
   autoRun: true,
   buildCommand: buildCommand3,
-  check(data) {
-    if (data === null) return missingEvidence(EVIDENCE3, buildCommand3(""));
-    const root = asRecord(data);
+  check(evidence_json) {
+    if (evidence_json === null) return missingEvidence(EVIDENCE3, buildCommand3(""));
+    const root = asRecord(evidence_json);
     if (!Array.isArray(root.issues)) {
       return {
         ok: false,
@@ -2675,9 +2792,9 @@ var depsChecker = {
   defaultTarget: DEFAULT_TARGET3,
   autoRun: true,
   buildCommand: buildCommand4,
-  check(data) {
-    if (data === null) return missingEvidence(EVIDENCE4, buildCommand4(DEFAULT_TARGET3));
-    const summary = asRecord(asRecord(data).summary);
+  check(evidence_json) {
+    if (evidence_json === null) return missingEvidence(EVIDENCE4, buildCommand4(DEFAULT_TARGET3));
+    const summary = asRecord(asRecord(evidence_json).summary);
     if (!Array.isArray(summary.violations)) {
       return {
         ok: false,
@@ -2706,30 +2823,171 @@ var depsChecker = {
   }
 };
 
+// src/schema/instrumentation.ts
+function instrumentationKey(fn, event) {
+  return `${fn}::${event}`;
+}
+
+// src/engine/instrumentation-rules.ts
+var INSTRUMENTATION_LIMITS = {
+  maxDepth: 4,
+  maxChildren: 5,
+  maxTreeNodes: 50,
+  maxKvNodes: 200
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isInstrument(value) {
+  if (!isRecord(value)) return false;
+  return typeof value.function === "string" && value.function !== "" && typeof value.event === "string" && value.event !== "" && typeof value.tree_version === "number" && Number.isInteger(value.tree_version) && value.tree_version >= 1 && (value.kind === "path" || value.kind === "field");
+}
+function isTreeNode(value, depth = 0) {
+  if (depth > 100) return false;
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && value.id !== "" && typeof value.label === "string" && (value.instrument === void 0 || isInstrument(value.instrument)) && Array.isArray(value.children) && value.children.every((child) => isTreeNode(child, depth + 1));
+}
+function sameInstrument(a, b) {
+  return a.function === b.function && a.event === b.event && a.kind === b.kind && a.tree_version === b.tree_version;
+}
+function validateInstrumentation(raw, limits = INSTRUMENTATION_LIMITS) {
+  const findings = [];
+  const stats = {};
+  const root = isRecord(raw) ? raw.root : void 0;
+  const nodes = isRecord(raw) ? raw.nodes : void 0;
+  const planVersion = isRecord(raw) ? raw.tree_version : void 0;
+  if (typeof planVersion !== "number" || !Number.isInteger(planVersion) || planVersion < 1) {
+    findings.push({ location: "instrumentation.json", problem: "\u7F3A tree_version\uFF08\u6B63\u6574\u6570\uFF09" });
+  }
+  if (!isTreeNode(root)) {
+    findings.push({ location: "instrumentation.json", problem: "\u7F3A\u5408\u6CD5\u7684 tree.root\uFF08id / label / children\uFF09" });
+    return { ok: false, findings, stats };
+  }
+  if (!isRecord(nodes)) {
+    findings.push({ location: "instrumentation.json", problem: "\u7F3A\u5408\u6CD5\u7684 nodes\uFF08\u8282\u70B9 KV\uFF09" });
+    return { ok: false, findings, stats };
+  }
+  const expectedVersion = typeof planVersion === "number" ? planVersion : root.instrument?.tree_version ?? 1;
+  if (root.id !== "none") {
+    findings.push({ location: `root:${root.id}`, problem: "\u6839\u8282\u70B9 id \u5FC5\u987B\u662F none" });
+  }
+  if (root.instrument !== void 0) {
+    findings.push({ location: `root:${root.id}`, problem: "\u6839\u8282\u70B9\u53EA\u662F\u6807\u9898\uFF0C\u4E0D\u8BE5\u5E26\u57CB\u70B9\u4FE1\u606F" });
+  }
+  let total = 0;
+  let maxDepth = 0;
+  let duplicates = 0;
+  const treeKeys = /* @__PURE__ */ new Set();
+  const reachableKeys = /* @__PURE__ */ new Set();
+  const walk = (node, depth) => {
+    total += 1;
+    if (depth > maxDepth) maxDepth = depth;
+    if (node.children.length > limits.maxChildren) {
+      findings.push({ location: node.id, problem: `\u5B50\u8282\u70B9 ${node.children.length} \u4E2A\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limits.maxChildren}` });
+    }
+    if (depth >= 2 && node.instrument === void 0) {
+      findings.push({ location: node.id, problem: "\u8DEF\u5F84\u8282\u70B9\u7F3A\u57CB\u70B9\u4FE1\u606F\uFF08\u51FD\u6570\u540D / \u4E8B\u4EF6\u540D\uFF09" });
+    } else if (depth === 1 && node.instrument !== void 0) {
+      findings.push({ location: node.id, problem: "bug \u6807\u7B7E\u8282\u70B9\u53EA\u662F\u6807\u9898\uFF0C\u4E0D\u8BE5\u5E26\u57CB\u70B9\u4FE1\u606F" });
+    }
+    if (node.instrument !== void 0) {
+      const key = instrumentationKey(node.instrument.function, node.instrument.event);
+      reachableKeys.add(key);
+      if (treeKeys.has(key)) {
+        duplicates += 1;
+        findings.push({ location: node.id, problem: `\u91CD\u590D\u57CB\u70B9\uFF1A\u540C\u4E00\u843D\u70B9 ${key} \u5728\u6811\u4E0A\u51FA\u73B0\u4E86\u591A\u6B21` });
+      } else {
+        treeKeys.add(key);
+      }
+      const kv = nodes[key];
+      if (!isInstrument(kv)) {
+        findings.push({ location: node.id, problem: `KV \u7F3A\u8282\u70B9 ${key}\uFF08\u6811\u4E0A\u7684\u57CB\u70B9\u5FC5\u987B\u8FDB KV\uFF09` });
+      } else if (!sameInstrument(node.instrument, kv)) {
+        findings.push({ location: node.id, problem: `KV \u4E0E\u6811\u8282\u70B9\u4E0D\u4E00\u81F4\uFF1A${key}` });
+      }
+      if (node.instrument.tree_version !== expectedVersion) {
+        findings.push({ location: node.id, problem: `\u7248\u672C\u4E0D\u4E00\u81F4\uFF1A\u8282\u70B9\u662F v${node.instrument.tree_version}\uFF0C\u8BA1\u5212\u662F v${expectedVersion}` });
+      }
+    }
+    for (const child of node.children) walk(child, depth + 1);
+  };
+  walk(root, 0);
+  if (maxDepth > limits.maxDepth) {
+    findings.push({ location: "tree", problem: `\u6811\u6DF1 ${maxDepth} \u8D85\u8FC7\u4E0A\u9650 ${limits.maxDepth}` });
+  }
+  if (total > limits.maxTreeNodes) {
+    findings.push({ location: "tree", problem: `\u6811\u8282\u70B9 ${total} \u4E2A\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limits.maxTreeNodes}` });
+  }
+  const kvKeys = Object.keys(nodes);
+  if (kvKeys.length > limits.maxKvNodes) {
+    findings.push({ location: "instrumentation.json", problem: `\u8282\u70B9 KV ${kvKeys.length} \u6761\uFF0C\u8D85\u8FC7\u4E0A\u9650 ${limits.maxKvNodes}` });
+  }
+  let orphans = 0;
+  for (const key of kvKeys) {
+    const kv = nodes[key];
+    if (!isInstrument(kv)) {
+      findings.push({ location: key, problem: "KV \u91CC\u7684\u8282\u70B9\u5F62\u72B6\u4E0D\u5408\u6CD5" });
+      continue;
+    }
+    if (kv.kind === "path" && !reachableKeys.has(key)) {
+      orphans += 1;
+      findings.push({ location: key, problem: "\u5B64\u513F\u8282\u70B9\uFF1A\u9ED1\u76D2\u8DEF\u5F84\u8282\u70B9\u5728 KV \u91CC\uFF0C\u4F46\u6811\u4E0A\u627E\u4E0D\u5230\u5B83" });
+    }
+    if (kv.tree_version !== expectedVersion) {
+      findings.push({ location: key, problem: `\u7248\u672C\u4E0D\u4E00\u81F4\uFF1AKV \u8282\u70B9\u662F v${kv.tree_version}\uFF0C\u8BA1\u5212\u662F v${expectedVersion}` });
+    }
+  }
+  return {
+    ok: findings.length === 0,
+    findings,
+    stats: {
+      tree_nodes: total,
+      max_depth: maxDepth,
+      kv_nodes: kvKeys.length,
+      duplicates,
+      orphans
+    }
+  };
+}
+
+// src/engine/checkers/instrumentation.ts
+var EVIDENCE5 = "instrumentation.json";
+var instrumentationChecker = {
+  id: "instrumentation",
+  name: "\u57CB\u70B9\u68C0\u6D4B",
+  evidence: EVIDENCE5,
+  defaultTarget: "",
+  autoRun: true,
+  script: "instrument-apply.mjs",
+  check(evidence_json) {
+    return validateInstrumentation(evidence_json);
+  }
+};
+
 // src/engine/checkers/regression.ts
-var EVIDENCE5 = "regression.json";
+var EVIDENCE6 = "regression.json";
 function buildCommand5(target) {
-  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE5}`;
+  return `npx autocannon ${target} -j > .workflow/evidence/${EVIDENCE6}`;
 }
 var regressionChecker = {
   id: "regression",
   name: "\u56DE\u5F52\u4E0E\u538B\u6D4B",
-  evidence: EVIDENCE5,
+  evidence: EVIDENCE6,
   defaultTarget: "",
   autoRun: true,
   requiresTarget: true,
   buildCommand: buildCommand5,
-  check(data) {
-    if (data === null) return missingEvidence(EVIDENCE5, `${buildCommand5("http://127.0.0.1:3000")}`);
-    const root = asRecord(data);
+  check(evidence_json) {
+    if (evidence_json === null) return missingEvidence(EVIDENCE6, `${buildCommand5("http://127.0.0.1:3000")}`);
+    const root = asRecord(evidence_json);
     if (typeof root.requests === "object" && root.requests !== null) {
       const requests = asRecord(root.requests);
       const total = asNumber(requests.total) || asNumber(requests.average) || asNumber(requests.sent);
       const failed = asNumber(root.errors) + asNumber(root.timeouts);
       const durationMs = Math.round(asNumber(root.duration) * 1e3);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE5, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE5, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
+      if (total <= 0) findings.push({ location: EVIDENCE6, problem: "\u538B\u6D4B\u6CA1\u6709\u4EA7\u751F\u4EFB\u4F55\u8BF7\u6C42\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE6, problem: `${failed}/${total} \u4E2A\u8BF7\u6C42\u5931\u8D25\uFF08\u9519\u8BEF + \u8D85\u65F6\uFF09` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     if (typeof root.total === "number" && typeof root.failed === "number") {
@@ -2737,13 +2995,13 @@ var regressionChecker = {
       const failed = asNumber(root.failed);
       const durationMs = asNumber(root.durationMs);
       const findings = [];
-      if (total <= 0) findings.push({ location: EVIDENCE5, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
-      if (failed > 0) findings.push({ location: EVIDENCE5, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
+      if (total <= 0) findings.push({ location: EVIDENCE6, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u56DE\u5F52\u9A8C\u8BC1" });
+      if (failed > 0) findings.push({ location: EVIDENCE6, problem: `${failed}/${total} \u4E2A\u7528\u4F8B\u5931\u8D25` });
       return { ok: findings.length === 0, findings, stats: { total, failed, durationMs } };
     }
     return {
       ok: false,
-      findings: [{ location: EVIDENCE5, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
+      findings: [{ location: EVIDENCE6, problem: "\u8BC1\u636E\u683C\u5F0F\u4E0D\u8BA4\u8BC6\uFF1A\u65E2\u4E0D\u662F autocannon \u539F\u59CB\u7ED3\u679C\uFF0C\u4E5F\u4E0D\u662F { total, failed, durationMs }" }],
       stats: {}
     };
   }
@@ -2755,7 +3013,8 @@ var CHECKERS = [
   depsChecker,
   deadcodeChecker,
   boundaryChecker,
-  regressionChecker
+  regressionChecker,
+  instrumentationChecker
 ];
 var CHECKER_IDS = CHECKERS.map((checker) => checker.id);
 function findChecker(id) {
@@ -3104,6 +3363,19 @@ function registerWorkflowGuard(ctx, deps) {
     }));
   });
 }
+function renderToolCallResult(value) {
+  const head = `\u5DF2\u8C03\u7528 ${value?.name ?? ""}`;
+  const inner = value?.value;
+  if (inner && typeof inner.checker === "string") {
+    const okText = inner.ok === true ? "\u68C0\u67E5\u901A\u8FC7" : "\u68C0\u67E5\u672A\u901A\u8FC7";
+    const findingsCount = Array.isArray(inner.findings) ? inner.findings.length : 0;
+    const exitText = inner.exit_code === null || inner.exit_code === void 0 ? "exit=n/a" : `exit=${inner.exit_code}`;
+    const problems = Array.isArray(inner.findings) ? inner.findings.map((finding) => finding?.problem ? String(finding.problem) : JSON.stringify(finding)).join("\uFF1B") : "";
+    return `${head}\uFF08${okText}\uFF0Cfindings=${findingsCount}\uFF0C${exitText}\uFF09${problems === "" ? "" : `\uFF1A${problems}`}`;
+  }
+  const message = inner?.message;
+  return message ? `${head}\uFF1A${message}` : head;
+}
 function registerWorkflowTools(ctx, deps) {
   ctx.inject(["tools"], (toolCtx) => {
     const whenWorkflow = (context) => deps.isPresetSession(context?.agent?.session?.id);
@@ -3146,7 +3418,7 @@ function registerWorkflowTools(ctx, deps) {
         },
         render: (_args, value) => [{
           type: "text",
-          text: `\u5DF2\u8C03\u7528 ${value.name}${value.value?.message ? `\uFF1A${value.value.message}` : ""}`
+          text: renderToolCallResult(value)
         }]
       },
       execute: async (args, exec) => {
@@ -3253,7 +3525,7 @@ function registerWorkflowTools(ctx, deps) {
           description: { type: "string", description: "\u8BF4\u660E\uFF1A\u505A\u4EC0\u4E48\u3001\u4EC0\u4E48\u65F6\u5019\u7528\uFF08\u2264400 \u5B57\uFF09\uFF1B\u7B2C\u4E00\u53E5\u4F1A\u88AB\u6CE8\u5165\u7CFB\u7EDF\u63D0\u793A\uFF0C\u8981\u80FD\u72EC\u7ACB\u8BF4\u660E\u7528\u9014\u3002" },
           run: {
             type: "object",
-            description: '{kind:"checker",checker:"deps"}\uFF1Bchecker \u5FC5\u987B\u662F\u5185\u7F6E\u68C0\u67E5\u5668 id\uFF1Acontract / deps / deadcode / boundary / regression\u3002',
+            description: '{kind:"checker",checker:"deps"}\uFF1Bchecker \u5FC5\u987B\u662F\u5185\u7F6E\u68C0\u67E5\u5668 id\uFF1Acontract / deps / deadcode / boundary / regression / instrumentation\u3002',
             additionalProperties: true
           },
           effect: { type: "string", enum: ["read-state", "write-state", "exec"], description: "\u526F\u4F5C\u7528\u5206\u7EA7\uFF1B\u8DD1\u5916\u90E8\u8FDB\u7A0B\u7528 exec\u3002" },
@@ -3464,6 +3736,18 @@ async function invokeBaseTool(deps, name, args, sessionId) {
       throw new Error(`\u672A\u77E5\u7684\u57FA\u7840\u5DE5\u5177\uFF1A${name}`);
   }
 }
+function commandForChecker(checker, target, packageRoot) {
+  if (checker.script !== void 0) {
+    if (typeof packageRoot !== "string" || packageRoot === "") {
+      throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u7528\u811A\u672C\u6267\u884C\uFF0C\u4F46\u5BBF\u4E3B\u6CA1\u7ED9\u51FA packageRoot\uFF1A\u5148\u4FEE\u5BBF\u4E3B\u6CE8\u5165`);
+    }
+    return `node "${join3(packageRoot, "scripts", checker.script)}"`;
+  }
+  if (typeof checker.buildCommand !== "function") {
+    throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u65E2\u6CA1\u6709 script \u4E5F\u6CA1\u6709 buildCommand`);
+  }
+  return checker.buildCommand(target);
+}
 async function invokeChecker(deps, entry, args, sessionId) {
   const found = await deps.repository.findBySession(sessionId);
   if (found === null) throw new Error("\u5F53\u524D\u4F1A\u8BDD\u8FD8\u6CA1\u6709 workflow \u8282\u70B9");
@@ -3478,7 +3762,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
     throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u68C0\u67E5\u5668\u8DD1\u4E0D\u4E86\uFF1A\u5148\u7ED9\u5B83\u6307\u5B9A\u5DE5\u4F5C\u76EE\u5F55");
   }
   const target = resolveCheckerTarget(args?.target, checker);
-  const command = checker.buildCommand(target);
+  const command = commandForChecker(checker, target, deps.packageRoot);
   const evidencePath = join3(workingDirectory, ".workflow", "evidence", checker.evidence);
   await mkdir(dirname(evidencePath), { recursive: true });
   let commandResult = null;
@@ -3486,19 +3770,36 @@ async function invokeChecker(deps, entry, args, sessionId) {
     const execute = deps.runCommand ?? runCommand;
     commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
   }
-  let data = null;
+  let evidence_json = null;
   let parseError = "";
   try {
-    data = JSON.parse(await readFile(evidencePath, "utf8"));
+    evidence_json = JSON.parse(await readFile(evidencePath, "utf8"));
   } catch (error) {
     const code = error?.code;
     if (code !== "ENOENT") parseError = String(error?.message ?? error);
   }
-  const result = parseError === "" ? checker.check(data) : {
+  const result = parseError === "" ? checker.check(evidence_json) : {
     ok: false,
     findings: [{ location: checker.evidence, problem: `\u8BC1\u636E\u6587\u4EF6\u89E3\u6790\u5931\u8D25\uFF1A${parseError}` }],
     stats: {}
   };
+  try {
+    await deps.repository.recordCheckerRun?.({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      checkerId: checker.id,
+      ok: result.ok,
+      findings: result.findings.length,
+      exit_code: commandResult?.exit_code ?? null,
+      evidence: `.workflow/evidence/${checker.evidence}`
+    });
+  } catch (error) {
+    logEvent(
+      deps.logger,
+      "warn",
+      `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String(error?.message ?? error)}`
+    );
+  }
   logEvent(
     deps.logger,
     "info",
@@ -3677,6 +3978,49 @@ async function invokeVerifyReport(deps, sessionId, args) {
   const check = VERIFY_CHECKS.find((entry) => entry.id === itemId);
   if (check === void 0) throw new Error(`\u6CA1\u6709 ${itemId} \u53F7\u9A8C\u6536\u9879`);
   const report = validateVerifyReportInput(check, args);
+  const checkerMeta = check.checker;
+  if (checkerMeta?.require_run === true && report.result === "pass") {
+    const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+    const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);
+    if (runs.length === 0) {
+      const toolName = `check_${checkerMeta.id}`;
+      throw new Error(
+        `\u300C${check.name}\u300D\u62A5 pass \u524D\u672C\u8F6E\u81F3\u5C11\u8981\u8DD1\u8FC7\u4E00\u6B21 ${toolName}\uFF08\u5148\u626B\u63CF\u5DF2\u6709\u57CB\u70B9\uFF09\uFF1B\u6CA1\u626B\u5C31\u58F0\u79F0\u5230\u4F4D\u4E0D\u7B97\u6570\uFF08\u81F3\u5C11\u8DD1\u4E00\u6B21\u95E8\u7981\uFF09`
+      );
+    }
+  }
+  if (checkerMeta?.enforcement === "required" && report.result === "pass") {
+    const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+    const toolName = `check_${checkerMeta.id}`;
+    const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);
+    const latest = runs.length > 0 ? runs[runs.length - 1] : void 0;
+    if (latest === void 0) {
+      throw new Error(
+        `\u300C${check.name}\u300D\u62A5 pass \u524D\u5FC5\u987B\u5148\u771F\u7684\u8DD1\u8FC7 ${toolName}\uFF08\u7528 workflow_tool_call \u8C03\u7528\uFF09\uFF0C\u4E0D\u662F\u53EA\u5728\u62A5\u5907\u91CC\u586B checker \u7ED3\u679C\uFF08\u5F3A\u5236\u4F7F\u7528\u95E8\u7981\uFF09`
+      );
+    }
+    const submitted = report.checker;
+    const okMatch = submitted?.ok === latest.ok;
+    const findingsMatch = submitted?.findings === latest.findings;
+    const submittedExit = submitted?.exit_code ?? null;
+    const exitMatch = submittedExit === null || submittedExit === latest.exit_code;
+    if (!okMatch || !findingsMatch || !exitMatch) {
+      throw new Error(
+        `\u63D0\u4EA4\u7684 checker \u4E0E ${toolName} \u7684\u771F\u5B9E\u8F93\u51FA\u4E0D\u4E00\u81F4\uFF08\u5F3A\u5236\u63D0\u4EA4\u5DE5\u5177\u8F93\u51FA\uFF09\uFF1A\u6700\u8FD1\u4E00\u6B21\u662F ok=${latest.ok}\u3001findings=${latest.findings}\u3001exit=${latest.exit_code ?? "n/a"}\uFF0C\u8BF7\u4EE5\u5DE5\u5177\u8FD4\u56DE\u4E3A\u51C6`
+      );
+    }
+    const evidence = latest.evidence;
+    if (typeof evidence === "string" && evidence !== "") {
+      const normalize = (file) => file.replace(/\\/g, "/").replace(/^\.\//, "");
+      const target = normalize(evidence);
+      const hasEvidenceAnchor = report.anchors.some((anchor) => normalize(anchor.file) === target);
+      if (!hasEvidenceAnchor) {
+        throw new Error(
+          `\u62A5\u5907\u951A\u70B9\u5FC5\u987B\u5305\u542B\u672C\u6B21 ${toolName} \u751F\u6210\u7684\u8BC1\u636E\u6587\u4EF6\u300C${evidence}\u300D\uFF08\u5F3A\u5236\u951A\u70B9\u5F52\u5C5E\uFF09\uFF1A\u4E0D\u8981\u628A\u68C0\u67E5\u5668\u7ED3\u679C\u6302\u5728\u522B\u7684\u6587\u4EF6\u4E0A`
+        );
+      }
+    }
+  }
   const { state } = await deps.repository.submitVerifyReport({
     workflowId: found.workflowId,
     nodeId: found.nodeId,
@@ -4250,6 +4594,7 @@ function apply(ctx) {
     stateContext,
     registryStore,
     nodeModulesBin,
+    packageRoot,
     recordToolEvent,
     isPresetSession,
     /**

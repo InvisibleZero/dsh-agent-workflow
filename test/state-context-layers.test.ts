@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
-import { registerWorkflowStateContext } from '../src/host/workflow-state-context';
+import { registerWorkflowStateContext, TOTAL_BUDGET_BYTES } from '../src/host/workflow-state-context';
 import { PROMPT_LAYER_SPECS } from '../src/engine/prompt-layers';
 import { DEFAULT_HARD_RULES } from '../src/schema/hard-rules';
 
@@ -176,7 +176,7 @@ describe('分层注入（与真机同一条注册/求值路径）', () => {
     const { api, runtime } = await mount();
     await api.refreshNow(sessionId);
     const summary = runtime.logs.find((line) => line.includes('state-context ok'));
-    expect(summary).toContain('budget=9000');
+    expect(summary).toContain(`budget=${TOTAL_BUDGET_BYTES}`);
     expect(summary).toMatch(/headroom=\d+/);
     expect(summary).toContain('dropped=0');
   });

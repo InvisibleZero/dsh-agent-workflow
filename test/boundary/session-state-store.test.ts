@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getSessionState, readStateChangedDetail, replaceSessionStates, setSessionState, subscribeSessionStates } from '../src/client/session-state-store';
+import { getSessionState, readStateChangedDetail, replaceSessionStates, setSessionState, subscribeSessionStates } from '../../src/client/session-state-store';
 
 describe('侧栏会话状态表（纯内存，不依赖 DOM）', () => {
   beforeEach(() => {

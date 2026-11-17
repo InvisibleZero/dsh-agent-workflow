@@ -34,6 +34,17 @@ const FINDING_SCHEMA = {
         impact: { type: 'string' },
     },
 };
+const CHECKER_RESULT_SCHEMA = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['checker_id', 'ok', 'findings'],
+    properties: {
+        checker_id: { type: 'string', description: '检查器 id：contract / deps / deadcode / boundary / regression / instrumentation' },
+        ok: { type: 'boolean', description: 'true = 检查器跑成且证据非空；false = 报错/非0/证据空' },
+        findings: { type: 'number', description: '不合格条数（非负整数）' },
+        exit_code: { type: 'number', description: '命令退出码；未执行命令时省略' },
+    },
+};
 /**
  * 五个基础工具：name 就是分派键，parameters 是给模型的参数 schema。
  * description 的第一句会被注入系统提示（见 tool-policy 的 summarizeDescription），
@@ -119,7 +130,9 @@ export const BASE_TOOLS = [
         name: 'workflow_verify_report',
         description: '为七项验收中的一项提交报备：通过记 ✓，查出问题不修记 ？。'
             + '必须带至少一个工作目录内真实存在的锚点（文件 + 可选行号）；deferred 还要写 findings（位置/问题/为什么不修/影响）。'
-            + '第 1/4/7 项必须带复跑命令。每次进入验收中轮次 +1，旧报备自动失效。',
+            + '第 1/4/7 项必须带复跑命令。有强制检查器的项（1/2/3/4/7）报 pass 前必须先真跑过对应 check_*（用 workflow_tool_call 调用），并提交它的真实 checker 结果（ok/findings 要一致）；检查器失败报 pass 属兜底，必须带复跑命令。'
+            + '第 6 项埋点检测是协助型：报 pass 前本轮至少要跑过一次 check_instrumentation（扫描），结果仍由 AI 判断。'
+            + '每次进入验收中轮次 +1，旧报备自动失效。',
         kind: TOOL_KIND.base,
         allowed_states: ['verifying'],
         effect: 'write-state',
@@ -134,6 +147,7 @@ export const BASE_TOOLS = [
                 anchors: { type: 'array', items: ANCHOR_SCHEMA, description: '证据锚点，至少一条；文件必须在工作目录内。' },
                 command: { type: 'string', description: '复跑命令；契约测试 / 边界测试 / 回归压测三项必填。' },
                 findings: { type: 'array', items: FINDING_SCHEMA, description: 'deferred 时必填：每条写清 位置 / 问题 / 为什么不修 / 影响什么。' },
+                checker: CHECKER_RESULT_SCHEMA,
             },
         },
     },
@@ -209,6 +223,16 @@ export const EXTENSION_TOOLS = [
         run: { kind: 'checker', checker: 'regression' },
         allowed_states: ['verifying'],
         effect: 'read-state',
+        parameters: { type: 'object', properties: {}, additionalProperties: true },
+        version: 1,
+    },
+    {
+        name: 'check_instrumentation',
+        description: '协助型埋点检测（会改项目源码）：扫已有埋点、按树节点锚点补插、重扫并校验计划结构（去重 / 深度 / 孤儿）。先按格式把 tree + 节点 KV 写到 .workflow/evidence/instrumentation.json，再调本工具；工具读它、补插缺失埋点、落 instrumentation-existing.json 与 instrumentation-apply.json。跑完读 instrumentation-apply.json 的 scanned / existing / inserted，把「扫到 N、新增 M」写进第 6 项报备 summary。',
+        kind: TOOL_KIND.extension,
+        run: { kind: 'checker', checker: 'instrumentation' },
+        allowed_states: ['verifying'],
+        effect: 'exec',
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         version: 1,
     },

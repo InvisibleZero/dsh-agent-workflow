@@ -21,10 +21,11 @@ import { join } from 'node:path';
 import { PROMPT_LAYER_SPECS, SESSION_MANUAL_BUDGET_BYTES, TAG_LAYER_BUDGET_BYTES, assemblePromptLayers, pickSessionManualParts, } from '../engine/prompt-layers';
 import { countUtf8Bytes, truncateToBytes } from '../engine/text-budget';
 export { truncateToBytes };
-/** 整块注入的预算（字节）：A 公共细节常驻交付三项与提建议规范，且用户可把它改得更长，
- *  按默认文本最坏情况（验收中 + 满额会话手册）约 7.2 KB，预算 9000 留约 1.8 KB 余量；
- *  靠"分层 + 按重要度丢"解决挤占，不靠无限加预算。 */
-const TOTAL_BUDGET_BYTES = 9000;
+/** 整块注入的预算（字节）：A 公共细节常驻交付三项与提建议规范，且用户可把它改得更长。
+ *  实测默认文本最坏情况（验收中 + 满额会话手册 4600B）硬层合计 8863 字节（含工具目录 1397），
+ *  9000 只剩 137 字节余量，用户一改长就撞「硬层超预算」。
+ *  现在预算抬到 11000，给用户自定义留约 2.1 KB 余量；超了仍显式报错（fail-closed），不静默丢硬层。 */
+export const TOTAL_BUDGET_BYTES = 11000;
 /**
  * 按字符截断（码点安全）。
  * 用于「约束 / 红线」这类有字数上限的小节：老手册可能超，超了要标出来而不是静默丢字。

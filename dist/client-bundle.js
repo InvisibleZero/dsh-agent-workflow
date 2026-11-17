@@ -117,12 +117,12 @@ window.__ModuleLoader__.load({
          * 宿主日志能证明「服务端给了节点」，证明不了「页面拿到之后有没有画出来」；
          * 这次排查就卡在这一点上，所以这里只在变化时补一条。
          */
-        const reportNodeChange = (info) => {
-            const nextId = info === null ? '' : info.nodeId;
+        const reportNodeChange = (node_snapshot) => {
+            const nextId = node_snapshot === null ? '' : node_snapshot.nodeId;
             if (nextId === reportedNodeRef.current)
                 return;
             reportedNodeRef.current = nextId;
-            void (0, client_log_1.reportClientEvent)('info', info === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${info.nodeId}, state=${info.state})`);
+            void (0, client_log_1.reportClientEvent)('info', node_snapshot === null ? `badge cleared (session=${sessionId})` : `badge node (session=${sessionId}, node=${node_snapshot.nodeId}, state=${node_snapshot.state})`);
         };
         /** 防止一轮还没回来又叠一轮（3 秒定时器 + 推送事件可能撞在一起）。 */
         const inFlightRef = (0, react_1.useRef)(false);
@@ -184,7 +184,7 @@ window.__ModuleLoader__.load({
                     setNodeInfo(null);
                     return null;
                 }
-                const info = {
+                const node_snapshot = {
                     state: String(node.current_state),
                     workflowId: String(node.workflowId),
                     nodeId: String(node.nodeId),
@@ -193,9 +193,9 @@ window.__ModuleLoader__.load({
                         ? null
                         : { to: String(responseBody.pendingAdvance.to) },
                 };
-                reportNodeChange(info);
-                setNodeInfo(info);
-                return info;
+                reportNodeChange(node_snapshot);
+                setNodeInfo(node_snapshot);
+                return node_snapshot;
             }
             catch {
                 // 读失败也按「这一刻没有节点」上报：否则界面上「没有胶囊」分不清是没数据还是请求失败。
@@ -285,19 +285,19 @@ window.__ModuleLoader__.load({
                     return;
                 inFlightRef.current = true;
                 try {
-                    let info = await readNode();
+                    let node_snapshot = await readNode();
                     // 自动认领只对「还没聊过」的会话做：新会话可能刚被切成工作流，而宿主不会为
                     // 这次切换发任何事件；聊过的会话迟早会走到 agent/pre-step，由宿主自己认领。
-                    if (info === null && !hasMessagesRef.current) {
+                    if (node_snapshot === null && !hasMessagesRef.current) {
                         const ensuredState = await ensureNode(sessionCwd);
                         if (ensuredState !== null) {
                             // 新建的会话也要立刻有圆点，不用等下一次整表刷新。
                             notifyStateChanged(ensuredState);
-                            info = await readNode();
+                            node_snapshot = await readNode();
                         }
                     }
-                    if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
-                        void readChecklist(info.workflowId, info.nodeId);
+                    if (node_snapshot !== null && (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying')) {
+                        void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
                     }
                     else {
                         setChecklist([]);
@@ -356,11 +356,11 @@ window.__ModuleLoader__.load({
                 }
                 // 通知侧栏会话行的状态点刷新：只更新这一个会话。
                 notifyStateChanged(to);
-                const info = await readNode();
-                if (info !== null)
-                    await applyEnterTrigger(info.enterTrigger);
-                if (info !== null && (info.state === 'implementing' || info.state === 'verifying')) {
-                    void readChecklist(info.workflowId, info.nodeId);
+                const node_snapshot = await readNode();
+                if (node_snapshot !== null)
+                    await applyEnterTrigger(node_snapshot.enterTrigger);
+                if (node_snapshot !== null && (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying')) {
+                    void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
                 }
                 else {
                     setChecklist([]);
@@ -409,14 +409,14 @@ window.__ModuleLoader__.load({
                     window.alert(String(payload?.error ?? '处理推进请求失败'));
                     return;
                 }
-                const info = await readNode();
-                if (info !== null) {
+                const node_snapshot = await readNode();
+                if (node_snapshot !== null) {
                     // 同意 / 拒绝之后都可能改变节点状态：按服务端读回的状态更新这一行。
-                    notifyStateChanged(info.state);
+                    notifyStateChanged(node_snapshot.state);
                     if (accept)
-                        await applyEnterTrigger(info.enterTrigger);
-                    if (info.state === 'implementing' || info.state === 'verifying') {
-                        void readChecklist(info.workflowId, info.nodeId);
+                        await applyEnterTrigger(node_snapshot.enterTrigger);
+                    if (node_snapshot.state === 'implementing' || node_snapshot.state === 'verifying') {
+                        void readChecklist(node_snapshot.workflowId, node_snapshot.nodeId);
                     }
                     else {
                         setChecklist([]);
@@ -544,13 +544,13 @@ window.__ModuleLoader__.load({
     exports.verifyMarkSymbol = verifyMarkSymbol;
     exports.createVerification = createVerification;
     exports.VERIFY_CHECKS = [
-        { id: 1, name: '契约测试', needs_command: true, judge: '对外行为与原实现一致或按新契约验证，要有可复现对照' },
-        { id: 2, name: '依赖检查', needs_command: false, judge: '无反向依赖、无循环依赖、无跨层引用' },
-        { id: 3, name: '死代码扫描', needs_command: false, judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）' },
-        { id: 4, name: '边界测试', needs_command: true, judge: '外部依赖可 mock，模块能独立测试' },
+        { id: 1, name: '契约测试', needs_command: true, judge: '对外行为与原实现一致或按新契约验证，要有可复现对照', checker: { id: 'contract', enforcement: 'required' } },
+        { id: 2, name: '依赖检查', needs_command: false, judge: '无反向依赖、无循环依赖、无跨层引用', checker: { id: 'deps', enforcement: 'required' } },
+        { id: 3, name: '死代码扫描', needs_command: false, judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）', checker: { id: 'deadcode', enforcement: 'required' } },
+        { id: 4, name: '边界测试', needs_command: true, judge: '外部依赖可 mock，模块能独立测试', checker: { id: 'boundary', enforcement: 'required' } },
         { id: 5, name: '命名与边界审查', needs_command: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项' },
-        { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区' },
-        { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）' },
+        { id: 6, name: '埋点检测', needs_command: false, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
+        { id: 7, name: '回归与压测', needs_command: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
     ];
     /** 标记的显示符号：徽标、菜单、注入文本共用一套，避免三处各写一份。 */
     function verifyMarkSymbol(mark) {
@@ -565,6 +565,7 @@ window.__ModuleLoader__.load({
         return {
             round,
             items: exports.VERIFY_CHECKS.map((check) => ({ id: check.id, mark: 'pending', report: null })),
+            checker_runs: [],
         };
     }
     //# sourceMappingURL=verify-checks.js.map
@@ -1728,9 +1729,9 @@ window.__ModuleLoader__.load({
      */
     const client_log_1 = __req("client/client-log.js");
     /** 解析一帧；坏帧返回 null（不要因为一条脏数据把整个通道关掉）。 */
-    function parseWorkflowStreamFrame(data) {
+    function parseWorkflowStreamFrame(frame_text) {
         try {
-            const parsed = JSON.parse(String(data ?? ''));
+            const parsed = JSON.parse(String(frame_text ?? ''));
             if (typeof parsed?.sessionId !== 'string' || parsed.sessionId === '')
                 return null;
             return {

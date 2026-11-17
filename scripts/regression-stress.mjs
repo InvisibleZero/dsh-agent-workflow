@@ -195,6 +195,9 @@ async function main() {
   // 七项验收：在验收中逐项报备（HTTP 入口，模型平时走 workflow_verify_report 工具）
   await writeFile(join(dir, 'verify-evidence.md'), '# e2e 验收证据\n\n七项按 pass 报备，用于验证推进闭环。\n', 'utf8');
   const verifyAnchor = [{ file: 'verify-evidence.md' }];
+  // 有检查器的验收项（1/2/3/4/7）报 pass 必须带 checker 结果（第一层门禁），
+  // 与 workflow_verify_report 的新契约一致；检查器 id 与 EXTENSION_TOOLS 的 run.checker 对应。
+  const CHECKER_OF = { 1: 'contract', 2: 'deps', 3: 'deadcode', 4: 'boundary', 7: 'regression' };
   const verifyFailures = [];
   for (const item of [1, 2, 3, 4, 5, 6, 7]) {
     const body = {
@@ -205,6 +208,7 @@ async function main() {
       summary: `e2e 报备第 ${item} 项`,
       anchors: verifyAnchor,
       ...([1, 4, 7].includes(item) ? { command: 'npm run test' } : {}),
+      ...(CHECKER_OF[item] ? { checker: { checker_id: CHECKER_OF[item], ok: true, findings: 0, exit_code: 0 } } : {}),
     };
     const r = await json(port, 'verify-report', { method: 'POST', body });
     if (r?.ok !== true) verifyFailures.push(`${item}:${String(r?.error ?? 'unknown').slice(0, 60)}`);

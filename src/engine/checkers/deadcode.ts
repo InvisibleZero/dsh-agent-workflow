@@ -37,9 +37,9 @@ export const deadcodeChecker: Checker = {
   defaultTarget: '',
   autoRun: true,
   buildCommand: buildCommand,
-  check(data: unknown): CheckResult {
-    if (data === null) return missingEvidence(EVIDENCE, buildCommand(''));
-    const root = asRecord(data);
+  check(evidence_json: unknown): CheckResult {
+    if (evidence_json === null) return missingEvidence(EVIDENCE, buildCommand(''));
+    const root = asRecord(evidence_json);
     if (!Array.isArray(root.issues)) {
       return {
         ok: false,

@@ -226,7 +226,7 @@ if (runBundle) {
   const bundle = readFileSync(join(root, 'dist/client-bundle.js'), 'utf8');
   check(bundle.includes('附表'), '客户端包里没有「附表」页签文案');
   check((bundle.match(/\/dsh-agent-workflow\/appendix/g) ?? []).length === 1, `附表请求点应只有 1 处，实际 ${(bundle.match(/\/dsh-agent-workflow\/appendix/g) ?? []).length}`);
-  check(bundle.includes('[...STATE_TABS, APPENDIX_TAB]'), '附表页签应接在 STATE_TABS 之后');
+  check(bundle.includes('[...STATE_TABS, APPENDIX_TAB, TOOLS_TAB]'), '附表页签应接在 STATE_TABS 之后');
   check(bundle.includes("activeTab === 'appendix'"), '设置页主体缺少附表分支');
   // JSX 文本在产物里会被转成 \uXXXX，按状态 token 断言更稳。
   check(bundle.includes("setStatus('loading')"), '缺少加载态（setStatus loading）');

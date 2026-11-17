@@ -33,9 +33,9 @@ export const depsChecker: Checker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommand: buildCommand,
-  check(data: unknown): CheckResult {
-    if (data === null) return missingEvidence(EVIDENCE, buildCommand(DEFAULT_TARGET));
-    const summary = asRecord(asRecord(data).summary);
+  check(evidence_json: unknown): CheckResult {
+    if (evidence_json === null) return missingEvidence(EVIDENCE, buildCommand(DEFAULT_TARGET));
+    const summary = asRecord(asRecord(evidence_json).summary);
     // 格式不认识时必须报错，不能当「没有违规」。
     if (!Array.isArray(summary.violations)) {
       return {

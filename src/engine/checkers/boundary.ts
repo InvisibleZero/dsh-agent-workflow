@@ -22,7 +22,7 @@ export const boundaryChecker: Checker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommand: buildCommand,
-  check(data: unknown): CheckResult {
-    return checkTestEvidence(data, EVIDENCE, buildCommand(DEFAULT_TARGET));
+  check(evidence_json: unknown): CheckResult {
+    return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));
   },
 };

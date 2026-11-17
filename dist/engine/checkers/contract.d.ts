@@ -6,6 +6,6 @@
  */
 import { type CheckResult, type Checker } from './types';
 /** 第 1 / 4 项共用的判定：测试结果证据怎么判。 */
-export declare function checkTestEvidence(data: unknown, evidence: string, command: string): CheckResult;
+export declare function checkTestEvidence(evidence_json: unknown, evidence: string, command: string): CheckResult;
 export declare const contractChecker: Checker;
 //# sourceMappingURL=contract.d.ts.map

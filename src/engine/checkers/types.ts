@@ -37,12 +37,19 @@ export interface Checker {
   /** 是否必须由调用方提供 target（压测地址这类没有合理默认值的）。 */
   requiresTarget?: boolean;
   /**
+   * 插件自带脚本（相对 `scripts/`）：和 buildCommand 二选一。
+   * 用脚本时宿主直接 `node <packageRoot>/scripts/<script>`，不经过 cmd 拼参数，
+   * 适合「读证据 + 改项目源码 + 重扫」这类多步动作（埋点检测）。
+   */
+  script?: string;
+  /**
    * 拼命令：只把 target 填进模板，不做别的拼接。
    * 命令模板是代码里的常量，调用方不能传命令本身——这是执行边界。
+   * script 型检查器可不实现。
    */
-  buildCommand(target: string): string;
-  /** 纯函数：data 为 null 表示证据文件不存在。 */
-  check(data: unknown): CheckResult;
+  buildCommand?(target: string): string;
+  /** 纯函数：evidence_json 为 null 表示证据文件不存在。 */
+  check(evidence_json: unknown): CheckResult;
 }
 
 /** 缺产物时的统一结果：告诉调用方缺哪个文件、用什么命令生成。 */

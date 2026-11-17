@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCommand } from '../src/host/command-runner';
+import { runCommand } from '../../src/host/command-runner';
 
 describe('runCommand：检查命令的执行与失败语义', () => {
   let dir: string;

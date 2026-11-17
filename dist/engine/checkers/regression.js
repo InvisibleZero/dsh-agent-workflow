@@ -24,10 +24,10 @@ export const regressionChecker = {
     autoRun: true,
     requiresTarget: true,
     buildCommand,
-    check(data) {
-        if (data === null)
+    check(evidence_json) {
+        if (evidence_json === null)
             return missingEvidence(EVIDENCE, `${buildCommand('http://127.0.0.1:3000')}`);
-        const root = asRecord(data);
+        const root = asRecord(evidence_json);
         // 1. autocannon 原始结果
         if (typeof root.requests === 'object' && root.requests !== null) {
             const requests = asRecord(root.requests);

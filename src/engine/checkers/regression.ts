@@ -34,9 +34,9 @@ export const regressionChecker: Checker = {
   autoRun: true,
   requiresTarget: true,
   buildCommand,
-  check(data: unknown): CheckResult {
-    if (data === null) return missingEvidence(EVIDENCE, `${buildCommand('http://127.0.0.1:3000')}`);
-    const root = asRecord(data);
+  check(evidence_json: unknown): CheckResult {
+    if (evidence_json === null) return missingEvidence(EVIDENCE, `${buildCommand('http://127.0.0.1:3000')}`);
+    const root = asRecord(evidence_json);
 
     // 1. autocannon 原始结果
     if (typeof root.requests === 'object' && root.requests !== null) {

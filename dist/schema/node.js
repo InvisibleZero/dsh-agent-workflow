@@ -73,6 +73,14 @@ export const AgentNode = z.object({
                 at: z.string(),
             }).nullable(),
         })),
+        checker_runs: z.array(z.object({
+            checker_id: z.string(),
+            ok: z.boolean(),
+            exit_code: z.number().int().nullable(),
+            findings: z.number().int().nonnegative(),
+            evidence: z.string().optional(),
+            at: z.string(),
+        })).optional(),
     }).optional(),
     /**
      * 状态迁移时间线：每次推进追加一条 { at, from, to }。

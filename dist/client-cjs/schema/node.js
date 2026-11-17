@@ -76,6 +76,14 @@ exports.AgentNode = zod_1.z.object({
                 at: zod_1.z.string(),
             }).nullable(),
         })),
+        checker_runs: zod_1.z.array(zod_1.z.object({
+            checker_id: zod_1.z.string(),
+            ok: zod_1.z.boolean(),
+            exit_code: zod_1.z.number().int().nullable(),
+            findings: zod_1.z.number().int().nonnegative(),
+            evidence: zod_1.z.string().optional(),
+            at: zod_1.z.string(),
+        })).optional(),
     }).optional(),
     /**
      * 状态迁移时间线：每次推进追加一条 { at, from, to }。

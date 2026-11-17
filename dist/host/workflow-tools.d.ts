@@ -18,6 +18,8 @@ export interface WorkflowToolsDeps {
     /** 插件自带的工具脚本目录：扩展工具的 script 相对这里解析。 */
     /** 插件 node_modules/.bin 的绝对路径：检查器跑命令时加进 PATH，让命令用插件自带的工具、不触发 npx 下载。 */
     nodeModulesBin?: string;
+    /** 插件根目录：脚本型检查器按 `<packageRoot>/scripts/<script>` 解析，window 缺它时脚本检查器直接报错。 */
+    packageRoot?: string;
     /** 检查器跑命令的执行器：测试注入用，默认是真跑。 */
     runCommand?: (input: {
         cwd: string;

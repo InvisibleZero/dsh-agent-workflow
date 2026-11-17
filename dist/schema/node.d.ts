@@ -223,6 +223,28 @@ export declare const AgentNode: z.ZodObject<{
                 }[] | undefined;
             } | null;
         }>, "many">;
+        checker_runs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            checker_id: z.ZodString;
+            ok: z.ZodBoolean;
+            exit_code: z.ZodNullable<z.ZodNumber>;
+            findings: z.ZodNumber;
+            evidence: z.ZodOptional<z.ZodString>;
+            at: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }, {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }>, "many">>;
     }, "strip", z.ZodTypeAny, {
         round: number;
         items: {
@@ -246,6 +268,14 @@ export declare const AgentNode: z.ZodObject<{
                 }[] | undefined;
             } | null;
         }[];
+        checker_runs?: {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }[] | undefined;
     }, {
         round: number;
         items: {
@@ -269,6 +299,14 @@ export declare const AgentNode: z.ZodObject<{
                 }[] | undefined;
             } | null;
         }[];
+        checker_runs?: {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }[] | undefined;
     }>>;
     /**
      * 状态迁移时间线：每次推进追加一条 { at, from, to }。
@@ -352,6 +390,14 @@ export declare const AgentNode: z.ZodObject<{
                 }[] | undefined;
             } | null;
         }[];
+        checker_runs?: {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }[] | undefined;
     } | undefined;
     history?: {
         at: string;
@@ -416,6 +462,14 @@ export declare const AgentNode: z.ZodObject<{
                 }[] | undefined;
             } | null;
         }[];
+        checker_runs?: {
+            at: string;
+            findings: number;
+            checker_id: string;
+            ok: boolean;
+            exit_code: number | null;
+            evidence?: string | undefined;
+        }[] | undefined;
     } | undefined;
     history?: {
         at: string;

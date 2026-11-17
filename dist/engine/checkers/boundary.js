@@ -18,8 +18,8 @@ export const boundaryChecker = {
     defaultTarget: DEFAULT_TARGET,
     autoRun: true,
     buildCommand: buildCommand,
-    check(data) {
-        return checkTestEvidence(data, EVIDENCE, buildCommand(DEFAULT_TARGET));
+    check(evidence_json) {
+        return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));
     },
 };
 //# sourceMappingURL=boundary.js.map

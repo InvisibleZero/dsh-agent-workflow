@@ -234,8 +234,8 @@ export declare const WorkflowSnapshot: z.ZodObject<{
     /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
     working_directory: z.ZodOptional<z.ZodString>;
     /**
-     * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
-     * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+     * 对应的宿主「目录工作区」id（这里的 host 指 DSH 宿主 App，不是本插件 src/host 模块）。
+     * 外部契约（落盘字段名）：旧快照已按这个键落盘，改名要迁移，故保持原名、勿改名。
      */
     host_workspace_id: z.ZodOptional<z.ZodString>;
     /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */
@@ -573,6 +573,28 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }>, "many">;
+            checker_runs: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                checker_id: z.ZodString;
+                ok: z.ZodBoolean;
+                exit_code: z.ZodNullable<z.ZodNumber>;
+                findings: z.ZodNumber;
+                evidence: z.ZodOptional<z.ZodString>;
+                at: z.ZodString;
+            }, "strip", z.ZodTypeAny, {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }, {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }>, "many">>;
         }, "strip", z.ZodTypeAny, {
             round: number;
             items: {
@@ -596,6 +618,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         }, {
             round: number;
             items: {
@@ -619,6 +649,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         }>>;
         history: z.ZodOptional<z.ZodArray<z.ZodObject<{
             at: z.ZodString;
@@ -697,6 +735,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         } | undefined;
         history?: {
             at: string;
@@ -761,6 +807,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         } | undefined;
         history?: {
             at: string;
@@ -855,6 +909,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         } | undefined;
         history?: {
             at: string;
@@ -952,6 +1014,14 @@ export declare const WorkflowSnapshot: z.ZodObject<{
                     }[] | undefined;
                 } | null;
             }[];
+            checker_runs?: {
+                at: string;
+                findings: number;
+                checker_id: string;
+                ok: boolean;
+                exit_code: number | null;
+                evidence?: string | undefined;
+            }[] | undefined;
         } | undefined;
         history?: {
             at: string;

@@ -4,7 +4,7 @@
  * 全是字符串/数组处理、不读盘：盘上的锚点校验在仓储（数据层），
  * 这里只判「报备本身是否说得清」——分层跟手册那套一致。
  */
-import { type VerificationState, type VerifyAnchor, type VerifyCheckDefinition, type VerifyFinding } from '../schema/verify-checks';
+import { type CheckerResult, type VerificationState, type VerifyAnchor, type VerifyCheckDefinition, type VerifyFinding } from '../schema/verify-checks';
 /** 报备里允许模型填写的那部分（round / at 由服务端补）。 */
 export interface VerifyReportInput {
     result: 'pass' | 'deferred';
@@ -12,11 +12,23 @@ export interface VerifyReportInput {
     anchors: VerifyAnchor[];
     command?: string;
     findings?: VerifyFinding[];
+    /** 检查器结果：第一层门禁读它，第二层门禁（兜底）靠它区分「跑失败」。 */
+    checker?: CheckerResult;
 }
 /** 数字或名称 → 条目 id；两种都认不出时抛错，并把可选项列出来。 */
 export declare function resolveVerifyCheckId(raw: unknown): number;
 /** 证据路径的形状限制：只允许工作目录内的相对路径，挡绝对路径与 ../。 */
 export declare function assertAnchorPathShape(file: string): void;
+/** 有检查器的验收项现在从 VERIFY_CHECKS 的 checker.enforcement 推导，不再硬编码 id 集合。 */
+/** 从报备入参里解析检查器结果：缺字段给 undefined，形状坏了抛错。 */
+export declare function parseCheckerResult(raw: unknown): CheckerResult | undefined;
+/**
+ * 两层门禁判定（纯函数，不读盘）：
+ * 第一层：有检查器的项报 pass 前必须带检查器结果，且 checker.ok=true（跑成且证据非空）。
+ * 第二层：检查器失败（报错/非0/证据空，即 ok=false）才准 AI 兜底，但兜底必须可复跑（带 command）。
+ * 返回 undefined = 通过；否则返回拒报理由。
+ */
+export declare function validateCheckerGate(check: VerifyCheckDefinition, checker: CheckerResult | undefined, result: 'pass' | 'deferred', command: string): string | undefined;
 /**
  * 校验报备的「说得清」部分，通过则返回规范化后的输入。
  *

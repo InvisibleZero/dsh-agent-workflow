@@ -36,8 +36,8 @@ exports.WorkflowSnapshot = zod_1.z.object({
     /** workflow 对应的本地工作目录（用户创建时选的那个文件夹）。可选，旧快照没有。 */
     working_directory: zod_1.z.string().optional(),
     /**
-     * 对应的宿主「目录工作区」id。workflow 工作区本身就是这个目录工作区，
-     * 只是渲染走类型插件；旧快照没有该字段，靠 working_directory 反查。
+     * 对应的宿主「目录工作区」id（这里的 host 指 DSH 宿主 App，不是本插件 src/host 模块）。
+     * 外部契约（落盘字段名）：旧快照已按这个键落盘，改名要迁移，故保持原名、勿改名。
      */
     host_workspace_id: zod_1.z.string().optional(),
     /** 是否置顶（只影响侧栏排序）。可选，旧快照没有 = 未置顶。 */

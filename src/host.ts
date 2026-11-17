@@ -416,6 +416,7 @@ export function apply(ctx: any) {
     stateContext,
     registryStore,
     nodeModulesBin,
+    packageRoot,
     recordToolEvent,
     isPresetSession,
     /**
@@ -803,7 +804,7 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const snapshot = await registryStore.snapshot();
-        // 扩展工具 = 出厂 5 个（代码里）+ 开发期额外登记的（tool-registry.json）。
+        // 扩展工具 = 出厂 6 个（代码里）+ 开发期额外登记的（tool-registry.json）。
         const extensionTools = [...EXTENSION_TOOLS, ...snapshot.entries];
         const extensionCount = extensionTools.length;
         logEvent(

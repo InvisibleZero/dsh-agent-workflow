@@ -20,7 +20,7 @@ export interface WorkflowStream {
     subscribe(listener: (event: WorkflowStreamEvent) => void): () => void;
 }
 /** 解析一帧；坏帧返回 null（不要因为一条脏数据把整个通道关掉）。 */
-export declare function parseWorkflowStreamFrame(data: string): WorkflowStreamEvent | null;
+export declare function parseWorkflowStreamFrame(frame_text: string): WorkflowStreamEvent | null;
 /**
  * @param openSource 真正打开连接；返回 null 表示环境不支持（浏览器没有 EventSource）。
  * @param onStatus 连接状态变化回调：用来在浏览器侧留一条埋点，区分「没收到推送」和「收到了没渲染」。

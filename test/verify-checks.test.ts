@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkflowRepository } from '../src/host/workflow-repository';
@@ -202,6 +202,15 @@ describe('验收七项：规则与门禁', () => {
   describe('接口层：工具与已完结前置', () => {
     it('报备落 ✓，并返回进度', async () => {
       const node = await seedAt('verifying');
+      // 先真跑一次 check_contract（等价于模型先调 workflow_tool_call），门禁才放行。
+      await repo.recordCheckerRun({
+        workflowId: node.workflowId,
+        nodeId: node.nodeId,
+        checkerId: 'contract',
+        ok: true,
+        findings: 0,
+        exit_code: 0,
+      });
       const { tool } = makeRuntime(repo, stateRef);
       const value = await tool('workflow_verify_report').execute({
         item: '1',
@@ -209,10 +218,104 @@ describe('验收七项：规则与门禁', () => {
         summary: '契约测试 12 项全过',
         anchors: [{ file: 'evidence.md', line: 1 }],
         command: 'node test.mjs',
+        checker: { checker_id: 'contract', ok: true, findings: 0, exit_code: 0 },
       }, exec);
       expect(value.value.item).toMatchObject({ id: 1, mark: 'pass' });
       expect(value.value.progress.pending).toBe(6);
       expect(node.nodeId).toBeTruthy();
+    });
+
+    it('有检查器的项报 pass 缺 checker 被拒（第一层门禁）', async () => {
+      const node = await seedAt('verifying');
+      const { tool } = makeRuntime(repo, stateRef);
+      await expect(tool('workflow_verify_report').execute({
+        item: '1',
+        result: 'pass',
+        summary: '契约测试 12 项全过',
+        anchors: [{ file: 'evidence.md', line: 1 }],
+        command: 'node test.mjs',
+      }, exec)).rejects.toThrow(/第一层门禁/);
+    });
+
+    it('有检查器的项报 pass 但没真跑过 check_* 被拒（强制使用门禁）', async () => {
+      const node = await seedAt('verifying');
+      const { tool } = makeRuntime(repo, stateRef);
+      await expect(tool('workflow_verify_report').execute({
+        item: '1',
+        result: 'pass',
+        summary: '契约测试 12 项全过',
+        anchors: [{ file: 'evidence.md', line: 1 }],
+        command: 'node test.mjs',
+        checker: { checker_id: 'contract', ok: true, findings: 0, exit_code: 0 },
+      }, exec)).rejects.toThrow(/强制使用门禁/);
+    });
+
+    it('提交的 checker 与工具真实输出不一致被拒（强制提交工具输出）', async () => {
+      const node = await seedAt('verifying');
+      await repo.recordCheckerRun({
+        workflowId: node.workflowId,
+        nodeId: node.nodeId,
+        checkerId: 'contract',
+        ok: false,
+        findings: 2,
+        exit_code: 0,
+      });
+      const { tool } = makeRuntime(repo, stateRef);
+      await expect(tool('workflow_verify_report').execute({
+        item: '1',
+        result: 'pass',
+        summary: '契约测试 12 项全过',
+        anchors: [{ file: 'evidence.md', line: 1 }],
+        command: 'node test.mjs',
+        checker: { checker_id: 'contract', ok: true, findings: 0, exit_code: 0 },
+      }, exec)).rejects.toThrow(/强制提交工具输出/);
+    });
+
+    it('报备锚点必须包含检查器证据文件（强制锚点归属）', async () => {
+      const node = await seedAt('verifying');
+      await repo.recordCheckerRun({
+        workflowId: node.workflowId,
+        nodeId: node.nodeId,
+        checkerId: 'contract',
+        ok: true,
+        findings: 0,
+        exit_code: 0,
+        evidence: '.workflow/evidence/contract.json',
+      });
+      // 造出证据文件，让锚点存在性校验能过。
+      await mkdir(join(workDir, '.workflow', 'evidence'), { recursive: true });
+      await writeFile(join(workDir, '.workflow', 'evidence', 'contract.json'), '{}', 'utf8');
+      const { tool } = makeRuntime(repo, stateRef);
+      const base = {
+        item: '1',
+        result: 'pass',
+        summary: '契约测试 12 项全过',
+        command: 'node test.mjs',
+        checker: { checker_id: 'contract', ok: true, findings: 0, exit_code: 0 },
+      };
+      // 锚点没指着证据文件 → 被拒
+      await expect(tool('workflow_verify_report').execute({
+        ...base,
+        anchors: [{ file: 'evidence.md', line: 1 }],
+      }, exec)).rejects.toThrow(/强制锚点归属/);
+      // 锚点指着证据文件 → 放行
+      const value = await tool('workflow_verify_report').execute({
+        ...base,
+        anchors: [{ file: '.workflow/evidence/contract.json' }],
+      }, exec);
+      expect(value.value.item).toMatchObject({ id: 1, mark: 'pass' });
+    });
+
+    it('没挂检查器的项（命名审查）报 pass 不要求真跑工具', async () => {
+      const node = await seedAt('verifying');
+      const { tool } = makeRuntime(repo, stateRef);
+      const value = await tool('workflow_verify_report').execute({
+        item: '5',
+        result: 'pass',
+        summary: '命名审查通过',
+        anchors: [{ file: 'evidence.md', line: 1 }],
+      }, exec);
+      expect(value.value.item).toMatchObject({ id: 5, mark: 'pass' });
     });
 
     it('AI 不能直接打勾，只能取消', async () => {

@@ -12,9 +12,9 @@ function buildCommand(target) {
     return `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`;
 }
 /** 从 vitest JSON 里抽失败用例名：给不出名字时返回空数组。 */
-function failedCaseNames(data) {
+function failedCaseNames(evidence_json) {
     const names = [];
-    for (const suite of asArray(asRecord(data).testResults)) {
+    for (const suite of asArray(asRecord(evidence_json).testResults)) {
         for (const test of asArray(asRecord(suite).assertionResults)) {
             const record = asRecord(test);
             if (asString(record.status) !== 'failed')
@@ -25,10 +25,10 @@ function failedCaseNames(data) {
     return names;
 }
 /** 第 1 / 4 项共用的判定：测试结果证据怎么判。 */
-export function checkTestEvidence(data, evidence, command) {
-    if (data === null)
+export function checkTestEvidence(evidence_json, evidence, command) {
+    if (evidence_json === null)
         return missingEvidence(evidence, command);
-    const root = asRecord(data);
+    const root = asRecord(evidence_json);
     // 格式不认识时必须报错，不能当「0 个失败」——那会把坏证据误判成通过。
     if (typeof root.numTotalTests !== 'number' || typeof root.numFailedTests !== 'number') {
         return {
@@ -44,7 +44,7 @@ export function checkTestEvidence(data, evidence, command) {
         findings.push({ location: evidence, problem: '证据里没有任何用例：空跑不算验证（0 个用例 ≠ 全过）' });
     }
     if (failed > 0) {
-        const names = failedCaseNames(data);
+        const names = failedCaseNames(evidence_json);
         if (names.length === 0)
             findings.push({ location: evidence, problem: `${failed} 个用例失败` });
         else
@@ -63,8 +63,8 @@ export const contractChecker = {
     defaultTarget: DEFAULT_TARGET,
     autoRun: true,
     buildCommand: buildCommand,
-    check(data) {
-        return checkTestEvidence(data, EVIDENCE, buildCommand(DEFAULT_TARGET));
+    check(evidence_json) {
+        return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));
     },
 };
 //# sourceMappingURL=contract.js.map

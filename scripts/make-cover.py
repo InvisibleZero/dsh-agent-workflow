@@ -9,6 +9,7 @@
 """
 
 from PIL import Image, ImageDraw, ImageFont
+from pathlib import Path
 
 COL_W = 400
 COLS = 3
@@ -35,7 +36,7 @@ CODE_BORDER = (44, 52, 66)
 
 FONT_REG = "C:/Windows/Fonts/msyh.ttc"
 FONT_BOLD = "C:/Windows/Fonts/msyhbd.ttc"
-OUT = r"C:\Users\QINBAI\Documents\deepseek-harness\default-workspace\dsh-agent-workflow\assets\cover.png"
+OUT = Path(__file__).resolve().parent.parent / "assets" / "cover.png"
 
 PANEL_TOP, PANEL_BOTTOM = 92, H - 16
 

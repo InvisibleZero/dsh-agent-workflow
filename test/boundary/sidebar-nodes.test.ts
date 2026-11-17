@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WorkflowRepository } from '../src/host/workflow-repository';
-import { readSidebarNodes } from '../src/host/sidebar-nodes';
+import { WorkflowRepository } from '../../src/host/workflow-repository';
+import { readSidebarNodes } from '../../src/host/sidebar-nodes';
 
 describe('侧栏状态点数据源（不依赖进程内名单）', () => {
   let dir: string;

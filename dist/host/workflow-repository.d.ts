@@ -365,6 +365,23 @@ export declare class WorkflowRepository {
      */
     getVerification(workflowId: string, nodeId: string): Promise<VerificationState>;
     /**
+     * 记录一次真实检查器运行（随本轮 verification 落盘）。
+     *
+     * 门禁靠它核对「这一项报 pass 前真的跑过 check_*、且提交的 checker 与真实输出一致」，
+     * 所以必须落快照而不是只留在进程内工具账里——宿主一重启工具账就清空，门禁会误伤。
+     * 它随 verification 一起在每次进「验收中」时被清掉，上一轮的运行不会带到下一轮。
+     */
+    recordCheckerRun(input: {
+        workflowId: string;
+        nodeId: string;
+        checkerId: string;
+        ok: boolean;
+        findings: number;
+        exit_code: number | null;
+        /** 检查器生成/读取的证据文件（工作目录内相对路径），报备锚点要继续核对它。 */
+        evidence?: string;
+    }): Promise<void>;
+    /**
      * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
      *
      * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。

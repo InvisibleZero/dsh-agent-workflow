@@ -7,6 +7,8 @@
 import {
   VERIFY_CHECKS,
   createVerification,
+  type CheckerResult,
+  type CheckerRun,
   type VerificationState,
   type VerifyAnchor,
   type VerifyCheckDefinition,
@@ -23,6 +25,8 @@ export interface VerifyReportInput {
   anchors: VerifyAnchor[];
   command?: string;
   findings?: VerifyFinding[];
+  /** 检查器结果：第一层门禁读它，第二层门禁（兜底）靠它区分「跑失败」。 */
+  checker?: CheckerResult;
 }
 
 /** 数字或名称 → 条目 id；两种都认不出时抛错，并把可选项列出来。 */
@@ -50,6 +54,58 @@ export function assertAnchorPathShape(file: string): void {
   if (normalized.split('/').some((segment) => segment === '..')) {
     throw new Error(`证据路径不能含 ..（不许跑出工作目录）：${file}`);
   }
+}
+
+/** 有检查器的验收项现在从 VERIFY_CHECKS 的 checker.enforcement 推导，不再硬编码 id 集合。 */
+
+/** 从报备入参里解析检查器结果：缺字段给 undefined，形状坏了抛错。 */
+export function parseCheckerResult(raw: unknown): CheckerResult | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('checker 必须是对象：{ checker_id, ok, findings, exit_code }');
+  }
+  const record = raw as Record<string, unknown>;
+  const checker_id = typeof record.checker_id === 'string' ? record.checker_id.trim() : '';
+  if (checker_id === '') throw new Error('checker.checker_id 不能为空');
+  const ok = record.ok;
+  if (typeof ok !== 'boolean') throw new Error('checker.ok 必须是布尔值');
+  const findings = record.findings;
+  if (typeof findings !== 'number' || !Number.isInteger(findings) || findings < 0) {
+    throw new Error('checker.findings 必须是非负整数');
+  }
+  const exitCodeRaw = record.exit_code;
+  if (exitCodeRaw !== null && exitCodeRaw !== undefined
+    && (typeof exitCodeRaw !== 'number' || !Number.isInteger(exitCodeRaw))) {
+    throw new Error('checker.exit_code 必须是整数或 null');
+  }
+  const exit_code: number | null = exitCodeRaw === undefined || exitCodeRaw === null
+    ? null
+    : (exitCodeRaw as number);
+  return { checker_id, ok, findings, exit_code };
+}
+
+/**
+ * 两层门禁判定（纯函数，不读盘）：
+ * 第一层：有检查器的项报 pass 前必须带检查器结果，且 checker.ok=true（跑成且证据非空）。
+ * 第二层：检查器失败（报错/非0/证据空，即 ok=false）才准 AI 兜底，但兜底必须可复跑（带 command）。
+ * 返回 undefined = 通过；否则返回拒报理由。
+ */
+export function validateCheckerGate(
+  check: VerifyCheckDefinition,
+  checker: CheckerResult | undefined,
+  result: 'pass' | 'deferred',
+  command: string,
+): string | undefined {
+  // 只有 required 型检查器才走门禁；assistive（或没挂检查器）的项照旧由 AI 判断。
+  if (check.checker?.enforcement !== 'required') return undefined;
+  if (result !== 'pass') return undefined;
+  if (checker === undefined) {
+    return `「${check.name}」有检查器，报 pass 前必须先跑对应 check_* 并带 checker 结果（第一层门禁）`;
+  }
+  if (checker.ok === false && command === '') {
+    return `「${check.name}」检查器失败（报错/非0/证据空），报 pass 属 AI 兜底，必须带可复跑命令 command（第二层门禁）`;
+  }
+  return undefined;
 }
 
 /**
@@ -105,13 +161,35 @@ export function validateVerifyReportInput(check: VerifyCheckDefinition, raw: any
     });
   }
 
+  const checker = parseCheckerResult(raw?.checker);
+  const gateError = validateCheckerGate(check, checker, result, command);
+  if (gateError !== undefined) throw new Error(gateError);
+
   return {
     result,
     summary,
     anchors,
     ...(command === '' ? {} : { command }),
     ...(findings.length === 0 ? {} : { findings }),
+    ...(checker === undefined ? {} : { checker }),
   };
+}
+
+/** 从任意 JSON 里收一条检查器运行记录；形状不对就给 null（被 pickVerification 丢弃）。 */
+function normalizeCheckerRun(raw: unknown): CheckerRun | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const checker_id = typeof record.checker_id === 'string' ? record.checker_id : '';
+  const at = typeof record.at === 'string' ? record.at : '';
+  if (checker_id === '' || at === '') return null;
+  const ok = record.ok === true;
+  const findings = typeof record.findings === 'number' && Number.isInteger(record.findings) && record.findings >= 0
+    ? record.findings
+    : 0;
+  const exitRaw = record.exit_code;
+  const exit_code = typeof exitRaw === 'number' || exitRaw === null ? (exitRaw as number | null) : null;
+  const evidence = typeof record.evidence === 'string' && record.evidence !== '' ? record.evidence : undefined;
+  return { checker_id, ok, exit_code, findings, ...(evidence === undefined ? {} : { evidence }), at };
 }
 
 /**
@@ -120,7 +198,7 @@ export function validateVerifyReportInput(check: VerifyCheckDefinition, raw: any
  */
 export function pickVerification(raw: unknown): VerificationState {
   if (raw === null || typeof raw !== 'object') return createVerification(0);
-  const source = raw as { round?: unknown; items?: unknown };
+  const source = raw as { round?: unknown; items?: unknown; checker_runs?: unknown };
   const round = typeof source.round === 'number' && Number.isInteger(source.round) && source.round >= 0
     ? source.round
     : 0;
@@ -134,7 +212,12 @@ export function pickVerification(raw: unknown): VerificationState {
       : null;
     return { id: check.id, mark: report === null ? 'pending' : mark, report };
   });
-  return { round, items };
+  const checker_runs: CheckerRun[] = Array.isArray(source.checker_runs)
+    ? source.checker_runs
+      .map((run) => normalizeCheckerRun(run))
+      .filter((run): run is CheckerRun => run !== null)
+    : [];
+  return { round, items, checker_runs };
 }
 
 export interface VerificationSummary {

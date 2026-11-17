@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apply, inject } from '../src/client/dsh-plugin';
+import { apply, inject } from '../../src/client/dsh-plugin';
 
 // ui-primitives 是宿主模块表提供的 dsh 内部模块，插件 node_modules 里没有；
 // 单测里 mock 掉，只保证模块能加载（组件渲染不在本测试范围）。

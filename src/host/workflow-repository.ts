@@ -12,7 +12,7 @@ import {
   type ManualLimits,
 } from '../schema/manual-limits';
 import type { AgentNode } from '../schema/node';
-import { VERIFY_CHECKS, createVerification, type VerificationState, type VerifyItem, type VerifyMark, type VerifyReport } from '../schema/verify-checks';
+import { VERIFY_CHECKS, createVerification, type CheckerRun, type VerificationState, type VerifyItem, type VerifyMark, type VerifyReport } from '../schema/verify-checks';
 import { pickVerification, type VerifyReportInput } from '../engine/verify-rules';
 import { headingText, parseChecklist, parseHasPlan, pickSectionBody, splitManualSections, stripHtmlComments } from '../engine/manual-parse';
 import {
@@ -1431,6 +1431,52 @@ export class WorkflowRepository {
   }
 
   /**
+   * 记录一次真实检查器运行（随本轮 verification 落盘）。
+   *
+   * 门禁靠它核对「这一项报 pass 前真的跑过 check_*、且提交的 checker 与真实输出一致」，
+   * 所以必须落快照而不是只留在进程内工具账里——宿主一重启工具账就清空，门禁会误伤。
+   * 它随 verification 一起在每次进「验收中」时被清掉，上一轮的运行不会带到下一轮。
+   */
+  async recordCheckerRun(input: {
+    workflowId: string;
+    nodeId: string;
+    checkerId: string;
+    ok: boolean;
+    findings: number;
+    exit_code: number | null;
+    /** 检查器生成/读取的证据文件（工作目录内相对路径），报备锚点要继续核对它。 */
+    evidence?: string;
+  }): Promise<void> {
+    await this.serial(input.workflowId, async () => {
+      const snapshot = await this.storage.load(input.workflowId);
+      if (snapshot === null) throw new Error('找不到该 workflow');
+      const node = snapshot.nodes.find((candidate) => candidate.node_id === input.nodeId);
+      if (node === undefined) throw new Error('找不到节点');
+      const current = pickVerification(node.verification);
+      const run: CheckerRun = {
+        checker_id: input.checkerId,
+        ok: input.ok,
+        findings: input.findings,
+        exit_code: input.exit_code,
+        ...(typeof input.evidence === 'string' && input.evidence !== '' ? { evidence: input.evidence } : {}),
+        at: new Date().toISOString(),
+      };
+      const nextState: VerificationState = {
+        round: current.round,
+        items: current.items,
+        checker_runs: [...current.checker_runs, run],
+      };
+      const updated: WorkflowSnapshot = {
+        ...snapshot,
+        nodes: snapshot.nodes.map((candidate) => (
+          candidate.node_id === input.nodeId ? { ...candidate, verification: nextState } : candidate
+        )),
+      };
+      await this.storage.save(updated);
+    });
+  }
+
+  /**
    * 提交一项验收报备：先校验锚点确实落在工作目录里，再落标记。
    *
    * 标记只由这里产生：pass → ✓，deferred → ？。没有这条路径，任何条目都停在 ○。
@@ -1459,6 +1505,7 @@ export class WorkflowRepository {
       const nextState: VerificationState = {
         round: current.round,
         items: current.items.map((entry) => (entry.id === input.itemId ? { id: entry.id, mark, report } : entry)),
+        checker_runs: current.checker_runs,
       };
       const updated: WorkflowSnapshot = {
         ...snapshot,
@@ -1491,6 +1538,7 @@ export class WorkflowRepository {
         items: current.items.map((entry) => (
           entry.id === input.itemId ? { id: entry.id, mark: 'pending' as VerifyMark, report: null } : entry
         )),
+        checker_runs: current.checker_runs,
       };
       const updated: WorkflowSnapshot = {
         ...snapshot,

@@ -73,6 +73,22 @@ export function registerWorkflowGuard(ctx, deps) {
         }));
     });
 }
+/** 把工具调用结果压成一行回给模型：检查器要亮出 ok/findings/exit_code，不能只说「已调用」。 */
+function renderToolCallResult(value) {
+    const head = `已调用 ${value?.name ?? ''}`;
+    const inner = value?.value;
+    if (inner && typeof inner.checker === 'string') {
+        const okText = inner.ok === true ? '检查通过' : '检查未通过';
+        const findingsCount = Array.isArray(inner.findings) ? inner.findings.length : 0;
+        const exitText = inner.exit_code === null || inner.exit_code === undefined ? 'exit=n/a' : `exit=${inner.exit_code}`;
+        const problems = Array.isArray(inner.findings)
+            ? inner.findings.map((finding) => (finding?.problem ? String(finding.problem) : JSON.stringify(finding))).join('；')
+            : '';
+        return `${head}（${okText}，findings=${findingsCount}，${exitText}）${problems === '' ? '' : `：${problems}`}`;
+    }
+    const message = inner?.message;
+    return message ? `${head}：${message}` : head;
+}
 /**
  * 注册两个模型工具：网关调用与工具登记。
  *
@@ -124,7 +140,7 @@ export function registerWorkflowTools(ctx, deps) {
                 },
                 render: (_args, value) => [{
                         type: 'text',
-                        text: `已调用 ${value.name}${value.value?.message ? `：${value.value.message}` : ''}`,
+                        text: renderToolCallResult(value),
                     }],
             },
             execute: async (args, exec) => {
@@ -206,7 +222,7 @@ export function registerWorkflowTools(ctx, deps) {
                     description: { type: 'string', description: '说明：做什么、什么时候用（≤400 字）；第一句会被注入系统提示，要能独立说明用途。' },
                     run: {
                         type: 'object',
-                        description: '{kind:"checker",checker:"deps"}；checker 必须是内置检查器 id：contract / deps / deadcode / boundary / regression。',
+                        description: '{kind:"checker",checker:"deps"}；checker 必须是内置检查器 id：contract / deps / deadcode / boundary / regression / instrumentation。',
                         additionalProperties: true,
                     },
                     effect: { type: 'string', enum: ['read-state', 'write-state', 'exec'], description: '副作用分级；跑外部进程用 exec。' },
@@ -394,6 +410,19 @@ async function invokeBaseTool(deps, name, args, sessionId) {
         default: throw new Error(`未知的基础工具：${name}`);
     }
 }
+/** 检查器命令：脚本型走 `node <packageRoot>/scripts/<script>`，其余拼检查器自带模板（调用方不能传命令）。 */
+function commandForChecker(checker, target, packageRoot) {
+    if (checker.script !== undefined) {
+        if (typeof packageRoot !== 'string' || packageRoot === '') {
+            throw new Error(`检查器「${checker.id}」用脚本执行，但宿主没给出 packageRoot：先修宿主注入`);
+        }
+        return `node "${join(packageRoot, 'scripts', checker.script)}"`;
+    }
+    if (typeof checker.buildCommand !== 'function') {
+        throw new Error(`检查器「${checker.id}」既没有 script 也没有 buildCommand`);
+    }
+    return checker.buildCommand(target);
+}
 /**
  * 扩展工具：先在工作目录执行检查器自带的命令，再读产物判定。
  *
@@ -416,7 +445,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
         throw new Error('该 workflow 没有工作目录，检查器跑不了：先给它指定工作目录');
     }
     const target = resolveCheckerTarget(args?.target, checker);
-    const command = checker.buildCommand(target);
+    const command = commandForChecker(checker, target, deps.packageRoot);
     const evidencePath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
     await mkdir(dirname(evidencePath), { recursive: true });
     let commandResult = null;
@@ -424,10 +453,10 @@ async function invokeChecker(deps, entry, args, sessionId) {
         const execute = deps.runCommand ?? runCommand;
         commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
     }
-    let data = null;
+    let evidence_json = null;
     let parseError = '';
     try {
-        data = JSON.parse(await readFile(evidencePath, 'utf8'));
+        evidence_json = JSON.parse(await readFile(evidencePath, 'utf8'));
     }
     catch (error) {
         const code = error?.code;
@@ -435,12 +464,28 @@ async function invokeChecker(deps, entry, args, sessionId) {
             parseError = String(error?.message ?? error);
     }
     const result = parseError === ''
-        ? checker.check(data)
+        ? checker.check(evidence_json)
         : {
             ok: false,
             findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
             stats: {},
         };
+    // 把这次真实运行落进快照，让报备门禁能核对「真跑没跑、结果对不对」。落盘失败只记 warn，
+    // 不把检查器本身打挂——门禁后续会按「没跑过」拒绝，那是对的方向（fail-closed）。
+    try {
+        await deps.repository.recordCheckerRun?.({
+            workflowId: found.workflowId,
+            nodeId: found.nodeId,
+            checkerId: checker.id,
+            ok: result.ok,
+            findings: result.findings.length,
+            exit_code: commandResult?.exit_code ?? null,
+            evidence: `.workflow/evidence/${checker.evidence}`,
+        });
+    }
+    catch (error) {
+        logEvent(deps.logger, 'warn', `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String(error?.message ?? error)}`);
+    }
     logEvent(deps.logger, 'info', `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, `
         + `auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? 'n/a')}, `
         + `ok=${String(result.ok)}, findings=${result.findings.length}, ${commandResult?.ms ?? 0}ms)`);
@@ -632,6 +677,45 @@ async function invokeVerifyReport(deps, sessionId, args) {
     if (check === undefined)
         throw new Error(`没有 ${itemId} 号验收项`);
     const report = validateVerifyReportInput(check, args);
+    // 至少跑一次门禁：协助型但要求「本轮至少跑过一次」的项（第 6 项埋点检测），
+    // 只查有没有真调用记录，不卡 ok——结果仍由 AI 判断。扫描是唯一确定性证据，不拦就白设计了。
+    const checkerMeta = check.checker;
+    if (checkerMeta?.require_run === true && report.result === 'pass') {
+        const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+        const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);
+        if (runs.length === 0) {
+            const toolName = `check_${checkerMeta.id}`;
+            throw new Error(`「${check.name}」报 pass 前本轮至少要跑过一次 ${toolName}（先扫描已有埋点）；没扫就声称到位不算数（至少跑一次门禁）`);
+        }
+    }
+    // 强制使用门禁 + 强制提交工具输出：required 型检查器报 pass 前，必须真跑过对应 check_* 且提交真实输出。
+    if (checkerMeta?.enforcement === 'required' && report.result === 'pass') {
+        const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
+        const toolName = `check_${checkerMeta.id}`;
+        const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);
+        const latest = runs.length > 0 ? runs[runs.length - 1] : undefined;
+        if (latest === undefined) {
+            throw new Error(`「${check.name}」报 pass 前必须先真的跑过 ${toolName}（用 workflow_tool_call 调用），不是只在报备里填 checker 结果（强制使用门禁）`);
+        }
+        const submitted = report.checker;
+        const okMatch = submitted?.ok === latest.ok;
+        const findingsMatch = submitted?.findings === latest.findings;
+        const submittedExit = submitted?.exit_code ?? null;
+        const exitMatch = submittedExit === null || submittedExit === latest.exit_code;
+        if (!okMatch || !findingsMatch || !exitMatch) {
+            throw new Error(`提交的 checker 与 ${toolName} 的真实输出不一致（强制提交工具输出）：最近一次是 ok=${latest.ok}、findings=${latest.findings}、exit=${latest.exit_code ?? 'n/a'}，请以工具返回为准`);
+        }
+        // 锚点归属：报备至少要有一条锚点指着本次检查器生成的证据文件，防止「跑了 check_contract、锚点却挂别的文件」。
+        const evidence = latest.evidence;
+        if (typeof evidence === 'string' && evidence !== '') {
+            const normalize = (file) => file.replace(/\\/g, '/').replace(/^\.\//, '');
+            const target = normalize(evidence);
+            const hasEvidenceAnchor = report.anchors.some((anchor) => normalize(anchor.file) === target);
+            if (!hasEvidenceAnchor) {
+                throw new Error(`报备锚点必须包含本次 ${toolName} 生成的证据文件「${evidence}」（强制锚点归属）：不要把检查器结果挂在别的文件上`);
+            }
+        }
+    }
     const { state } = await deps.repository.submitVerifyReport({
         workflowId: found.workflowId,
         nodeId: found.nodeId,

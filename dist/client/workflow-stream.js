@@ -10,9 +10,9 @@
  */
 import { reportClientEvent } from './client-log';
 /** 解析一帧；坏帧返回 null（不要因为一条脏数据把整个通道关掉）。 */
-export function parseWorkflowStreamFrame(data) {
+export function parseWorkflowStreamFrame(frame_text) {
     try {
-        const parsed = JSON.parse(String(data ?? ''));
+        const parsed = JSON.parse(String(frame_text ?? ''));
         if (typeof parsed?.sessionId !== 'string' || parsed.sessionId === '')
             return null;
         return {

@@ -2,6 +2,26 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.1] - 2026-11-17
+
+七项验收第 6 项「埋点检测」接上**协助工具** `check_instrumentation`：扫已有埋点回填 → 建排查路径树 + 节点 KV → 工具按函数名锚点直接补插埋点 → 校验计划结构。第 6 项报 pass 前本轮至少要跑过一次扫描（结果仍由 AI 判）。
+
+### 新增
+
+- **埋点计划证据模型**（`src/schema/instrumentation.ts` + `src/host/instrumentation-store.ts`）：`tree`（根 none → bug 标签 → 递归「路径=埋点」节点）+ 节点 KV（key=函数名+事件名，去重）。
+- **结构规则**（`src/engine/instrumentation-rules.ts`）：`validateInstrumentation`（深≤4 / 每节点子≤5 / 单棵≤50 / KV≤200 / 去重 / 孤儿 / 版本一致）+ `diffNodes`（按事件名回填）。
+- **`instrumentation` 检查器 + `check_instrumentation` 工具**（`effect=exec`，验收中可用），跑插件自带脚本 `scripts/instrument-apply.mjs`：grep 扫 `logEvent(` / `clientLog(`、按函数名锚点保守插埋点、重扫自证。
+- **「至少跑一次」门禁**：`CheckerRequirement.require_run`——协助型检查器也可要求本轮至少跑过一次，但不卡 ok。
+
+### 变更
+
+- `VERIFY_CHECKS[6]` 从「无检查器」改成 `{ id: instrument, enforcement: assistive, require_run: true }`。
+- `Checker` 契约新增 `script?`（插件自带脚本型检查器），`buildCommand` 改为可选。
+
+### 修复
+
+- 埋点扫描跳过注释与字符串里的 `logEvent(` 字样，不再把注释当调用、污染「已有埋点」清单与「照抄形态」。
+
 ## [0.8.0] - 2026-11-13
 
 七项验收的前五项接上**社区工具**：检查器自己执行命令、自己读产物、自己报不合格；工具定义随插件分发，克隆即用。
