@@ -3172,28 +3172,6 @@ function normalizePytestReport(raw) {
     numFailedTests: asNumber2(summary.failed) + asNumber2(summary.error)
   };
 }
-function normalizeGoTestJson(raw) {
-  let total = 0;
-  let failed = 0;
-  for (const line of raw.split(/\r?\n/)) {
-    if (line.trim() === "") continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const record = asObject(event);
-    const test = record.Test;
-    const action = record.Action;
-    if (typeof test !== "string" || test === "") continue;
-    if (action === "pass" || action === "fail" || action === "skip") {
-      total += 1;
-      if (action === "fail") failed += 1;
-    }
-  }
-  return { numTotalTests: total, numFailedTests: failed };
-}
 function normalizeImportLinter(raw) {
   const violations = [];
   let currentContract = "";
@@ -3230,40 +3208,13 @@ function normalizeVulture(raw) {
   }
   return { issues };
 }
-function normalizeGoBuild(raw) {
-  const violations = [];
-  if (raw.includes("import cycle not allowed")) {
-    const chain = raw.split(/\r?\n/).map((line) => /imports\s+([^\s:]+)/.exec(line)?.[1] ?? "").filter((pkg) => pkg !== "");
-    for (let index = 0; index + 1 < chain.length; index += 1) {
-      violations.push({
-        from: chain[index] ?? "",
-        to: chain[index + 1] ?? "",
-        rule: { name: "import-cycle", severity: "error" }
-      });
-    }
-    if (violations.length === 0) {
-      violations.push({ from: "?", to: "?", rule: { name: "import-cycle", severity: "error" } });
-    }
-  }
-  return { summary: { violations } };
-}
-function normalizeStaticcheck(raw) {
-  const issues = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const match = /^(.+?):(\d+):(\d+):\s+(U\d+):\s*(.+)$/.exec(line.trim());
-    if (match === null) continue;
-    issues.push({ file: match[1] ?? "", files: [], exports: [{ name: match[5] ?? "" }] });
-  }
-  return { issues };
-}
 
 // src/engine/checkers/contract.ts
 var EVIDENCE = "contract.json";
 var DEFAULT_TARGET = "test";
 var CONTRACT_COMMANDS = {
   js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`,
-  go: (_target, tools) => `"${tools.go ?? "go"}" test -json ./... > .workflow/evidence/${EVIDENCE}`
+  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`
 };
 function buildCommand(target) {
   return CONTRACT_COMMANDS.js(target, {});
@@ -3312,7 +3263,7 @@ var contractChecker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommands: CONTRACT_COMMANDS,
-  normalizers: { python: normalizePytestReport, go: normalizeGoTestJson },
+  normalizers: { python: normalizePytestReport },
   buildCommand,
   check(evidence_json) {
     return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));
@@ -3324,8 +3275,7 @@ var EVIDENCE2 = "boundary.json";
 var DEFAULT_TARGET2 = "test/boundary";
 var BOUNDARY_COMMANDS = {
   js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE2}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE2}`,
-  go: (_target, tools) => `"${tools.go ?? "go"}" test -json ./... > .workflow/evidence/${EVIDENCE2}`
+  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE2}`
 };
 function buildCommand2(target) {
   return BOUNDARY_COMMANDS.js(target, {});
@@ -3337,7 +3287,7 @@ var boundaryChecker = {
   defaultTarget: DEFAULT_TARGET2,
   autoRun: true,
   buildCommands: BOUNDARY_COMMANDS,
-  normalizers: { python: normalizePytestReport, go: normalizeGoTestJson },
+  normalizers: { python: normalizePytestReport },
   buildCommand: buildCommand2,
   check(evidence_json) {
     return checkTestEvidence(evidence_json, EVIDENCE2, buildCommand2(DEFAULT_TARGET2));
@@ -3380,8 +3330,7 @@ var buildChecker = {
 var EVIDENCE4 = "deadcode.json";
 var DEADCODE_COMMANDS = {
   js: () => `knip --reporter json > .workflow/evidence/${EVIDENCE4}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m vulture . > .workflow/evidence/${EVIDENCE4}`,
-  go: (_target, tools) => `"${tools.staticcheck ?? "staticcheck"}" ./... > .workflow/evidence/${EVIDENCE4}`
+  python: (_target, tools) => `"${tools.python ?? "python"}" -m vulture . > .workflow/evidence/${EVIDENCE4}`
 };
 function buildCommand3(_target) {
   return DEADCODE_COMMANDS.js(_target, {});
@@ -3394,7 +3343,7 @@ var deadcodeChecker = {
   defaultTarget: "",
   autoRun: true,
   buildCommands: DEADCODE_COMMANDS,
-  normalizers: { python: normalizeVulture, go: normalizeStaticcheck },
+  normalizers: { python: normalizeVulture },
   buildCommand: buildCommand3,
   check(evidence_json) {
     if (evidence_json === null) return missingEvidence(EVIDENCE4, buildCommand3(""));
@@ -3431,8 +3380,7 @@ var EVIDENCE5 = "deps.json";
 var DEFAULT_TARGET3 = "src";
 var DEPS_COMMANDS = {
   js: (target) => `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE5}`,
-  python: (_target, tools) => `"${tools.lintImports ?? "lint-imports"}" > .workflow/evidence/${EVIDENCE5}`,
-  go: (_target, tools) => `"${tools.go ?? "go"}" build ./... > .workflow/evidence/${EVIDENCE5}`
+  python: (_target, tools) => `"${tools.lintImports ?? "lint-imports"}" > .workflow/evidence/${EVIDENCE5}`
 };
 function buildCommand4(target) {
   return DEPS_COMMANDS.js(target, {});
@@ -3444,7 +3392,7 @@ var depsChecker = {
   defaultTarget: DEFAULT_TARGET3,
   autoRun: true,
   buildCommands: DEPS_COMMANDS,
-  normalizers: { python: normalizeImportLinter, go: normalizeGoBuild },
+  normalizers: { python: normalizeImportLinter },
   buildCommand: buildCommand4,
   check(evidence_json) {
     if (evidence_json === null) return missingEvidence(EVIDENCE5, buildCommand4(DEFAULT_TARGET3));
@@ -3926,7 +3874,6 @@ import { join as join4 } from "node:path";
 // src/engine/checkers/stack.ts
 function stackFromMarkers(markers) {
   if (markers.pyproject) return "python";
-  if (markers.gomod) return "go";
   if (markers.packageJson) return "js";
   return null;
 }
@@ -3942,12 +3889,11 @@ async function exists(file) {
 }
 async function detectStack(workingDirectory) {
   if (typeof workingDirectory !== "string" || workingDirectory === "") return null;
-  const [pyproject, gomod, packageJson] = await Promise.all([
+  const [pyproject, packageJson] = await Promise.all([
     exists(join4(workingDirectory, "pyproject.toml")),
-    exists(join4(workingDirectory, "go.mod")),
     exists(join4(workingDirectory, "package.json"))
   ]);
-  return stackFromMarkers({ pyproject, gomod, packageJson });
+  return stackFromMarkers({ pyproject, packageJson });
 }
 
 // src/host/tool-locate.ts
@@ -3974,29 +3920,6 @@ async function resolvePython(deps = {}) {
     if (await exists2(candidate)) return candidate;
   }
   return null;
-}
-async function resolveGo(deps = {}) {
-  const env = deps.env ?? process.env;
-  const home = deps.home ?? homedir();
-  const platform = deps.platform ?? process.platform;
-  const exists2 = deps.exists ?? defaultExists;
-  const fromEnv = typeof env.DSH_GO === "string" ? env.DSH_GO.trim() : "";
-  if (fromEnv !== "" && await exists2(fromEnv)) return fromEnv;
-  const candidates = platform === "win32" ? [
-    "C:\\Program Files\\Go\\bin\\go.exe",
-    "C:\\Program Files (x86)\\Go\\bin\\go.exe"
-  ] : [
-    "/usr/local/go/bin/go",
-    join5(home, "go", "bin", "go"),
-    "/usr/bin/go"
-  ];
-  for (const candidate of candidates) {
-    if (await exists2(candidate)) return candidate;
-  }
-  return null;
-}
-function vendoredStaticcheck(packageRoot) {
-  return join5(packageRoot, "tools", "staticcheck", process.platform === "win32" ? "staticcheck.exe" : "staticcheck");
 }
 function pythonScriptsDir(pythonPath) {
   const dir = dirname3(pythonPath);
@@ -4317,14 +4240,10 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
   }
   return checker.buildCommand(target);
 }
-async function resolveToolsFor(stack, packageRoot) {
+async function resolveToolsFor(stack) {
   if (stack === "python") {
     const python = await resolvePython();
     return python === null ? null : { python, lintImports: lintImportsPath(python) };
-  }
-  if (stack === "go") {
-    const go = await resolveGo();
-    return go === null ? null : { go, staticcheck: vendoredStaticcheck(packageRoot ?? "") };
   }
   return {};
 }
@@ -4343,9 +4262,9 @@ async function invokeChecker(deps, entry, args, sessionId) {
   }
   const target = resolveCheckerTarget(args?.target, checker);
   const stack = await detectStack(workingDirectory);
-  const tools = await resolveToolsFor(stack, deps.packageRoot);
+  const tools = await resolveToolsFor(stack);
   if (tools === null) {
-    const missing = stack === "python" ? "DSH Python" : "go";
+    const missing = "DSH Python";
     const findings = [{
       location: checker.evidence,
       problem: `\u5DE5\u5177\u7F3A\u5931\uFF1A${missing} \u6CA1\u627E\u5230\uFF08\u5148\u88C5/\u914D\u7F6E\u597D\u518D\u91CD\u8BD5\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E\uFF09`

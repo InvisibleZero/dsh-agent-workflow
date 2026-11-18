@@ -16,8 +16,6 @@ export interface CheckerTools {
   python?: string;
   /** import-linter 没有 __main__，只能用 console script `lint-imports`。 */
   lintImports?: string;
-  go?: string;
-  staticcheck?: string;
 }
 
 export interface CheckerFinding {

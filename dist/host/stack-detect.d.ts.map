@@ -1,1 +1,1 @@
-{"version":3,"file":"stack-detect.d.ts","sourceRoot":"","sources":["../../src/host/stack-detect.ts"],"names":[],"mappings":"AAQA,OAAO,EAAoB,KAAK,KAAK,EAAE,MAAM,0BAA0B,CAAC;AAWxE,6CAA6C;AAC7C,wBAAsB,WAAW,CAAC,gBAAgB,EAAE,MAAM,GAAG,OAAO,CAAC,KAAK,GAAG,IAAI,CAAC,CAQjF"}
+{"version":3,"file":"stack-detect.d.ts","sourceRoot":"","sources":["../../src/host/stack-detect.ts"],"names":[],"mappings":"AAQA,OAAO,EAAoB,KAAK,KAAK,EAAE,MAAM,0BAA0B,CAAC;AAWxE,6CAA6C;AAC7C,wBAAsB,WAAW,CAAC,gBAAgB,EAAE,MAAM,GAAG,OAAO,CAAC,KAAK,GAAG,IAAI,CAAC,CAOjF"}

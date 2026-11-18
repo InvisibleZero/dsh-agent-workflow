@@ -2,13 +2,12 @@
 
 本插件的七项验收里，机器检查交给成熟的社区工具做——插件只负责**执行它们、解析产物**并报出不合格项。
 
-工具按三种方式随插件分发：
+工具按两种方式随插件分发：
 
 1. **JS 工具**（vitest / dependency-cruiser / knip / autocannon）：列在 `package.json` 的 `dependencies` 里，npm 安装即带。
 2. **Python 工具**（pytest / pytest-json-report / import-linter / vulture + 依赖）：以 wheel 形式放在 `python-wheels/`，`postinstall` 用 `pip install --no-index` 离线装进 DSH 自带的 Python。**这套 wheel 是 Windows + CPython 3.12（amd64）专用**（grimp 是编译扩展）。
-3. **Go 工具**（staticcheck）：单文件二进制放在 `tools/staticcheck/staticcheck.exe`。
 
-例外：Go 的 `go build` / `go test` 需要完整 Go 工具链，**不随插件分发**；探测不到就降级 AI 证据。
+Go 支持已撤：Go 的机器验（`go build` / `go test` / staticcheck）不再提供，Go 项目全部降级 AI 证据。
 
 下面列出的每一个项目，都是某一项验收的真正实现者——插件做的是调用、判定与记录。
 
@@ -86,26 +85,13 @@
 
 ---
 
-## Go 工具（`tools/` 二进制）
-
-### staticcheck
-
-- **作者 / 维护者**：Dominik Honnef（dominikh）与贡献者
-- **项目地址**：<https://github.com/dominikh/go-tools>
-- **License**：MIT
-- **插件怎么用**：第 3 项（Go 栈）跑 vendored 的 `staticcheck ./...`，解析 `file:line:col: U1000: ...`
-- **致谢**：Go 静态分析的标杆
-
----
-
 ## 说明
 
 - JS 工具由本插件声明为运行依赖，随插件一起安装；插件**调用它们的 CLI、读取产物的 JSON**，不修改它们的代码。
 - Python 工具以 wheel 形式随插件分发（`python-wheels/`），`postinstall` 离线安装；插件**调用它们的 CLI / `-m` 入口、解析产物**，不修改它们的代码。
-- staticcheck 以单文件二进制随插件分发（`tools/staticcheck/`），插件**调用它的 CLI、解析文本输出**。
-- 本仓库不包含上述项目的源码；wheel 与二进制由各自的上游发布。它们的 License 由各自的包 / 二进制携带。
+- 本仓库不包含上述项目的源码；wheel 由各自的上游发布。它们的 License 由各自的包携带。
 - 如果你在项目里直接使用这些工具（而不是通过本插件），请遵守各自的 License。
-- **版本锁定**：JS 工具在 `package.json` 里固定到**精确版本**（不带 `^`）；Python 工具固定在 `python-wheels/` 的 wheel 文件名里；staticcheck 固定在 `tools/staticcheck/` 的二进制版本。原因是检查器直接解析它们的产物——任何一个工具的产物格式一变，对应验收项就会误判。升级任何一个工具前，必须：① 跑一次真实产物核对字段；② 全量跑一遍七项验收确认没静默降级；③ 在本文件同步版本号。由插件作者跟进，不接受自动升级。
+- **版本锁定**：JS 工具在 `package.json` 里固定到**精确版本**（不带 `^`）；Python 工具固定在 `python-wheels/` 的 wheel 文件名里。原因是检查器直接解析它们的产物——任何一个工具的产物格式一变，对应验收项就会误判。升级任何一个工具前，必须：① 跑一次真实产物核对字段；② 全量跑一遍七项验收确认没静默降级；③ 在本文件同步版本号。由插件作者跟进，不接受自动升级。
 
 ## 新增外部工具时的约定
 
@@ -115,4 +101,4 @@
 2. 在 `README.md` 的「致谢」一节补链接；
 3. 如果界面会显示该工具的名字，界面上也带出处；
 4. 把它的真实产物跑一遍，用真实字段校准解析代码——不要照文档猜字段；
-5. Python 工具补进 `python-wheels/`（按平台 `pip download`），Go 单文件工具补进 `tools/`；同步更新 `scripts/setup-python-tools.mjs` 的安装包列表。
+5. Python 工具补进 `python-wheels/`（按平台 `pip download`），同步更新 `scripts/setup-python-tools.mjs` 的安装包列表。

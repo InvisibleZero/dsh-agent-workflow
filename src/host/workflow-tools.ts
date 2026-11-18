@@ -29,7 +29,7 @@ import { findChecker } from '../engine/checkers';
 import { hasMachineDriver } from '../engine/degrade';
 import { runCommand } from './command-runner';
 import { detectStack } from './stack-detect';
-import { lintImportsPath, resolveGo, resolvePython, vendoredStaticcheck } from './tool-locate';
+import { lintImportsPath, resolvePython } from './tool-locate';
 import type { ToolLedgerInput } from './tool-ledger';
 
 /** 会被门禁拦的"动手"类工具。 */
@@ -433,17 +433,13 @@ function commandForChecker(checker: any, target: string, stack: string | null, t
 }
 
 /**
- * 按技术栈定位取证工具：python → DSH 自带 Python；go → 探测到的 go + vendor 的 staticcheck。
+ * 按技术栈定位取证工具：python → DSH 自带 Python + 它的 lint-imports console script。
  * 返回 null = 关键工具没找到（调用方报「工具缺失」并降级）。
  */
-async function resolveToolsFor(stack: string | null, packageRoot?: string): Promise<any | null> {
+async function resolveToolsFor(stack: string | null): Promise<any | null> {
   if (stack === 'python') {
     const python = await resolvePython();
     return python === null ? null : { python, lintImports: lintImportsPath(python) };
-  }
-  if (stack === 'go') {
-    const go = await resolveGo();
-    return go === null ? null : { go, staticcheck: vendoredStaticcheck(packageRoot ?? '') };
   }
   return {};
 }
@@ -471,10 +467,10 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
 
   const target = resolveCheckerTarget(args?.target, checker);
   const stack = await detectStack(workingDirectory);
-  const tools = await resolveToolsFor(stack, deps.packageRoot);
+  const tools = await resolveToolsFor(stack);
   if (tools === null) {
     // 工具缺失：明确报「工具缺失」，让上层降级 AI 证据（不跑命令、不产生假证据）。
-    const missing = stack === 'python' ? 'DSH Python' : 'go';
+    const missing = 'DSH Python';
     const findings = [{
       location: checker.evidence,
       problem: `工具缺失：${missing} 没找到（先装/配置好再重试；这一项可降级为 AI 证据）`,

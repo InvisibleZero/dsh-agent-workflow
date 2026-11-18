@@ -19,7 +19,7 @@ import {
   type CheckerTools,
 } from './types';
 import type { Stack } from './stack';
-import { normalizeGoBuild, normalizeImportLinter } from './normalize';
+import { normalizeImportLinter } from './normalize';
 
 const EVIDENCE = 'deps.json';
 const DEFAULT_TARGET = 'src';
@@ -28,7 +28,6 @@ const DEFAULT_TARGET = 'src';
 const DEPS_COMMANDS: Record<Stack, (target: string, tools: CheckerTools) => string> = {
   js: (target) => `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE}`,
   python: (_target, tools) => `"${tools.lintImports ?? 'lint-imports'}" > .workflow/evidence/${EVIDENCE}`,
-  go: (_target, tools) => `"${tools.go ?? 'go'}" build ./... > .workflow/evidence/${EVIDENCE}`,
 };
 
 /** 按技术栈选依赖取证命令。 */
@@ -48,7 +47,7 @@ export const depsChecker: Checker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommands: DEPS_COMMANDS,
-  normalizers: { python: normalizeImportLinter, go: normalizeGoBuild },
+  normalizers: { python: normalizeImportLinter },
   buildCommand: buildCommand,
   check(evidence_json: unknown): CheckResult {
     if (evidence_json === null) return missingEvidence(EVIDENCE, buildCommand(DEFAULT_TARGET));

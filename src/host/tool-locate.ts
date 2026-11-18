@@ -1,8 +1,8 @@
 // @ts-nocheck
 /**
  * 工具定位：非 JS 工具不靠 PATH —— DSH 宿主进程的 PATH 可能跟用户 shell 不一致
- * （GUI 启动不读 .zshrc，Linux/macOS 上 tarball 装的 go 就不在宿主 PATH 里）。
- * 所以主动定位：DSH 自带 Python、go 二进制、vendor 的 staticcheck。
+ * （GUI 启动不读 .zshrc，Linux/macOS 上装的命令就不在宿主 PATH 里）。
+ * 所以主动定位 DSH 自带的 Python（+ 它的 console script 目录）。Go 支持已撤，不再探测 go / staticcheck。
  *
  * 只负责「找到路径」，跑不跑得动由接口层决定（找不到就降级 AI 证据）。
  * deps 可注入，纯逻辑可单测。
@@ -44,37 +44,6 @@ export async function resolvePython(deps: LocateDeps = {}): Promise<string | nul
     if (await exists(candidate)) return candidate;
   }
   return null;
-}
-
-/** go 二进制：环境变量 → 常见安装位置 → null（不退回裸 go，找不到就降级）。 */
-export async function resolveGo(deps: LocateDeps = {}): Promise<string | null> {
-  const env = deps.env ?? process.env;
-  const home = deps.home ?? homedir();
-  const platform = deps.platform ?? process.platform;
-  const exists = deps.exists ?? defaultExists;
-
-  const fromEnv = typeof env.DSH_GO === 'string' ? env.DSH_GO.trim() : '';
-  if (fromEnv !== '' && await exists(fromEnv)) return fromEnv;
-
-  const candidates = platform === 'win32'
-    ? [
-      'C:\\Program Files\\Go\\bin\\go.exe',
-      'C:\\Program Files (x86)\\Go\\bin\\go.exe',
-    ]
-    : [
-      '/usr/local/go/bin/go',
-      join(home, 'go', 'bin', 'go'),
-      '/usr/bin/go',
-    ];
-  for (const candidate of candidates) {
-    if (await exists(candidate)) return candidate;
-  }
-  return null;
-}
-
-/** vendor 的 staticcheck 路径：相对插件根（packageRoot），由接口层拼。 */
-export function vendoredStaticcheck(packageRoot: string): string {
-  return join(packageRoot, 'tools', 'staticcheck', process.platform === 'win32' ? 'staticcheck.exe' : 'staticcheck');
 }
 
 /** 从 Python 解释器路径推出 console script 目录：Win 是 `<python>/Scripts`，Unix 是 `<python>/bin`。 */

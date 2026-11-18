@@ -21,15 +21,14 @@ import {
   type CheckerTools,
 } from './types';
 import type { Stack } from './stack';
-import { normalizeStaticcheck, normalizeVulture } from './normalize';
+import { normalizeVulture } from './normalize';
 
 const EVIDENCE = 'deadcode.json';
 
-/** 各技术栈的死代码取证命令：都用宿主定位到的绝对路径，不靠 PATH。 */
+/** 各技术栈的死代码取证命令：python 用宿主定位到的 Python 绝对路径，不靠 PATH。 */
 const DEADCODE_COMMANDS: Record<Stack, (target: string, tools: CheckerTools) => string> = {
   js: () => `knip --reporter json > .workflow/evidence/${EVIDENCE}`,
   python: (_target, tools) => `"${tools.python ?? 'python'}" -m vulture . > .workflow/evidence/${EVIDENCE}`,
-  go: (_target, tools) => `"${tools.staticcheck ?? 'staticcheck'}" ./... > .workflow/evidence/${EVIDENCE}`,
 };
 
 /** 命令模板：默认 JS（knip 自己读 package.json / tsconfig，不需要目标参数）。 */
@@ -47,7 +46,7 @@ export const deadcodeChecker: Checker = {
   defaultTarget: '',
   autoRun: true,
   buildCommands: DEADCODE_COMMANDS,
-  normalizers: { python: normalizeVulture, go: normalizeStaticcheck },
+  normalizers: { python: normalizeVulture },
   buildCommand: buildCommand,
   check(evidence_json: unknown): CheckResult {
     if (evidence_json === null) return missingEvidence(EVIDENCE, buildCommand(''));

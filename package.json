@@ -32,7 +32,6 @@
     "scripts",
     "assets",
     "python-wheels",
-    "tools",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

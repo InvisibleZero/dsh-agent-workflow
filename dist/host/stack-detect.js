@@ -20,11 +20,10 @@ async function exists(file) {
 export async function detectStack(workingDirectory) {
     if (typeof workingDirectory !== 'string' || workingDirectory === '')
         return null;
-    const [pyproject, gomod, packageJson] = await Promise.all([
+    const [pyproject, packageJson] = await Promise.all([
         exists(join(workingDirectory, 'pyproject.toml')),
-        exists(join(workingDirectory, 'go.mod')),
         exists(join(workingDirectory, 'package.json')),
     ]);
-    return stackFromMarkers({ pyproject, gomod, packageJson });
+    return stackFromMarkers({ pyproject, packageJson });
 }
 //# sourceMappingURL=stack-detect.js.map

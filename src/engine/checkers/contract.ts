@@ -16,16 +16,15 @@ import {
   type CheckerTools,
 } from './types';
 import type { Stack } from './stack';
-import { normalizeGoTestJson, normalizePytestReport } from './normalize';
+import { normalizePytestReport } from './normalize';
 
 const EVIDENCE = 'contract.json';
 const DEFAULT_TARGET = 'test';
 
-/** 各技术栈的契约测试取证命令；python/go 用宿主定位到的绝对路径，不靠 PATH。 */
+/** 各技术栈的契约测试取证命令；python 用宿主定位到的绝对路径，不靠 PATH。 */
 const CONTRACT_COMMANDS: Record<Stack, (target: string, tools: CheckerTools) => string> = {
   js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`,
   python: (_target, tools) => `"${tools.python ?? 'python'}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`,
-  go: (_target, tools) => `"${tools.go ?? 'go'}" test -json ./... > .workflow/evidence/${EVIDENCE}`,
 };
 
 /** 命令模板：默认 JS，只把 target 填进去。 */
@@ -82,7 +81,7 @@ export const contractChecker: Checker = {
   defaultTarget: DEFAULT_TARGET,
   autoRun: true,
   buildCommands: CONTRACT_COMMANDS,
-  normalizers: { python: normalizePytestReport, go: normalizeGoTestJson },
+  normalizers: { python: normalizePytestReport },
   buildCommand: buildCommand,
   check(evidence_json: unknown): CheckResult {
     return checkTestEvidence(evidence_json, EVIDENCE, buildCommand(DEFAULT_TARGET));

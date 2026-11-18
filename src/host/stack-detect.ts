@@ -20,10 +20,9 @@ async function exists(file: string): Promise<boolean> {
 /** 读工作目录根 marker，返回技术栈；目录为空 / 读不到返回 null。 */
 export async function detectStack(workingDirectory: string): Promise<Stack | null> {
   if (typeof workingDirectory !== 'string' || workingDirectory === '') return null;
-  const [pyproject, gomod, packageJson] = await Promise.all([
+  const [pyproject, packageJson] = await Promise.all([
     exists(join(workingDirectory, 'pyproject.toml')),
-    exists(join(workingDirectory, 'go.mod')),
     exists(join(workingDirectory, 'package.json')),
   ]);
-  return stackFromMarkers({ pyproject, gomod, packageJson });
+  return stackFromMarkers({ pyproject, packageJson });
 }
