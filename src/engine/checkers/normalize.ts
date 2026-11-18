@@ -26,12 +26,15 @@ export function normalizePytestReport(raw: string): unknown {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { numTotalTests: 0, numFailedTests: 0 };
+    return { numTotalTests: 0, numFailedTests: 0, exitcode: 0 };
   }
-  const summary = asObject(asObject(parsed).summary);
+  const root = asObject(parsed);
+  const summary = asObject(root.summary);
   return {
     numTotalTests: asNumber(summary.total),
     numFailedTests: asNumber(summary.failed) + asNumber(summary.error),
+    // pytest 自己的退出码：判据用它做 fail-closed 交叉校验（异常退出时不完全信 summary）。
+    exitcode: asNumber(root.exitcode),
   };
 }
 

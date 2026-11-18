@@ -718,6 +718,17 @@ async function runCheckerInProject(
   try {
     const rawText = await readFile(evidencePath, 'utf8');
     evidenceJson = normalizer !== null ? normalizer(rawText) : JSON.parse(rawText);
+    // 有归一化器（Python 栈）：原始产物归档到 <file>.raw，判据形状写回 <file>，
+    // 让证据文件本身是合法 JSON、可直接复用；.raw 留作人肉排查。
+    // JS 栈的产物本身就是判据形状，不拆。
+    if (normalizer !== null) {
+      try {
+        await writeFile(`${evidencePath}.raw`, rawText, 'utf8');
+        await writeFile(evidencePath, `${JSON.stringify(evidenceJson, null, 2)}\n`, 'utf8');
+      } catch {
+        // 归档失败不阻断判定：内存里的 evidenceJson 已可用。
+      }
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code !== 'ENOENT') parseError = String((error as Error)?.message ?? error);

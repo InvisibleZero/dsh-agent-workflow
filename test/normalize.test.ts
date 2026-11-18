@@ -8,12 +8,17 @@ import {
 describe('归一化：工具原生输出 → 判据统一 JSON', () => {
   it('pytest-json-report → 测试结果', () => {
     const raw = JSON.stringify({ summary: { total: 3, failed: 1, error: 0 } });
-    expect(normalizePytestReport(raw)).toEqual({ numTotalTests: 3, numFailedTests: 1 });
+    expect(normalizePytestReport(raw)).toEqual({ numTotalTests: 3, numFailedTests: 1, exitcode: 0 });
   });
 
   it('pytest 的 error 也算失败', () => {
     const raw = JSON.stringify({ summary: { total: 2, failed: 0, error: 1 } });
-    expect(normalizePytestReport(raw)).toEqual({ numTotalTests: 2, numFailedTests: 1 });
+    expect(normalizePytestReport(raw)).toEqual({ numTotalTests: 2, numFailedTests: 1, exitcode: 0 });
+  });
+
+  it('pytest 的 exitcode 一并带上（供 fail-closed 交叉校验）', () => {
+    const raw = JSON.stringify({ summary: { total: 1, failed: 0, error: 0 }, exitcode: 2 });
+    expect(normalizePytestReport(raw)).toEqual({ numTotalTests: 1, numFailedTests: 0, exitcode: 2 });
   });
 
   it('import-linter 文本报告（Broken contracts 段）→ 违规列表', () => {
@@ -58,7 +63,7 @@ describe('归一化：工具原生输出 → 判据统一 JSON', () => {
   });
 
   it('坏输入不抛、给空结果（绝不误判通过）', () => {
-    expect(normalizePytestReport('not json')).toEqual({ numTotalTests: 0, numFailedTests: 0 });
+    expect(normalizePytestReport('not json')).toEqual({ numTotalTests: 0, numFailedTests: 0, exitcode: 0 });
     expect(normalizeImportLinter('not json')).toEqual({ summary: { violations: [] } });
     expect(normalizeVulture('')).toEqual({ issues: [] });
   });

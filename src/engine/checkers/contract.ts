@@ -60,6 +60,14 @@ export function checkTestEvidence(evidence_json: unknown, evidence: string, comm
   const total = asNumber(root.numTotalTests);
   const failed = asNumber(root.numFailedTests);
   const findings: CheckerFinding[] = [];
+  // 退出码非 0 但计数值像「全过」= 测试运行本身出了问题，直接判不合格（fail-closed）。
+  // pytest 的 exitcode 由 normalizePytestReport 带进来；vitest 产物没有这个字段，不受影响。
+  if (typeof root.exitcode === 'number' && root.exitcode !== 0 && failed === 0) {
+    findings.push({
+      location: evidence,
+      problem: `测试运行退出码 ${root.exitcode}（非 0）：即使计数值像全过，也判不合格（fail-closed）`,
+    });
+  }
   if (total <= 0) {
     findings.push({ location: evidence, problem: '证据里没有任何用例：空跑不算验证（0 个用例 ≠ 全过）' });
   }

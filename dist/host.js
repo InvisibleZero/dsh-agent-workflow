@@ -3166,12 +3166,15 @@ function normalizePytestReport(raw) {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { numTotalTests: 0, numFailedTests: 0 };
+    return { numTotalTests: 0, numFailedTests: 0, exitcode: 0 };
   }
-  const summary = asObject(asObject(parsed).summary);
+  const root = asObject(parsed);
+  const summary = asObject(root.summary);
   return {
     numTotalTests: asNumber2(summary.total),
-    numFailedTests: asNumber2(summary.failed) + asNumber2(summary.error)
+    numFailedTests: asNumber2(summary.failed) + asNumber2(summary.error),
+    // pytest 自己的退出码：判据用它做 fail-closed 交叉校验（异常退出时不完全信 summary）。
+    exitcode: asNumber2(root.exitcode)
   };
 }
 function normalizeImportLinter(raw) {
@@ -3245,6 +3248,12 @@ function checkTestEvidence(evidence_json, evidence, command) {
   const total = asNumber(root.numTotalTests);
   const failed = asNumber(root.numFailedTests);
   const findings = [];
+  if (typeof root.exitcode === "number" && root.exitcode !== 0 && failed === 0) {
+    findings.push({
+      location: evidence,
+      problem: `\u6D4B\u8BD5\u8FD0\u884C\u9000\u51FA\u7801 ${root.exitcode}\uFF08\u975E 0\uFF09\uFF1A\u5373\u4F7F\u8BA1\u6570\u503C\u50CF\u5168\u8FC7\uFF0C\u4E5F\u5224\u4E0D\u5408\u683C\uFF08fail-closed\uFF09`
+    });
+  }
   if (total <= 0) {
     findings.push({ location: evidence, problem: "\u8BC1\u636E\u91CC\u6CA1\u6709\u4EFB\u4F55\u7528\u4F8B\uFF1A\u7A7A\u8DD1\u4E0D\u7B97\u9A8C\u8BC1\uFF080 \u4E2A\u7528\u4F8B \u2260 \u5168\u8FC7\uFF09" });
   }
@@ -4544,6 +4553,14 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
   try {
     const rawText = await readFile(evidencePath, "utf8");
     evidenceJson = normalizer !== null ? normalizer(rawText) : JSON.parse(rawText);
+    if (normalizer !== null) {
+      try {
+        await writeFile(`${evidencePath}.raw`, rawText, "utf8");
+        await writeFile(evidencePath, `${JSON.stringify(evidenceJson, null, 2)}
+`, "utf8");
+      } catch {
+      }
+    }
   } catch (error) {
     const code = error?.code;
     if (code !== "ENOENT") parseError = String(error?.message ?? error);
