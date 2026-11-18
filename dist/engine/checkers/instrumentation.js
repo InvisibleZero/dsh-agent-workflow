@@ -17,7 +17,18 @@ export const instrumentationChecker = {
     defaultTarget: '',
     autoRun: true,
     script: 'instrument-apply.mjs',
-    check(evidence_json) {
+    check(evidence_json, context) {
+        const stack = context?.stack;
+        // 埋点检测只认 js / python（脚本按这两种语言的调用形态扫与插）；别的栈明确报「不支持」，
+        // 不要让它表现为「没配计划」或「不合格」——那不是同一回事。
+        if (typeof stack === 'string' && stack !== '' && stack !== 'js' && stack !== 'python') {
+            return {
+                ok: false,
+                findings: [],
+                stats: {},
+                unsupported: `埋点检测只支持 js / python，当前栈是 ${stack}`,
+            };
+        }
         return validateInstrumentation(evidence_json);
     },
 };

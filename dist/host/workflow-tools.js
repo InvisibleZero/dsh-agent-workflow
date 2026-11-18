@@ -171,7 +171,20 @@ function renderToolCallResult(value) {
         const problems = Array.isArray(inner.findings)
             ? inner.findings.map((finding) => (finding?.problem ? String(finding.problem) : JSON.stringify(finding))).join('；')
             : '';
-        return `${head}（${okText}，findings=${findingsCount}，${exitText}）${problems === '' ? '' : `：${problems}`}`;
+        // 缺配置 / 不支持 / 说明 都要亮出来，否则模型只看到「未通过，findings=0」不知道为什么。
+        const extra = [];
+        if (inner.config_missing === true)
+            extra.push('缺配置（config_missing）');
+        if (typeof inner.unsupported === 'string' && inner.unsupported !== '')
+            extra.push(`不支持：${inner.unsupported}`);
+        if (Array.isArray(inner.notes)) {
+            for (const note of inner.notes) {
+                if (typeof note === 'string' && note !== '')
+                    extra.push(note);
+            }
+        }
+        const tail = extra.length > 0 ? `　[${extra.join('；')}]` : '';
+        return `${head}（${okText}，findings=${findingsCount}，${exitText}）${problems === '' ? '' : `：${problems}`}${tail}`;
     }
     const message = inner?.message;
     return message ? `${head}：${message}` : head;
@@ -494,6 +507,9 @@ async function invokeChecker(deps, entry, args, sessionId) {
     const notes = perProject
         .map((item) => item.result.note)
         .filter((note) => typeof note === 'string' && note !== '');
+    const unsupported = perProject
+        .map((item) => item.result.unsupported)
+        .filter((reason) => typeof reason === 'string' && reason !== '');
     // 5. 会话证据（报备锚点要指它）：单项目且项目根=工作目录时，原证据就在那；
     //    否则写一份合并记录，保证 `.workflow/evidence/<file>` 存在、审计能看到每个项目。
     const sameAsWorking = perProject.length === 1 && perProject[0] !== undefined
@@ -534,6 +550,8 @@ async function invokeChecker(deps, entry, args, sessionId) {
         ...(notes.length > 0 ? { notes } : {}),
         // 缺配置（比如没写埋点计划）≠ 检查不合格：给个顶层标记，验收时能判「这层做没做」。
         ...(Number(stats.config_missing) > 0 ? { config_missing: true } : {}),
+        // 当前栈上不可验证（比如埋点检测不支持该栈）：既不算通过也不算不合格，单列出来。
+        ...(unsupported.length > 0 ? { unsupported: unsupported.join('；') } : {}),
     };
 }
 /**
@@ -618,7 +636,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
             parseError = String(error?.message ?? error);
     }
     let result = parseError === ''
-        ? checker.check(evidenceJson)
+        ? checker.check(evidenceJson, { stack })
         : {
             ok: false,
             findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
@@ -646,6 +664,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
         findings: result.findings,
         stats: result.stats,
         ...(typeof result.note === 'string' && result.note !== '' ? { note: result.note } : {}),
+        ...(typeof result.unsupported === 'string' && result.unsupported !== '' ? { unsupported: result.unsupported } : {}),
         ...(commandResult !== null && commandResult.ok !== true ? { command_output: commandResult.tail.slice(-800) } : {}),
     };
 }

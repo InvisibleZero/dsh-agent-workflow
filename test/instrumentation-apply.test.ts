@@ -39,6 +39,15 @@ describe('接口层：埋点应用脚本的纯函数', () => {
     expect(buildCall({ name: 'clientLog', args: [] }, 'new event'))
       .toBe("clientLog('new event')");
   });
+
+  it('Python：findCalls 认 logger.info( / log(，buildCall 用单参数形态', () => {
+    const calls = findCalls("logger.info('boot done')\nlog('[workflow] started')");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.name).toBe('logger.info');
+    expect(calls[1]?.name).toBe('log');
+    expect(buildCall({ name: 'logger.info', args: ["'boot done'"], lang: 'python' }, 'new event'))
+      .toBe("logger.info('new event')");
+  });
 });
 
 describe('接口层：applyPlan 插埋点（保守）', () => {

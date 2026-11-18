@@ -3,8 +3,9 @@
  * 埋点应用脚本（第 6 项「埋点检测」的 autoRun 命令）。
  *
  * 读 `.workflow/evidence/instrumentation.json`（计划：tree + 节点 KV），
- * 扫源码里已有的 logEvent( / clientLog( 调用，按树节点锚点（函数名）补插缺失的埋点，
- * 插完重扫，把结果落 `instrumentation-existing.json` 与 `instrumentation-apply.json`。
+ * 扫源码里已有的埋点调用（JS：logEvent( / clientLog(；Python：logger.info( / log( 等），
+ * 按树节点锚点（函数名）补插缺失的埋点，插完重扫，把结果落 `instrumentation-existing.json` 与
+ * `instrumentation-apply.json`。
  *
  * 保守原则（2026-11-17 定，方案 A）：定位不唯一 / 找不到函数 / 没有可照抄的调用形态
  * 一律不猜，记进 skipped，由 AI 看报告决定。脚本只改源码，不动 instrumentation.json。
@@ -17,8 +18,11 @@ const EVIDENCE_DIR = join('.workflow', 'evidence');
 const PLAN_FILE = 'instrumentation.json';
 const EXISTING_FILE = 'instrumentation-existing.json';
 const APPLY_FILE = 'instrumentation-apply.json';
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'build', '.workflow']);
-const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'coverage', 'build', '.workflow',
+  '.venv', 'venv', '.pixi', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pycache__',
+]);
+const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
 const MAX_FILES = 3000;
 
 /** 事件名取稳定前缀：第一个字符串参数截到第一个 ( 或 : 之前。 */
@@ -63,7 +67,8 @@ export function findCalls(text) {
     // 调用名边界：前面不能是标识符字符（拦掉 xlogEvent(）
     if (isWord(text[i - 1])) { i += 1; continue; }
     const rest = text.slice(i);
-    const match = /^(logEvent|clientLog)\s*\(/.exec(rest);
+    // JS：logEvent( / clientLog(；Python：logger.info( / log( 等。
+    const match = /^(logEvent|clientLog|logger\.(?:debug|info|warning|error|critical|exception)|log)\s*\(/.exec(rest);
     if (match !== null) {
       const open = i + match[0].length;
       let depth = 1;
@@ -130,9 +135,11 @@ export function eventFromArgs(argsRaw) {
   return stableEvent(firstStringLiteral(last));
 }
 
-/** 照抄调用形态：把新事件塞进消息位（参数表的最后一位）。 */
+/** 照抄调用形态：把新事件塞进消息位（JS：最后一个参数；Python：唯一的消息参数）。 */
 export function buildCall(shape, event) {
   const literal = `'${String(event).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  // Python 的 logging 调用是 logger.info('msg') 这种单参数形态，不拼 JS 的 logger/level 位。
+  if (shape.lang === 'python') return `${shape.name}(${literal})`;
   const args = shape.args;
   if (args.length >= 3) return `${shape.name}(${args[0]}, ${args[1]}, ${literal})`;
   if (args.length === 2) return `${shape.name}(${args[0]}, ${literal})`;
@@ -183,22 +190,33 @@ function escapeName(name) {
   return String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** 找函数定义锚点：返回 {file, braceLine, shape} 或 null（不唯一 / 找不到）。 */
+/** 找函数定义锚点：返回 {file, insertLine, indent, semicolon, shape} 或 null（不唯一 / 找不到）。 */
 export function findFunctionAnchor(files, name) {
   const escaped = escapeName(name);
-  const patterns = [
+  const jsPatterns = [
     new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${escaped}\\b`),
     new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*(?::[^=]+)?=>)`),
   ];
+  const pyPattern = new RegExp(`^\\s*(?:async\\s+)?def\\s+${escaped}\\s*\\(`);
   const hits = [];
   for (const file of files.files) {
+    const isPy = file.lang === 'python' || String(file.rel).endsWith('.py');
     const lines = file.text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
-      if (patterns.some((pattern) => pattern.test(lines[i]))) {
-        // 从定义行往下找第一个 `{`（最多看 5 行），当作函数体开头。
-        for (let j = i; j < Math.min(i + 5, lines.length); j += 1) {
-          const col = lines[j].indexOf('{');
-          if (col !== -1) { hits.push({ file: file.rel, braceLine: j, shape: file.firstShape }); break; }
+      if (isPy) {
+        if (!pyPattern.test(lines[i])) continue;
+        // Python 没有 `{`：插到 def 行下一行，缩进取 def 的缩进 + 4 空格，不加分号。
+        const indent = `${(lines[i].match(/^\s*/) ?? [''])[0]}    `;
+        hits.push({ file: file.rel, insertLine: i + 1, indent, semicolon: '', shape: file.firstShape });
+        continue;
+      }
+      if (!jsPatterns.some((pattern) => pattern.test(lines[i]))) continue;
+      // 从定义行往下找第一个 `{`（最多看 5 行），当作函数体开头。
+      for (let j = i; j < Math.min(i + 5, lines.length); j += 1) {
+        const col = lines[j].indexOf('{');
+        if (col !== -1) {
+          hits.push({ file: file.rel, insertLine: j + 1, indent: '  ', semicolon: ';', shape: file.firstShape });
+          break;
         }
       }
     }
@@ -226,11 +244,11 @@ export function applyPlan(plan, scan, files) {
     const target = files.files.find((file) => file.rel === anchor.file);
     if (target === undefined) { skipped.push({ key, reason: `锚点文件读不到：${anchor.file}` }); continue; }
     const lines = target.text.split(/\r?\n/);
-    const call = `  ${buildCall(shape, node.event)};`;
-    lines.splice(anchor.braceLine + 1, 0, call);
+    const call = `${anchor.indent}${buildCall(shape, node.event)}${anchor.semicolon}`;
+    lines.splice(anchor.insertLine, 0, call);
     target.text = lines.join('\n');
     existingEvents.add(node.event);
-    inserted.push({ key, file: anchor.file, line: anchor.braceLine + 2 });
+    inserted.push({ key, file: anchor.file, line: anchor.insertLine + 1 });
   }
   return { inserted, skipped };
 }
@@ -253,9 +271,10 @@ async function main(root) {
     let text;
     try { text = await readFile(file, 'utf8'); } catch { continue; }
     const rel = relative(root, file).replaceAll('\\', '/');
+    const lang = String(rel).endsWith('.py') ? 'python' : 'js';
     const calls = findCalls(text);
-    const firstShape = calls.length > 0 ? { name: calls[0].name, args: splitArgs(calls[0].argsRaw) } : null;
-    files.files.push({ rel, text, firstShape });
+    const firstShape = calls.length > 0 ? { name: calls[0].name, args: splitArgs(calls[0].argsRaw), lang } : null;
+    files.files.push({ rel, text, firstShape, lang });
   }
 
   const scan = { items: [], firstShape: null };
@@ -264,7 +283,7 @@ async function main(root) {
       const event = eventFromArgs(call.argsRaw);
       const line = file.text.slice(0, call.start).split('\n').length;
       scan.items.push({ event, location: `${file.rel}:${line}` });
-      if (scan.firstShape === null) scan.firstShape = { name: call.name, args: splitArgs(call.argsRaw) };
+      if (scan.firstShape === null) scan.firstShape = { name: call.name, args: splitArgs(call.argsRaw), lang: file.lang };
     }
   }
   result.scanned = files.files.length;

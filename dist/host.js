@@ -3598,7 +3598,16 @@ var instrumentationChecker = {
   defaultTarget: "",
   autoRun: true,
   script: "instrument-apply.mjs",
-  check(evidence_json) {
+  check(evidence_json, context) {
+    const stack = context?.stack;
+    if (typeof stack === "string" && stack !== "" && stack !== "js" && stack !== "python") {
+      return {
+        ok: false,
+        findings: [],
+        stats: {},
+        unsupported: `\u57CB\u70B9\u68C0\u6D4B\u53EA\u652F\u6301 js / python\uFF0C\u5F53\u524D\u6808\u662F ${stack}`
+      };
+    }
     return validateInstrumentation(evidence_json);
   }
 };
@@ -4167,7 +4176,16 @@ function renderToolCallResult(value) {
     const findingsCount = Array.isArray(inner.findings) ? inner.findings.length : 0;
     const exitText = inner.exit_code === null || inner.exit_code === void 0 ? "exit=n/a" : `exit=${inner.exit_code}`;
     const problems = Array.isArray(inner.findings) ? inner.findings.map((finding) => finding?.problem ? String(finding.problem) : JSON.stringify(finding)).join("\uFF1B") : "";
-    return `${head}\uFF08${okText}\uFF0Cfindings=${findingsCount}\uFF0C${exitText}\uFF09${problems === "" ? "" : `\uFF1A${problems}`}`;
+    const extra = [];
+    if (inner.config_missing === true) extra.push("\u7F3A\u914D\u7F6E\uFF08config_missing\uFF09");
+    if (typeof inner.unsupported === "string" && inner.unsupported !== "") extra.push(`\u4E0D\u652F\u6301\uFF1A${inner.unsupported}`);
+    if (Array.isArray(inner.notes)) {
+      for (const note of inner.notes) {
+        if (typeof note === "string" && note !== "") extra.push(note);
+      }
+    }
+    const tail = extra.length > 0 ? `\u3000[${extra.join("\uFF1B")}]` : "";
+    return `${head}\uFF08${okText}\uFF0Cfindings=${findingsCount}\uFF0C${exitText}\uFF09${problems === "" ? "" : `\uFF1A${problems}`}${tail}`;
   }
   const message = inner?.message;
   return message ? `${head}\uFF1A${message}` : head;
@@ -4476,6 +4494,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
     stats: item.result.stats
   }));
   const notes = perProject.map((item) => item.result.note).filter((note) => typeof note === "string" && note !== "");
+  const unsupported = perProject.map((item) => item.result.unsupported).filter((reason) => typeof reason === "string" && reason !== "");
   const sameAsWorking = perProject.length === 1 && perProject[0] !== void 0 && perProject[0].root === resolve4(workingDirectory);
   if (!sameAsWorking) {
     const recordPath = join7(workingDirectory, ".workflow", "evidence", checker.evidence);
@@ -4521,7 +4540,9 @@ async function invokeChecker(deps, entry, args, sessionId) {
     per_project,
     ...notes.length > 0 ? { notes } : {},
     // 缺配置（比如没写埋点计划）≠ 检查不合格：给个顶层标记，验收时能判「这层做没做」。
-    ...Number(stats.config_missing) > 0 ? { config_missing: true } : {}
+    ...Number(stats.config_missing) > 0 ? { config_missing: true } : {},
+    // 当前栈上不可验证（比如埋点检测不支持该栈）：既不算通过也不算不合格，单列出来。
+    ...unsupported.length > 0 ? { unsupported: unsupported.join("\uFF1B") } : {}
   };
 }
 async function ensureWorkflowDir(dir) {
@@ -4586,7 +4607,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
     const code = error?.code;
     if (code !== "ENOENT") parseError = String(error?.message ?? error);
   }
-  let result = parseError === "" ? checker.check(evidenceJson) : {
+  let result = parseError === "" ? checker.check(evidenceJson, { stack }) : {
     ok: false,
     findings: [{ location: checker.evidence, problem: `\u8BC1\u636E\u6587\u4EF6\u89E3\u6790\u5931\u8D25\uFF1A${parseError}` }],
     stats: {}
@@ -4612,6 +4633,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
     findings: result.findings,
     stats: result.stats,
     ...typeof result.note === "string" && result.note !== "" ? { note: result.note } : {},
+    ...typeof result.unsupported === "string" && result.unsupported !== "" ? { unsupported: result.unsupported } : {},
     ...commandResult !== null && commandResult.ok !== true ? { command_output: commandResult.tail.slice(-800) } : {}
   };
 }

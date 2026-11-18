@@ -103,31 +103,53 @@ function lineOf(text, index) {
 }
 
 /**
- * 本次改动的文件集（git：未提交 + 最近一次提交），用于给违规标 new / existing。
- * 拿不到（不在 git 仓库 / git 不可用）返回 null，调用方不标 new/existing。
+ * 本次改动的**行范围**（git：未提交 + 最近一次提交），file → [[start, end], ...]，用于按行标 new / existing。
+ * 用 `git diff -U0` 解析 hunk 头 `@@ -a,b +c,d @@` 的新文件行范围；拿不到返回 null（不标）。
  */
-function changedFiles() {
+function changedRanges() {
   try {
-    const set = new Set();
-    const collect = (output) => {
+    const map = new Map();
+    const add = (output) => {
+      let file = '';
       for (const line of String(output).split('\n')) {
-        const trimmed = line.trim().replaceAll('\\', '/');
-        if (trimmed !== '') set.add(trimmed);
+        if (line.startsWith('+++ b/')) {
+          file = line.slice(6).trim().replaceAll('\\', '/');
+          if (file !== '' && !map.has(file)) map.set(file, []);
+          continue;
+        }
+        const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+        if (hunk !== null && file !== '') {
+          const start = Number(hunk[1]);
+          const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+          if (count > 0) {
+            const ranges = map.get(file) ?? [];
+            ranges.push([start, start + count - 1]);
+            map.set(file, ranges);
+          }
+        }
       }
     };
-    collect(execFileSync('git', ['diff', '--name-only', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    add(execFileSync('git', ['diff', '-U0', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
     try {
-      collect(execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+      add(execFileSync('git', ['diff', '-U0', 'HEAD~1', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
     } catch { /* 没有 HEAD~1（首次提交）无所谓 */ }
-    return set;
+    return map;
   } catch {
     return null;
   }
 }
 
+/** 某行是否属于本次改动：ranges 为 null（拿不到 git）→ null；文件不在改动集 → false。 */
+export function lineIsNew(ranges, file, line) {
+  if (ranges === null) return null;
+  const fileRanges = ranges.get(file);
+  if (fileRanges === undefined) return false;
+  return fileRanges.some(([start, end]) => line >= start && line <= end);
+}
+
 async function main() {
   await mkdir(EVIDENCE_DIR, { recursive: true });
-  const changed = changedFiles();
+  const ranges = changedRanges();
   const files = [];
   await walk(SCAN_ROOT, files);
   const violations = [];
@@ -141,11 +163,12 @@ async function main() {
     BANNED_RE.lastIndex = 0;
     let match;
     while ((match = BANNED_RE.exec(clean)) !== null) {
-      const isNew = changed === null ? null : changed.has(rel);
+      const lineNo = lineOf(clean, match.index);
+      const isNew = lineIsNew(ranges, rel, lineNo);
       violations.push({
         word: match[1],
         file: rel,
-        line: lineOf(clean, match.index),
+        line: lineNo,
         ...(isNew === null ? {} : { new: isNew }),
       });
     }

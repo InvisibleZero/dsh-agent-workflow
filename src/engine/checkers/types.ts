@@ -35,6 +35,8 @@ export interface CheckResult {
   stats: Record<string, number>;
   /** 通过但需要说明的（比如「本栈没有 build 步骤」）：不是失败，但要让人看见。 */
   note?: string;
+  /** 这一项在当前技术栈上**不可验证**（不是没配、也不是不合格）：给出原因。 */
+  unsupported?: string;
 }
 
 export interface Checker {
@@ -72,8 +74,8 @@ export interface Checker {
    * script 型检查器可不实现。
    */
   buildCommand?(target: string): string;
-  /** 纯函数：evidence_json 为 null 表示证据文件不存在。 */
-  check(evidence_json: unknown): CheckResult;
+  /** 纯函数：evidence_json 为 null 表示证据文件不存在。context 给「当前栈」这类判定上下文。 */
+  check(evidence_json: unknown, context?: { stack?: string | null }): CheckResult;
 }
 
 /** 缺产物时的统一结果：告诉调用方缺哪个文件、用什么命令生成。 */
