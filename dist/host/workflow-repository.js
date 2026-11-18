@@ -455,7 +455,7 @@ export class WorkflowRepository {
         await fs.mkdir(this.profilesDir(), { recursive: true });
         const target = join(this.profilesDir(), this.profileFileName(name));
         const tmp = `${target}.tmp`;
-        await fs.writeFile(tmp, `${JSON.stringify({ kind: 'dsh-agent-workflow/operation-detail', version: 1, name, detail }, null, 2)}\n`, 'utf8');
+        await fs.writeFile(tmp, `${JSON.stringify({ kind: 'dsh-gated-workflow/operation-detail', version: 1, name, detail }, null, 2)}\n`, 'utf8');
         await fs.rename(tmp, target);
     }
     async readProfileFile(name) {
@@ -570,7 +570,7 @@ export class WorkflowRepository {
         const backupDir = join(this.profilesDir(), 'backup');
         await fs.mkdir(backupDir, { recursive: true });
         const target = join(backupDir, `操作细节-${active}-${stamp}.json`);
-        await fs.writeFile(target, `${JSON.stringify({ kind: 'dsh-agent-workflow/operation-detail', version: 1, name: active, detail }, null, 2)}\n`, 'utf8');
+        await fs.writeFile(target, `${JSON.stringify({ kind: 'dsh-gated-workflow/operation-detail', version: 1, name: active, detail }, null, 2)}\n`, 'utf8');
         return { path: target, name: active };
     }
     /**

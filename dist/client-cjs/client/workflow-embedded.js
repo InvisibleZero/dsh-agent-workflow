@@ -89,7 +89,7 @@ function WorkflowStateBadge(props) {
     };
     const ensureNode = async (workingDirectory) => {
         try {
-            const response = await fetch('/dsh-agent-workflow/ensure-node', {
+            const response = await fetch('/dsh-gated-workflow/ensure-node', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ sessionId, workingDirectory }),
@@ -105,7 +105,7 @@ function WorkflowStateBadge(props) {
     };
     const readChecklist = async (workflowId, nodeId) => {
         try {
-            const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+            const response = await fetch(`/dsh-gated-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
             const responseBody = await response.json().catch(() => null);
             if (responseBody?.ok === true) {
                 const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
@@ -119,7 +119,7 @@ function WorkflowStateBadge(props) {
         }
         catch (error) {
             // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
-            console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
+            console.warn('[dsh-gated-workflow] 读清单失败，降级为交给服务端校验：', error);
             setChecklist([]);
             setVerification([]);
         }
@@ -127,7 +127,7 @@ function WorkflowStateBadge(props) {
     };
     const readNode = async () => {
         try {
-            const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+            const response = await fetch(`/dsh-gated-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
             const responseBody = await response.json().catch(() => null);
             // 宿主顺带告诉「这个会话有没有对话过」：空会话要轮询，聊过的靠推送。
             hasMessagesRef.current = responseBody?.hasMessages === true;
@@ -174,16 +174,16 @@ function WorkflowStateBadge(props) {
                 return true;
             }
             catch (error) {
-                console.warn('[dsh-agent-workflow] 写入默认输入失败：', name, error);
+                console.warn('[dsh-gated-workflow] 写入默认输入失败：', name, error);
             }
         }
-        console.warn('[dsh-agent-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
+        console.warn('[dsh-gated-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
         return false;
     };
     /** 读应用级开关：切换状态时是否自动发送默认输入（默认关闭）。 */
     const readAutoSend = async () => {
         try {
-            const response = await fetch('/dsh-agent-workflow/app-settings');
+            const response = await fetch('/dsh-gated-workflow/app-settings');
             const responseBody = await response.json().catch(() => null);
             return responseBody?.ok === true && responseBody.autoSendEnterTrigger === true;
         }
@@ -205,7 +205,7 @@ function WorkflowStateBadge(props) {
                     return true;
                 }
                 catch (error) {
-                    console.warn('[dsh-agent-workflow] 提交默认输入失败：', name, error);
+                    console.warn('[dsh-gated-workflow] 提交默认输入失败：', name, error);
                 }
             }
         }
@@ -297,7 +297,7 @@ function WorkflowStateBadge(props) {
         setAdvancing(true);
         const startedAt = Date.now();
         try {
-            const response = await fetch('/dsh-agent-workflow/transition', {
+            const response = await fetch('/dsh-gated-workflow/transition', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
@@ -321,10 +321,10 @@ function WorkflowStateBadge(props) {
                 setChecklist([]);
                 setVerification([]);
             }
-            console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
+            console.info(`[dsh-gated-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
         }
         catch (error) {
-            console.error('[dsh-agent-workflow] 推进状态失败：', error);
+            console.error('[dsh-gated-workflow] 推进状态失败：', error);
         }
         finally {
             setAdvancing(false);
@@ -344,7 +344,7 @@ function WorkflowStateBadge(props) {
             const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
             if (!meta.hasPlan) {
                 // 埋点：本地拦下要留痕，否则日志里只有「点了没反应」，排查时这一跳答不上来。
-                console.info(`[dsh-agent-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
+                console.info(`[dsh-gated-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
                 setConfirmOpen(true);
                 return;
             }
@@ -354,7 +354,7 @@ function WorkflowStateBadge(props) {
     /** 同意 / 拒绝模型发起的推进请求（状态只由这里或手动 → 改变）。 */
     const respondAdvance = async (accept) => {
         try {
-            const response = await fetch('/dsh-agent-workflow/approve-advance', {
+            const response = await fetch('/dsh-gated-workflow/approve-advance', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ sessionId, accept }),
@@ -380,7 +380,7 @@ function WorkflowStateBadge(props) {
             }
         }
         catch (error) {
-            console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
+            console.error('[dsh-gated-workflow] 处理推进请求失败：', error);
         }
     };
     const doneCount = checklist.filter((item) => item.done).length;
@@ -462,7 +462,7 @@ function WorkflowStateBadge(props) {
 function applyWorkflowComposerBadge(ctx) {
     ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
         name: 'conversation.input.left',
-        id: 'dsh-agent-workflow.state',
+        id: 'dsh-gated-workflow.state',
         order: 10,
         label: 'workflow 状态',
     }, WorkflowStateBadge));

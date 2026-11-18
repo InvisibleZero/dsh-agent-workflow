@@ -1,9 +1,9 @@
 // @ts-nocheck
 /**
- * dsh-agent-workflow 宿主半（cordis 插件）。
+ * dsh-gated-workflow 宿主半（cordis 插件）。
  *
  * 职责：给浏览器半暴露 3 个本机 HTTP 路由（list / create / get），
- * 背后读写我们自己的 WorkflowRepository。客户端用 `fetch('/dsh-agent-workflow/*')` 调用，
+ * 背后读写我们自己的 WorkflowRepository。客户端用 `fetch('/dsh-gated-workflow/*')` 调用，
  * 与 model-router 的路由写法一致（webServer.register + kind: 'exact'）。
  */
 
@@ -33,7 +33,7 @@ export const inject = [];
 function resolveDataDir(): string {
   const profileDir = process.env.DSH_PROFILE_DIR;
   const base = profileDir && profileDir.trim() !== '' ? profileDir : join(homedir(), '.dsh');
-  return join(base, 'dsh-agent-workflow');
+  return join(base, 'dsh-gated-workflow');
 }
 
 /** 插件包根：dist/host.js 的上一级；设置与工具脚本都放这里，跟着仓库进 git。 */
@@ -93,10 +93,10 @@ function readJsonBody(req: any): Promise<any> {
   });
 }
 
-/** 从请求路径里取路由名（`/dsh-agent-workflow/ensure-node?x=1` → `ensure-node`），只用于埋点。 */
+/** 从请求路径里取路由名（`/dsh-gated-workflow/ensure-node?x=1` → `ensure-node`），只用于埋点。 */
 function routeNameOf(req: any): string {
   const routePath = String(req?.url ?? '').split('?')[0];
-  return routePath.replace(/^\/dsh-agent-workflow\//, '') || '(root)';
+  return routePath.replace(/^\/dsh-gated-workflow\//, '') || '(root)';
 }
 
 function makeHandler(
@@ -527,7 +527,7 @@ export function apply(ctx: any) {
   ctx.inject(['webServer'], (webCtx: any) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/stream',
+      path: '/dsh-gated-workflow/stream',
       handler: (req: any, res: any) => {
         if (!isLoopbackRequest(req)) return denyRequest(res);
         try {
@@ -563,12 +563,12 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/list',
+      path: '/dsh-gated-workflow/list',
       handler: makeHandler(ctx, repository, 'GET', async () => ({ items: await repository.list() })),
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/create',
+      path: '/dsh-gated-workflow/create',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.path !== 'string' || body.path.trim() === '') {
           throw new Error('缺少工作目录 path');
@@ -583,7 +583,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/get',
+      path: '/dsh-gated-workflow/get',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const id = query.get('id');
         if (typeof id !== 'string' || id === '') throw new Error('缺少 id');
@@ -595,7 +595,7 @@ export function apply(ctx: any) {
     // 应用级全局操作细节（A + B/C/D）：所有 workflow 共用一份。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/state-context',
+      path: '/dsh-gated-workflow/state-context',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const sessionId = query.get('sessionId');
         if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
@@ -604,7 +604,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/app-settings',
+      path: '/dsh-gated-workflow/app-settings',
       handler: makeHandler(ctx, repository, 'GET', async () => {
         const settings = await repository.getAppSettings();
         return { autoSendEnterTrigger: settings.autoSendEnterTrigger, manualLimits: settings.manualLimits };
@@ -612,7 +612,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/app-settings-save',
+      path: '/dsh-gated-workflow/app-settings-save',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         const saved = await repository.updateAppSettings({
           autoSendEnterTrigger: body?.autoSendEnterTrigger === undefined ? undefined : body.autoSendEnterTrigger === true,
@@ -624,7 +624,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/appendix',
+      path: '/dsh-gated-workflow/appendix',
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
         // 两份清单都现取：方案五小节解析自会话手册模板（模板改了这里跟着变），
@@ -653,7 +653,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/global-settings',
+      path: '/dsh-gated-workflow/global-settings',
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
@@ -664,7 +664,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/global-settings-save',
+      path: '/dsh-gated-workflow/global-settings-save',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (body?.globalOperationDetail === undefined || body.globalOperationDetail === null) {
           throw new Error('缺少 globalOperationDetail');
@@ -677,7 +677,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/profiles-save',
+      path: '/dsh-gated-workflow/profiles-save',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.name !== 'string' || body.name.trim() === '') throw new Error('缺少 name');
         const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
@@ -688,7 +688,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/profiles-activate',
+      path: '/dsh-gated-workflow/profiles-activate',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.name !== 'string' || body.name === '') throw new Error('缺少 name');
         const profiles = await repository.activateProfile(body.name);
@@ -699,7 +699,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/profiles-delete',
+      path: '/dsh-gated-workflow/profiles-delete',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.name !== 'string' || body.name === '') throw new Error('缺少 name');
         const profiles = await repository.deleteProfile(body.name);
@@ -710,7 +710,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/profiles-export',
+      path: '/dsh-gated-workflow/profiles-export',
       handler: makeHandler(ctx, repository, 'POST', async (_body, _query, traceId) => {
         const exported = await repository.exportActiveProfile();
         spawn('explorer.exe', [join(exported.path, '..')], { stdio: 'ignore', detached: true }).unref();
@@ -720,7 +720,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/profiles-import',
+      path: '/dsh-gated-workflow/profiles-import',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.json !== 'string' || body.json.trim() === '') throw new Error('缺少 json：请粘贴导出的文件内容');
         const result = await repository.importProfile(typeof body.name === 'string' ? body.name : '', body.json);
@@ -730,7 +730,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-detail',
+      path: '/dsh-gated-workflow/node-detail',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const id = query.get('id');
         const nodeId = query.get('nodeId');
@@ -752,7 +752,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-note',
+      path: '/dsh-gated-workflow/node-note',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
@@ -771,7 +771,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-by-session',
+      path: '/dsh-gated-workflow/node-by-session',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
         const sessionId = query.get('sessionId');
         if (typeof sessionId !== 'string' || sessionId === '') throw new Error('缺少 sessionId');
@@ -808,7 +808,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/sidebar-nodes',
+      path: '/dsh-gated-workflow/sidebar-nodes',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const path = query.get('path');
         const startedAt = Date.now();
@@ -835,7 +835,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/events',
+      path: '/dsh-gated-workflow/events',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const rawLimit = Number(query.get('limit') ?? '100');
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
@@ -844,7 +844,7 @@ export function apply(ctx: any) {
     // 工具目录 + 审计账：设置页「工具」页签只读展示，写操作全走网关。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/tools',
+      path: '/dsh-gated-workflow/tools',
       handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const snapshot = await registryStore.snapshot();
@@ -880,7 +880,7 @@ export function apply(ctx: any) {
     // 浏览器半的埋点入口：落在同一个事件环里，才能和宿主日志对时间。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/client-log',
+      path: '/dsh-gated-workflow/client-log',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         const level = body?.level === 'warn' ? 'warn' : 'info';
         const message = typeof body?.message === 'string' ? body.message.trim() : '';
@@ -895,7 +895,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/bind-session',
+      path: '/dsh-gated-workflow/bind-session',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
@@ -911,7 +911,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/approve-advance',
+      path: '/dsh-gated-workflow/approve-advance',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.sessionId !== 'string' || body.sessionId === '') throw new Error('缺少 sessionId');
         const pending = readPendingAdvance(body.sessionId);
@@ -938,7 +938,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/delete',
+      path: '/dsh-gated-workflow/delete',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         await repository.remove(body.id);
@@ -948,12 +948,12 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/trash-list',
+      path: '/dsh-gated-workflow/trash-list',
       handler: makeHandler(ctx, repository, 'GET', async () => ({ items: await repository.listTrash() })),
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/trash-restore',
+      path: '/dsh-gated-workflow/trash-restore',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         const restored = await repository.restoreFromTrash(body.id);
@@ -963,7 +963,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/link-workspace',
+      path: '/dsh-gated-workflow/link-workspace',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.hostWorkspaceId !== 'string') throw new Error('缺少 hostWorkspaceId');
@@ -973,7 +973,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/ensure-node',
+      path: '/dsh-gated-workflow/ensure-node',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.sessionId !== 'string' || body.sessionId === '') throw new Error('缺少 sessionId');
         // 客户端只传它能看到的工作目录；新会话可能还没提交过目录，这时由宿主按会话解析。
@@ -1020,7 +1020,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-manual',
+      path: '/dsh-gated-workflow/node-manual',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
         const id = query.get('id');
         const nodeId = query.get('nodeId');
@@ -1036,7 +1036,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-checklist',
+      path: '/dsh-gated-workflow/node-checklist',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
         const id = query.get('id');
         const nodeId = query.get('nodeId');
@@ -1065,7 +1065,7 @@ export function apply(ctx: any) {
     // 验收证据详情：节点弹窗「验收」页签一次取全（命令 / 退出码 / 用例数 / findings / 检查器运行）。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/node-verification',
+      path: '/dsh-gated-workflow/node-verification',
       handler: makeHandler(ctx, repository, 'GET', async (_body, query, traceId) => {
         const id = query.get('id');
         const nodeId = query.get('nodeId');
@@ -1096,7 +1096,7 @@ export function apply(ctx: any) {
     // 交付物导出：把验收证据 + 时间线 + 手册摘要写成一份 markdown，落 .workflow/ 下（可进 git、可存档）。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/export-report',
+      path: '/dsh-gated-workflow/export-report',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
@@ -1108,7 +1108,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/open-folder',
+      path: '/dsh-gated-workflow/open-folder',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         const target = body?.path;
         if (typeof target !== 'string' || target.trim() === '') throw new Error('缺少 path');
@@ -1119,7 +1119,7 @@ export function apply(ctx: any) {
     // 验收报备的 HTTP 入口：给 e2e 脚本用（模型走 workflow_verify_report 工具，不经过这里）。
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/verify-report',
+      path: '/dsh-gated-workflow/verify-report',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
@@ -1145,7 +1145,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/transition',
+      path: '/dsh-gated-workflow/transition',
       handler: makeHandler(ctx, repository, 'POST', async (body, _query, traceId) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         if (typeof body?.nodeId !== 'string' || body.nodeId === '') throw new Error('缺少 nodeId');
@@ -1186,7 +1186,7 @@ export function apply(ctx: any) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: 'exact',
-      path: '/dsh-agent-workflow/pin',
+      path: '/dsh-gated-workflow/pin',
       handler: makeHandler(ctx, repository, 'POST', async (body) => {
         if (typeof body?.id !== 'string' || body.id === '') throw new Error('缺少 id');
         const snapshot = await repository.setPinned({ id: body.id, pinned: body.pinned === true });

@@ -137,7 +137,7 @@ function ToolsPanel() {
         setError('');
         void (async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/tools');
+                const response = await fetch('/dsh-gated-workflow/tools');
                 const body = await response.json().catch(() => null);
                 if (cancelled)
                     return;
@@ -206,7 +206,7 @@ function AppendixPanel() {
         setError('');
         void (async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/appendix');
+                const response = await fetch('/dsh-gated-workflow/appendix');
                 const body = await response.json().catch(() => null);
                 if (cancelled)
                     return;
@@ -305,7 +305,7 @@ function WorkflowGlobalSettingsSection() {
         let cancelled = false;
         void (async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/global-settings');
+                const response = await fetch('/dsh-gated-workflow/global-settings');
                 const responseBody = await response.json().catch(() => null);
                 if (cancelled)
                     return;
@@ -330,7 +330,7 @@ function WorkflowGlobalSettingsSection() {
     /** 存档相关的写操作统一走这里：成功就刷新列表与内容。 */
     const callProfileRoute = async (route, payload) => {
         try {
-            const response = await fetch(`/dsh-agent-workflow/${route}`, {
+            const response = await fetch(`/dsh-gated-workflow/${route}`, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify(payload),
@@ -361,7 +361,7 @@ function WorkflowGlobalSettingsSection() {
         let cancelled = false;
         void (async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/app-settings');
+                const response = await fetch('/dsh-gated-workflow/app-settings');
                 const responseBody = await response.json().catch(() => null);
                 if (!cancelled && responseBody?.ok === true) {
                     setAutoSend(responseBody.autoSendEnterTrigger === true);
@@ -379,14 +379,14 @@ function WorkflowGlobalSettingsSection() {
     const saveAutoSend = async (next) => {
         setAutoSend(next);
         try {
-            await fetch('/dsh-agent-workflow/app-settings-save', {
+            await fetch('/dsh-gated-workflow/app-settings-save', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ autoSendEnterTrigger: next }),
             });
         }
         catch (reason) {
-            console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+            console.warn('[dsh-gated-workflow] 保存自动发送开关失败：', reason);
         }
     };
     /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
@@ -396,7 +396,7 @@ function WorkflowGlobalSettingsSection() {
         const next = { ...limits, [field]: value };
         setLimits(next);
         try {
-            const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+            const response = await fetch('/dsh-gated-workflow/app-settings-save', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ manualLimits: next }),
@@ -416,7 +416,7 @@ function WorkflowGlobalSettingsSection() {
         setStatus('saving');
         setError(null);
         try {
-            const response = await fetch('/dsh-agent-workflow/global-settings-save', {
+            const response = await fetch('/dsh-gated-workflow/global-settings-save', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ globalOperationDetail: value }),
@@ -468,7 +468,7 @@ function WorkflowGlobalSettingsSection() {
     /** 重新扫一遍存档目录：手动往文件夹里丢 json 之后点它。 */
     const refreshProfiles = async () => {
         try {
-            const response = await fetch('/dsh-agent-workflow/global-settings');
+            const response = await fetch('/dsh-gated-workflow/global-settings');
             const body = await response.json().catch(() => null);
             if (body?.ok !== true) {
                 window.alert(String(body?.error ?? '刷新失败'));
@@ -644,7 +644,7 @@ function WorkflowSectionIcon() {
 }
 /** 把「操作细节」分区挂进 设置 → 左侧导航。 */
 export function applyWorkflowSettingsSection(ctx) {
-    const sectionId = 'dsh-agent-workflow';
+    const sectionId = 'dsh-gated-workflow';
     ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: sectionId,
@@ -693,7 +693,7 @@ export function WorkflowNodeDetailDialog(props) {
         let cancelled = false;
         void (async () => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const response = await fetch(`/dsh-gated-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                 const responseBody = await response.json().catch(() => null);
                 if (cancelled)
                     return;
@@ -714,7 +714,7 @@ export function WorkflowNodeDetailDialog(props) {
         let cancelled = false;
         void (async () => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const response = await fetch(`/dsh-gated-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                 const responseBody = await response.json().catch(() => null);
                 if (cancelled || responseBody?.ok !== true)
                     return;
@@ -737,7 +737,7 @@ export function WorkflowNodeDetailDialog(props) {
         let cancelled = false;
         void (async () => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const response = await fetch(`/dsh-gated-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                 const responseBody = await response.json().catch(() => null);
                 if (cancelled)
                     return;
@@ -757,7 +757,7 @@ export function WorkflowNodeDetailDialog(props) {
     const exportReport = async () => {
         setExporting(true);
         try {
-            const response = await fetch('/dsh-agent-workflow/export-report', {
+            const response = await fetch('/dsh-gated-workflow/export-report', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ id: workflowId, nodeId }),
@@ -804,7 +804,7 @@ export function WorkflowNodeDetailDialog(props) {
             timers.current[state] = undefined;
             setNoteStatus('保存中…');
             try {
-                const response = await fetch('/dsh-agent-workflow/node-note', {
+                const response = await fetch('/dsh-gated-workflow/node-note', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id: workflowId, nodeId, state, text }),
@@ -822,7 +822,7 @@ export function WorkflowNodeDetailDialog(props) {
                                     onOpenSettings?.();
                                     onClose();
                                 }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E" }), manualData !== null && manualData.notesDir !== '' ? (_jsx("button", { type: "button", onClick: () => {
-                                    void fetch('/dsh-agent-workflow/open-folder', {
+                                    void fetch('/dsh-gated-workflow/open-folder', {
                                         method: 'POST',
                                         headers: { 'content-type': 'application/json' },
                                         body: JSON.stringify({ path: manualData.notesDir }),

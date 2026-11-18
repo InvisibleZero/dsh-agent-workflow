@@ -197,7 +197,7 @@ function ToolsPanel() {
     setError('');
     void (async () => {
       try {
-        const response = await fetch('/dsh-agent-workflow/tools');
+        const response = await fetch('/dsh-gated-workflow/tools');
         const body = await response.json().catch(() => null);
         if (cancelled) return;
         if (body?.ok !== true) {
@@ -307,7 +307,7 @@ function ToolsPanel() {
   );
 }
 
-/** 附表的两组条目：字段与 GET /dsh-agent-workflow/appendix 的返回一一对应。 */
+/** 附表的两组条目：字段与 GET /dsh-gated-workflow/appendix 的返回一一对应。 */
 interface AppendixPlanSection { id: number; title: string; hint: string }
 interface AppendixVerifyItem { id: number; name: string; judge: string; needsCommand: boolean }
 
@@ -331,7 +331,7 @@ function AppendixPanel() {
     setError('');
     void (async () => {
       try {
-        const response = await fetch('/dsh-agent-workflow/appendix');
+        const response = await fetch('/dsh-gated-workflow/appendix');
         const body = await response.json().catch(() => null);
         if (cancelled) return;
         if (body?.ok !== true) {
@@ -538,7 +538,7 @@ function WorkflowGlobalSettingsSection() {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch('/dsh-agent-workflow/global-settings');
+        const response = await fetch('/dsh-gated-workflow/global-settings');
         const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
         if (responseBody?.ok === true) {
@@ -559,7 +559,7 @@ function WorkflowGlobalSettingsSection() {
   /** 存档相关的写操作统一走这里：成功就刷新列表与内容。 */
   const callProfileRoute = async (route: string, payload: unknown): Promise<boolean> => {
     try {
-      const response = await fetch(`/dsh-agent-workflow/${route}`, {
+      const response = await fetch(`/dsh-gated-workflow/${route}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
@@ -586,7 +586,7 @@ function WorkflowGlobalSettingsSection() {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch('/dsh-agent-workflow/app-settings');
+        const response = await fetch('/dsh-gated-workflow/app-settings');
         const responseBody = await response.json().catch(() => null);
         if (!cancelled && responseBody?.ok === true) {
           setAutoSend(responseBody.autoSendEnterTrigger === true);
@@ -604,13 +604,13 @@ function WorkflowGlobalSettingsSection() {
   const saveAutoSend = async (next: boolean) => {
     setAutoSend(next);
     try {
-      await fetch('/dsh-agent-workflow/app-settings-save', {
+      await fetch('/dsh-gated-workflow/app-settings-save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ autoSendEnterTrigger: next }),
       });
     } catch (reason) {
-      console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+      console.warn('[dsh-gated-workflow] 保存自动发送开关失败：', reason);
     }
   };
 
@@ -621,7 +621,7 @@ function WorkflowGlobalSettingsSection() {
     const next = { ...limits, [field]: value };
     setLimits(next);
     try {
-      const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+      const response = await fetch('/dsh-gated-workflow/app-settings-save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ manualLimits: next }),
@@ -638,7 +638,7 @@ function WorkflowGlobalSettingsSection() {
   const persist = async (value: any) => {
     setStatus('saving');    setError(null);
     try {
-      const response = await fetch('/dsh-agent-workflow/global-settings-save', {
+      const response = await fetch('/dsh-gated-workflow/global-settings-save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ globalOperationDetail: value }),
@@ -690,7 +690,7 @@ function WorkflowGlobalSettingsSection() {
   /** 重新扫一遍存档目录：手动往文件夹里丢 json 之后点它。 */
   const refreshProfiles = async () => {
     try {
-      const response = await fetch('/dsh-agent-workflow/global-settings');
+      const response = await fetch('/dsh-gated-workflow/global-settings');
       const body = await response.json().catch(() => null);
       if (body?.ok !== true) {
         window.alert(String(body?.error ?? '刷新失败'));
@@ -1049,7 +1049,7 @@ function WorkflowSectionIcon() {
 
 /** 把「操作细节」分区挂进 设置 → 左侧导航。 */
 export function applyWorkflowSettingsSection(ctx: any) {
-  const sectionId = 'dsh-agent-workflow';
+  const sectionId = 'dsh-gated-workflow';
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -1140,7 +1140,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+        const response = await fetch(`/dsh-gated-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
         const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
         if (responseBody?.ok === true) setPayload(responseBody);
@@ -1157,7 +1157,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+        const response = await fetch(`/dsh-gated-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
         const responseBody = await response.json().catch(() => null);
         if (cancelled || responseBody?.ok !== true) return;
         setManualData(responseBody.manual === null
@@ -1179,7 +1179,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`/dsh-agent-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+        const response = await fetch(`/dsh-gated-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
         const responseBody = await response.json().catch(() => null);
         if (cancelled) return;
         if (responseBody?.ok === true) setVerification(responseBody);
@@ -1195,7 +1195,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
   const exportReport = async () => {
     setExporting(true);
     try {
-      const response = await fetch('/dsh-agent-workflow/export-report', {
+      const response = await fetch('/dsh-gated-workflow/export-report', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: workflowId, nodeId }),
@@ -1240,7 +1240,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
       timers.current[state] = undefined;
       setNoteStatus('保存中…');
       try {
-        const response = await fetch('/dsh-agent-workflow/node-note', {
+        const response = await fetch('/dsh-gated-workflow/node-note', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ id: workflowId, nodeId, state, text }),
@@ -1278,7 +1278,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
               <button
                 type="button"
                 onClick={() => {
-                  void fetch('/dsh-agent-workflow/open-folder', {
+                  void fetch('/dsh-gated-workflow/open-folder', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ path: manualData.notesDir }),

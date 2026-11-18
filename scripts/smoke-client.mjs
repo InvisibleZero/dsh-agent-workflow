@@ -34,7 +34,7 @@ try {
 }
 
 check(entry !== null, 'bundle 没有调用 window.__ModuleLoader__.load');
-check(entry?.id === 'dsh-agent-workflow', `bundle id 应为 dsh-agent-workflow，实际 ${String(entry?.id)}`);
+check(entry?.id === 'dsh-gated-workflow', `bundle id 应为 dsh-gated-workflow，实际 ${String(entry?.id)}`);
 
 class ReactComponent {
   constructor(props) {

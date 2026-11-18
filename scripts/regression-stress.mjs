@@ -1,5 +1,5 @@
 /**
- * dsh-agent-workflow 宿主 HTTP 接口回归 + 压力测试。
+ * dsh-gated-workflow 宿主 HTTP 接口回归 + 压力测试。
  *
  * 用法：node scripts/regression-stress.mjs [port]
  * 不传 port 则按候选列表自动探测；每步用独立的临时工作目录，不碰真实数据。
@@ -56,7 +56,7 @@ async function writeResultFile(port) {
     const file = join(dir, `${datePart(finishedAt)}_${timePart(finishedAt)}.json`);
     const payload = {
       tool: 'regression-stress',
-      plugin: typeof pkg.name === 'string' ? pkg.name : 'dsh-agent-workflow',
+      plugin: typeof pkg.name === 'string' ? pkg.name : 'dsh-gated-workflow',
       version: typeof pkg.version === 'string' ? pkg.version : 'unknown',
       port: port ?? RUN.port ?? null,
       started_at: RUN.startedAt,
@@ -82,7 +82,7 @@ async function discoverPort() {
   if (PORT > 0) return PORT;
   for (const p of CANDIDATE_PORTS) {
     try {
-      const r = await fetch(`http://127.0.0.1:${p}/dsh-agent-workflow/list`);
+      const r = await fetch(`http://127.0.0.1:${p}/dsh-gated-workflow/list`);
       const j = await r.json().catch(() => null);
       if (j?.ok === true) return p;
     } catch {
@@ -93,7 +93,7 @@ async function discoverPort() {
 }
 
 function api(port, path, { method = 'GET', body } = {}) {
-  return fetch(`http://127.0.0.1:${port}/dsh-agent-workflow/${path}`, {
+  return fetch(`http://127.0.0.1:${port}/dsh-gated-workflow/${path}`, {
     method,
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),

@@ -19,7 +19,7 @@ const result = await build({
 
 const code = result.outputFiles[0].text;
 const out = `window.__ModuleLoader__.load({
-  id: "dsh-agent-workflow",
+  id: "dsh-gated-workflow",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

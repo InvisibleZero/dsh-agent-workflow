@@ -1,11 +1,11 @@
-# dsh-agent-workflow —— Agent 编排与 Workflow 状态机插件
+# dsh-gated-workflow —— 带程序级门禁的 Agent 工作流状态机插件
 
 <img src="assets/cover.png" width="100%" alt="会话列表 / 四态状态机 + 门禁 / 两层手册">
 
-> 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：**工作区 = 一个项目，会话 = 一个 workflow 单元**。每个会话走**四态状态机**（讨论 → 实现 → 验收），当前状态自动决定注入给模型的操作细节，并把项目的总览、决策、约束与坑沉淀进**两层手册**（项目手册 + 会话手册）。
+> 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的桌面版插件：**工作区 = 一个项目，会话 = 一个 workflow 单元**，每个会话走**四态状态机**（讨论 → 实现 → 验收），靠**程序级门禁**管住每一步——讨论中写不了文件、实现中出不了声明范围、验收的 ✓ 拿不到证据打不上——再把项目总览 / 决策 / 约束 / 坑沉淀进**两层手册**（项目手册 + 会话手册）。
 
-- **仓库地址**：<https://github.com/InvisibleZero/dsh-agent-workflow>
-- **版本**：`0.9.3`（更新记录见 [CHANGELOG.md](./CHANGELOG.md)）
+- **仓库地址**：<https://github.com/InvisibleZero/dsh-gated-workflow>
+- **版本**：`0.9.4`（更新记录见 [CHANGELOG.md](./CHANGELOG.md)）
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
 - **项目历程**：[JOURNEY.md](./JOURNEY.md)（从加法到减法：为什么先做树、又为什么拆掉）
@@ -169,7 +169,7 @@ workflow_tool_add  { name, description, base_tool, sample_args, fixed_args?, all
 
 - **手册写入有闸门**：会话手册「方案」≤1200 字、整本 ≤2000 字（按**字符**算，勾选证据 `｜ 自检：…` 不计入）；项目手册「约束 / 红线」≤300 字；项目手册的条目**必须带标签**（`- [标签1｜标签2] 正文`），新标签自动登记进「## 标签表」（最多 30 条，满了用 `rename_tag` 合并，合并不占额度）；路径由插件拼，模型传不了路径；写后超过 200KB / 64KB 也会拒绝；
 - **别名只登记、不执行**：模型没有直接注册权；申请只写本工作区的 `tool-aliases.json`，四关全过立即生效，但不执行任何业务；不能挂别名（禁止链式），基础工具缺失或文件损坏时只让别名失效；
-- **审计与页面**：每次调用 / 申请写一条账（trace / 阶段 / 条目 / 参数摘要 / 结果 / 耗时 / 拒绝分类），`GET /dsh-agent-workflow/tools` 可读；设置页「工具」页签只读展示目录与最近 50 条；
+- **审计与页面**：每次调用 / 申请写一条账（trace / 阶段 / 条目 / 参数摘要 / 结果 / 耗时 / 拒绝分类），`GET /dsh-gated-workflow/tools` 可读；设置页「工具」页签只读展示目录与最近 50 条；
 - **「方案」与「实施顺序」进入实现中后都不许改写**：方案要改只能返工回「讨论中」，实施顺序只能 `workflow_check` 勾选；勾选时**必须附 `evidence`**（这一层怎么验的、结果是什么），证据会写进清单行；条目文字不匹配会报错并列出可勾项；
 - **推进前置**是"分步绝对"的落点：方案没写进手册 → 进不了实现中；清单没勾完 → 进不了验收中。人工点 `→` 走同一套前置，被拒会把原因弹出来。进「已完结」前还会做一次**跨态失效校验**：required 型检查器跑完后工作目录又有源码改动，证据判过期、要求重跑再报备。
 - **验收证据可看、可导出**：节点弹窗新增「验收」页签，七项每项展示复跑命令 / 退出码 / findings / 最近一次检查器运行；页签里「导出验收报告」把证据链 + 状态时间线写成一份 markdown 落 `.workflow/` 下（可进 git、可存档）。
@@ -187,10 +187,10 @@ workflow_tool_add  { name, description, base_tool, sample_args, fixed_args?, all
 cd ~/.dsh/profiles/desktop
 
 # 2. 安装（用 DSH 自带的 pnpm，或系统 pnpm）
-pnpm add github:InvisibleZero/dsh-agent-workflow#main
+pnpm add github:InvisibleZero/dsh-gated-workflow#main
 ```
 
-然后确认该目录下的 `package.json` 里，`dsh.profile.bundles` 数组包含 `"dsh-agent-workflow"`（pnpm 不会自动加，需要手动补）：
+然后确认该目录下的 `package.json` 里，`dsh.profile.bundles` 数组包含 `"dsh-gated-workflow"`（pnpm 不会自动加，需要手动补）：
 
 ```json
 {
@@ -199,7 +199,7 @@ pnpm add github:InvisibleZero/dsh-agent-workflow#main
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "dsh-agent-workflow"
+        "dsh-gated-workflow"
       ]
     }
   }
@@ -219,7 +219,7 @@ cd ~/.dsh/profiles/desktop
 pnpm add link:<仓库绝对路径>
 ```
 
-同样把 `"dsh-agent-workflow"` 加进 `dsh.profile.bundles`。
+同样把 `"dsh-gated-workflow"` 加进 `dsh.profile.bundles`。
 
 ### 安装后怎么生效
 
@@ -231,7 +231,7 @@ pnpm add link:<仓库绝对路径>
 
 插件声明了两半：
 
-- 宿主半：`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml`，自动插入 `id: dsh-agent-workflow`；
+- 宿主半：`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml`，自动插入 `id: dsh-gated-workflow`；
 - 客户端半：`dsh.client` 声明 + `exports["./client"]` 指向 `dist/client-bundle.js`。
 
 ---
@@ -292,7 +292,7 @@ src/
 |---|---|---|
 | 插件目录 `settings/` | 操作细节、应用设置（`global-settings.json` / `app-settings.json`） | ✅ 随插件 |
 | 插件目录 `tools/` | 开发期额外登记的扩展工具；出厂 5 个在代码里 | ✅ 随插件 |
-| 用户目录 `~/.dsh/dsh-agent-workflow/` | workflow 快照、回收站、导出、事件日志 `events.jsonl`（append-only 审计） | ❌ 运行数据 |
+| 用户目录 `~/.dsh/dsh-gated-workflow/` | workflow 快照、回收站、导出、事件日志 `events.jsonl`（append-only 审计） | ❌ 运行数据 |
 | 工作目录 `.workflow/` | 两层手册（项目 / 会话） | ❌ 项目自己的 |
 | 工作目录 `.workflow/evidence/` | 检查器产物（`deps.json` / `contract.json` 等） | ❌ 跑的时候生成 |
 

@@ -14,7 +14,7 @@ exports.apply = apply;
 const workflow_embedded_1 = require("./workflow-embedded");
 const workflow_dialogs_1 = require("./workflow-dialogs");
 const session_row_dot_1 = require("./session-row-dot");
-exports.name = 'dsh-agent-workflow-client';
+exports.name = 'dsh-gated-workflow-client';
 exports.inject = ['slots'];
 function apply(ctx) {
     // 输入框工具条里的 workflow 状态徽标（权限控件右边）。
@@ -22,21 +22,21 @@ function apply(ctx) {
         (0, workflow_embedded_1.applyWorkflowComposerBadge)(ctx);
     }
     catch (error) {
-        console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+        console.error('[dsh-gated-workflow] 状态徽标注册失败：', error);
     }
     // 侧栏会话行的行尾常驻状态点（非交互，颜色按节点状态）。
     try {
         (0, session_row_dot_1.applySessionRowStateDots)(ctx);
     }
     catch (error) {
-        console.error('[dsh-agent-workflow] 会话行状态点注册失败：', error);
+        console.error('[dsh-gated-workflow] 会话行状态点注册失败：', error);
     }
     // 设置页里的「操作细节」（应用级全局 A/B/C/D）。
     try {
         (0, workflow_dialogs_1.applyWorkflowSettingsSection)(ctx);
     }
     catch (error) {
-        console.error('[dsh-agent-workflow] 设置分区注册失败：', error);
+        console.error('[dsh-gated-workflow] 设置分区注册失败：', error);
     }
 }
 //# sourceMappingURL=dsh-plugin.js.map

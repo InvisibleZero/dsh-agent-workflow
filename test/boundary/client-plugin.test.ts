@@ -53,7 +53,7 @@ function makeCtx(captured: Captured[], options: { registerThrows?: boolean } = {
   } as any;
 }
 
-describe('dsh-agent-workflow 客户端入口', () => {
+describe('dsh-gated-workflow 客户端入口', () => {
   it('只声明 slots 一个硬依赖', () => {
     expect(inject).toEqual(['slots']);
   });
@@ -76,9 +76,9 @@ describe('dsh-agent-workflow 客户端入口', () => {
 
     // 各槽位用插件自己的 id，避免顶掉宿主条目。
     const stateBadge = captured.find((item) => item.slot === 'conversation.input.left');
-    expect(stateBadge?.id).toBe('dsh-agent-workflow.state');
+    expect(stateBadge?.id).toBe('dsh-gated-workflow.state');
     const stateDot = captured.find((item) => item.slot === 'sidebar.session.row.trailing');
-    expect(stateDot?.id).toBe('dsh-agent-workflow.state-dot');
+    expect(stateDot?.id).toBe('dsh-gated-workflow.state-dot');
   });
 
   it('某个槽位注册失败不拖垮整页启动', () => {

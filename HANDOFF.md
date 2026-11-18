@@ -1,4 +1,4 @@
-# dsh-agent-workflow 插件 · 需求与交接文档
+# dsh-gated-workflow 插件 · 需求与交接文档
 
 > 用途：把这份文档发给另一个会话，让它接手继续开发。
 > 目标宿主：DeepSeek Harness（dsh）Electron 桌面版。
@@ -15,7 +15,7 @@
 
 ### 2.1 插件定位
 
-- 插件名：`dsh-agent-workflow`
+- 插件名：`dsh-gated-workflow`
 - 形态：dsh 的 cordis 插件（宿主半 + 浏览器半）
 - 它不是 dsh 的「目录工作区」，而是**另一套完全独立的东西**：
   - 实体 = 树（节点 + 状态）
@@ -86,7 +86,7 @@ schema  →  engine  →  adapter(port/impl)  →  service  →  client
 ### 3.1 目录结构
 
 ```
-dsh-agent-workflow/
+dsh-gated-workflow/
 ├── src/
 │   ├── schema/          # L0 数据契约（zod）
 │   │   ├── node-state.ts      # NodeState / ActiveState / StateDetail / NodeFlag
@@ -173,8 +173,8 @@ dsh-agent-workflow/
 
 ```yaml
 - insert:
-    - id: dsh-agent-workflow
-      name: dsh-agent-workflow
+    - id: dsh-gated-workflow
+      name: dsh-gated-workflow
 ```
 
 ### 4.4 宿主半的 `inject` 必须是数组
@@ -187,7 +187,7 @@ dsh 的浏览器模块系统通过 `window.__ModuleLoader__.load({ id, factory }
 
 ```js
 window.__ModuleLoader__.load({
-  id: "dsh-agent-workflow",
+  id: "dsh-gated-workflow",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -231,8 +231,8 @@ ctx.slots.inject('slot.name', () =>
 - schema / engine / adapter / service / client 全部实现。
 - 61 个测试全绿。
 - 已装进 profile：`C:\Users\QINBAI\.dsh\profiles\desktop`
-  - `package.json` 的 `dependencies` 加了 `"dsh-agent-workflow": "link:..."`；
-  - `dsh.profile.bundles` 加了 `"dsh-agent-workflow"`；
+  - `package.json` 的 `dependencies` 加了 `"dsh-gated-workflow": "link:..."`；
+  - `dsh.profile.bundles` 加了 `"dsh-gated-workflow"`；
   - `node_modules` 下建了 junction。
 - 已修：
   - `dsh.client` 改成对象；
@@ -247,7 +247,7 @@ dsh 启动时报：
 ```
 应用无法启动或已意外停止。
 web boot: 1 entry did not activate
-dsh-agent-workflow: failed
+dsh-gated-workflow: failed
 ```
 
 已排查结论：
@@ -262,8 +262,8 @@ dsh-agent-workflow: failed
 1. 先确认最简 `export function apply() {}` 能否过 web boot。
    - 能过 → 逐个加回 `inject` / 写文件 / `name`，找出触发 failed 的那个。
    - 不能过 → 问题不在宿主代码，转查：
-     - `resolveBundleDir` / `packageDirFromAnchor` 是否依赖 pnpm lockfile（当前 lockfile 里**没有** `dsh-agent-workflow`）；
-     - entry 的 `name` 解析（`tree.import('dsh-agent-workflow')`）；
+     - `resolveBundleDir` / `packageDirFromAnchor` 是否依赖 pnpm lockfile（当前 lockfile 里**没有** `dsh-gated-workflow`）；
+     - entry 的 `name` 解析（`tree.import('dsh-gated-workflow')`）；
      - `cordis.patch.yml` 的 insert 语法/name 是否与包名一致。
 2. 宿主半通过后，再修浏览器半的 404（lazy-CJS 已就绪，待验证加载）。
 3. 最后才是 UI：底栏按钮 → 面板 → 树 → 状态切换 → 设置。
@@ -274,12 +274,12 @@ dsh-agent-workflow: failed
 
 | 东西 | 路径 |
 |---|---|
-| 插件根 | `C:\Users\QINBAI\Documents\deepseek-harness\default-workspace\dsh-agent-workflow` |
+| 插件根 | `C:\Users\QINBAI\Documents\deepseek-harness\default-workspace\dsh-gated-workflow` |
 | profile | `C:\Users\QINBAI\.dsh\profiles\desktop` |
-| junction | `C:\Users\QINBAI\.dsh\profiles\desktop\node_modules\dsh-agent-workflow` |
+| junction | `C:\Users\QINBAI\.dsh\profiles\desktop\node_modules\dsh-gated-workflow` |
 | node | `C:\Users\QINBAI\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe` |
-| tsc | `dsh-agent-workflow\node_modules\typescript\bin\tsc` |
-| vitest | `dsh-agent-workflow\node_modules\vitest\vitest.mjs` |
+| tsc | `dsh-gated-workflow\node_modules\typescript\bin\tsc` |
+| vitest | `dsh-gated-workflow\node_modules\vitest\vitest.mjs` |
 | dsh 源码 | `E:\DeepSeek Harness\resources\app.asar\dsh\` |
 | crash log | `C:\Users\QINBAI\AppData\Roaming\@deepseek-ai\dsh-desktop\logs\crash-*-web-boot.log` |
 

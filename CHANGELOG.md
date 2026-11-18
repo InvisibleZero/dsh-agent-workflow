@@ -2,6 +2,20 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.4] - 2026-11-18
+
+插件更名 `dsh-agent-workflow` → `dsh-gated-workflow`，让「门禁」体现在名字上（门禁做主、工作流做辅）。
+
+### 变更
+
+- **全链路改名**：npm 包名、bundle id、HTTP 路由前缀 `/dsh-gated-workflow/*`、数据目录 `~/.dsh/dsh-gated-workflow/`、客户端槽位 id、仓库地址、所有文档。
+- **README 定位改写**：标题改为「带程序级门禁的 Agent 工作流状态机插件」，副标题点出三道拦截现场（讨论中写不了文件 / 实现中出不了范围 / 验收拿不到证据打不上勾）。
+- 预设 id 仍是 `workflow`（「工作流模式」是模式名，不是插件名，不改）。
+
+### 注意（数据迁移）
+
+- 数据目录从 `~/.dsh/dsh-agent-workflow/` 改成 `~/.dsh/dsh-gated-workflow/`：旧版本的 workflow 快照 / 回收站 / 导出的存档还在旧目录，升级后把旧目录整体改名（或移动内容）到新目录即可，`.workflow/` 手册不受影响（它们按工作区存，不在数据目录里）。
+
 ## [0.9.3] - 2026-11-17
 
 实现中范围门禁松绑：被误拦时用 `extend_scope` 追加范围（append-only + 留痕），不必返工回讨论中；范围声明引导到目录粒度。
@@ -113,14 +127,14 @@
 
 - **扩展工具从「读现成产物」改成「自带命令」**：调用 `check_deps` 时插件在工作目录执行 `npx depcruise`，再读产物判定。命令是检查器定义里的常量，调用方只能传 `target`（路径片段或压测地址），不能传命令。
 - **工具表全局一份**，不再按工作区分组：换项目不用重新登记工具。
-- **设置与工具表随插件进 git**（`settings/`、`tools/`），运行数据仍留 `~/.dsh/dsh-agent-workflow/`。
+- **设置与工具表随插件进 git**（`settings/`、`tools/`），运行数据仍留 `~/.dsh/dsh-gated-workflow/`。
 - 出厂工具全部移到代码里：`BASE_TOOLS`（5 个基础）+ `EXTENSION_TOOLS`（5 个扩展），`tools/tool-registry.json` 只存开发期额外登记的工具。
 
 ### 新增
 
 - **5 个检查器**（`src/engine/checkers/`）：契约测试、依赖检查、死代码扫描、边界测试、回归压测。纯函数，输入证据 JSON，输出 `{ ok, findings, stats }`。
 - **命令执行器**（`src/host/command-runner.ts`）：shell 执行、120s 超时、收退出码、输出留尾部 4KB；超时用 `taskkill /T` 杀进程树（只杀 shell 会漏掉子进程）。
-- **HTTP 报备入口** `POST /dsh-agent-workflow/verify-report`，给 e2e 用（模型仍走 `workflow_verify_report`）。
+- **HTTP 报备入口** `POST /dsh-gated-workflow/verify-report`，给 e2e 用（模型仍走 `workflow_verify_report`）。
 - **四个社区工具进 `dependencies`**：vitest / dependency-cruiser / knip / autocannon，随插件安装。署名与用途见 [THIRD-PARTY.md](./THIRD-PARTY.md)。
 - `.dependency-cruiser.cjs`（分层规则模板）、`knip.json`（死代码扫描配置）。
 
@@ -147,7 +161,7 @@
 ### 新增
 
 - **别名申请制**：别名 = 基础工具 + 固定参数，四关校验（类型 / 静态 / 样例参数 / 阶段继承）全过才登记；按 workflow 落 `tool-aliases.json`，文件损坏只降级别名、基础工具不受影响。
-- **审计账**：`tool.call` / `tool.add`（trace / 阶段 / 条目 / 参数摘要 / 结果 / 耗时 / 拒绝分类），`GET /dsh-agent-workflow/tools` 可读。
+- **审计账**：`tool.call` / `tool.add`（trace / 阶段 / 条目 / 参数摘要 / 结果 / 耗时 / 拒绝分类），`GET /dsh-gated-workflow/tools` 可读。
 
 ## [0.6.0] - 2026-11-12
 
@@ -177,7 +191,7 @@
 ### 新增
 
 - 设置页「存档」工具条：下拉切换 + 另存为 + 删除 + 刷新 + 备份 + 导入。
-- 内置**「默认存档」只读**（随插件提供，不落盘）；用户存档放在 `~/.dsh/dsh-agent-workflow/exports/<名字>.json`。
+- 内置**「默认存档」只读**（随插件提供，不落盘）；用户存档放在 `~/.dsh/dsh-gated-workflow/exports/<名字>.json`。
 - 导入走系统文件选择框（文件名即存档名）；备份写 `exports/backup/`，删除移入 `exports/trash/`（可捞回）。
 - 旧格式设置文件首次读取时自动拆成一份份文件，不丢改动。
 
@@ -208,7 +222,7 @@
 
 ### 变更
 
-- **存档改成"一份存档 = 一个 json 文件"**：全部放在 `~/.dsh/dsh-agent-workflow/exports/`，下拉直接列出这个目录里的 `*.json`（文件名即存档名）。想加一份存档，把文件拷进去再点「刷新」即可；想分享，直接发文件。
+- **存档改成"一份存档 = 一个 json 文件"**：全部放在 `~/.dsh/dsh-gated-workflow/exports/`，下拉直接列出这个目录里的 `*.json`（文件名即存档名）。想加一份存档，把文件拷进去再点「刷新」即可；想分享，直接发文件。
 - `global-settings.json` 退化成一个指针：`{ "active": "存档名" }`。
 - **备份**按钮把当前存档复制到 `exports/backup/操作细节-<名字>-<时间>.json`（不参与下拉列表）。
 - **删除**不再真删：文件移进 `exports/trash/`，误删可捞回来。
@@ -222,7 +236,7 @@
 - **操作细节存档（多份 A/B/C/D）**：设置页顶部多了一个「存档」下拉，可以给不同项目准备不同口径，随时切换。
   - **「默认存档」随插件提供、只读**：不可修改、不可删除，缺省就用它；
   - 用户存档可「另存为」（复制当前这份）、切换、删除（删掉当前这份会回到「默认存档」）；
-  - **导出**：把当前存档写成 `~/.dsh/dsh-agent-workflow/exports/操作细节-<名字>-<时间>.json` 并打开文件夹；
+  - **导出**：把当前存档写成 `~/.dsh/dsh-gated-workflow/exports/操作细节-<名字>-<时间>.json` 并打开文件夹；
   - **导入**：粘贴导出的 JSON 内容即可存成新存档，导入后不自动切换。
 - 旧版扁平的 `global-settings.json` 自动迁移成一份名为「我的存档」的用户存档，不丢改动。
 - 硬规则**不随存档走**：存档只装 A/B/C/D 四个字段，插件层约束始终生效。

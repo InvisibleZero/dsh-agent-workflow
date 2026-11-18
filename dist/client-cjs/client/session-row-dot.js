@@ -22,18 +22,18 @@ function loadAllSessionStates() {
         return loadingPromise;
     loadingPromise = (async () => {
         try {
-            const response = await fetch('/dsh-agent-workflow/sidebar-nodes');
+            const response = await fetch('/dsh-gated-workflow/sidebar-nodes');
             const responseBody = await response.json().catch(() => null);
             if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
                 (0, session_state_store_1.replaceSessionStates)(responseBody.nodes);
                 return;
             }
             // 埋点：接口回了但不是成功结构，必须留痕，否则「一个点都没有」分不清是没数据还是加载失败。
-            console.warn(`[dsh-agent-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
+            console.warn(`[dsh-gated-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
         }
         catch (error) {
             // 网络/接口暂时不可用：不缓存失败，下一次挂载重试。
-            console.warn('[dsh-agent-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
+            console.warn('[dsh-gated-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
         }
         loadingPromise = null;
     })();
@@ -85,7 +85,7 @@ function SessionStateDot(props) {
 function applySessionRowStateDots(ctx) {
     ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
         name: 'sidebar.session.row.trailing',
-        id: 'dsh-agent-workflow.state-dot',
+        id: 'dsh-gated-workflow.state-dot',
         order: 10,
         label: 'workflow 状态点',
     }, SessionStateDot));

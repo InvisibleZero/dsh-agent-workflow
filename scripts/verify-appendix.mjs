@@ -184,8 +184,8 @@ if (runRoute) {
   };
   apply(ctx);
 
-  const handler = routes.get('/dsh-agent-workflow/appendix');
-  check(handler !== undefined, '没有注册 /dsh-agent-workflow/appendix');
+  const handler = routes.get('/dsh-gated-workflow/appendix');
+  check(handler !== undefined, '没有注册 /dsh-gated-workflow/appendix');
   if (handler !== undefined) {
     const call = async (request) => {
       const response = { statusCode: 0, body: '' };
@@ -199,7 +199,7 @@ if (runRoute) {
       return { status: response.statusCode, body: text.trim().startsWith('{') ? JSON.parse(text) : text };
     };
 
-    const ok = await call({ method: 'GET', url: '/dsh-agent-workflow/appendix', headers: { host: '127.0.0.1:64206' } });
+    const ok = await call({ method: 'GET', url: '/dsh-gated-workflow/appendix', headers: { host: '127.0.0.1:64206' } });
     check(ok.status === 200, `GET 应 200，实际 ${ok.status}`);
     check(ok.body?.ok === true, '返回体 ok 应为 true');
     check(typeof ok.body?.traceId === 'string' && ok.body.traceId !== '', '返回体应带 traceId');
@@ -211,10 +211,10 @@ if (runRoute) {
     check(ok.body?.verifyItems?.every((item) => typeof item.judge === 'string' && item.judge !== ''), '每项都要带非空判据');
     check(ok.body?.planSections?.every((section, index) => section.id === index + 1 && section.title !== ''), '五项序号应为 1..5 且标题非空');
 
-    const wrongMethod = await call({ method: 'POST', url: '/dsh-agent-workflow/appendix', headers: { host: '127.0.0.1:64206' } });
+    const wrongMethod = await call({ method: 'POST', url: '/dsh-gated-workflow/appendix', headers: { host: '127.0.0.1:64206' } });
     check(wrongMethod.status === 405, `POST 应 405，实际 ${wrongMethod.status}`);
 
-    const foreign = await call({ method: 'GET', url: '/dsh-agent-workflow/appendix', headers: { host: '10.0.0.2:64206' } });
+    const foreign = await call({ method: 'GET', url: '/dsh-gated-workflow/appendix', headers: { host: '10.0.0.2:64206' } });
     check(foreign.status === 403, `非回环 Host 应 403，实际 ${foreign.status}`);
 
     console.log(`[route] 200: plan=${ok.body?.planSections?.length} verify=${ok.body?.verifyItems?.length} 需命令=${needs} | POST=${wrongMethod.status} | 非回环=${foreign.status}`);
@@ -225,7 +225,7 @@ if (runRoute) {
 if (runBundle) {
   const bundle = readFileSync(join(root, 'dist/client-bundle.js'), 'utf8');
   check(bundle.includes('附表'), '客户端包里没有「附表」页签文案');
-  check((bundle.match(/\/dsh-agent-workflow\/appendix/g) ?? []).length === 1, `附表请求点应只有 1 处，实际 ${(bundle.match(/\/dsh-agent-workflow\/appendix/g) ?? []).length}`);
+  check((bundle.match(/\/dsh-gated-workflow\/appendix/g) ?? []).length === 1, `附表请求点应只有 1 处，实际 ${(bundle.match(/\/dsh-gated-workflow\/appendix/g) ?? []).length}`);
   check(bundle.includes('[...STATE_TABS, APPENDIX_TAB, TOOLS_TAB]'), '附表页签应接在 STATE_TABS 之后');
   check(bundle.includes("activeTab === 'appendix'"), '设置页主体缺少附表分支');
   // JSX 文本在产物里会被转成 \uXXXX，按状态 token 断言更稳。

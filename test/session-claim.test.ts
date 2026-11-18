@@ -229,7 +229,7 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     expect(created.length).toBeGreaterThan(0);
     for (const handler of created) handler({ agent: { session: { id: sessionId }, ctx: {} } });
 
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     let found = null;
     for (let attempt = 0; attempt < 60; attempt += 1) {
       found = await repository.findBySession(sessionId);
@@ -252,7 +252,7 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession(sessionId)).toBeNull();
   });
 
@@ -263,16 +263,16 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const { ctx } = makeCtx({ preset: 'workflow', sessions, routes });
 
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/node-by-session');
+    const handler = routes.get('/dsh-gated-workflow/node-by-session');
     expect(handler).toBeDefined();
 
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession(sessionId)).toBeNull();
 
     const res = makeResponse();
     await handler!({
       method: 'GET',
-      url: `/dsh-agent-workflow/node-by-session?sessionId=${sessionId}`,
+      url: `/dsh-gated-workflow/node-by-session?sessionId=${sessionId}`,
       headers: { host: '127.0.0.1:58765' },
     }, res);
 
@@ -306,14 +306,14 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'workflow', sessions, routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/node-by-session');
+    const handler = routes.get('/dsh-gated-workflow/node-by-session');
 
     const emptyRes = makeResponse();
-    await handler!(makeRequest({ method: 'GET', url: `/dsh-agent-workflow/node-by-session?sessionId=${emptyId}` }), emptyRes);
+    await handler!(makeRequest({ method: 'GET', url: `/dsh-gated-workflow/node-by-session?sessionId=${emptyId}` }), emptyRes);
     expect(JSON.parse(emptyRes.body).hasMessages).toBe(false);
 
     const talkedRes = makeResponse();
-    await handler!(makeRequest({ method: 'GET', url: `/dsh-agent-workflow/node-by-session?sessionId=${talkedId}` }), talkedRes);
+    await handler!(makeRequest({ method: 'GET', url: `/dsh-gated-workflow/node-by-session?sessionId=${talkedId}` }), talkedRes);
     expect(JSON.parse(talkedRes.body).hasMessages).toBe(true);
   });
 
@@ -321,12 +321,12 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'workflow', sessions: new Map(), routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/client-log');
+    const handler = routes.get('/dsh-gated-workflow/client-log');
     expect(handler).toBeDefined();
 
     const res = makeResponse();
     await handler!(makeRequest({
-      url: '/dsh-agent-workflow/client-log',
+      url: '/dsh-gated-workflow/client-log',
       body: { level: 'info', message: 'badge node (session=s-1, node=n-1, state=discussing)' },
     }), res);
     expect(JSON.parse(res.body).accepted).toBe(true);
@@ -336,13 +336,13 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     // 速率闸：60 秒 30 条，第 31 条只返回 accepted:false，不报错。
     for (let index = 0; index < 29; index += 1) {
       await handler!(makeRequest({
-        url: '/dsh-agent-workflow/client-log',
+        url: '/dsh-gated-workflow/client-log',
         body: { message: `flood-${index}` },
       }), makeResponse());
     }
     const overflow = makeResponse();
     await handler!(makeRequest({
-      url: '/dsh-agent-workflow/client-log',
+      url: '/dsh-gated-workflow/client-log',
       body: { message: 'flood-overflow' },
     }), overflow);
     expect(JSON.parse(overflow.body).accepted).toBe(false);
@@ -355,16 +355,16 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'workflow', sessions, routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/ensure-node');
+    const handler = routes.get('/dsh-gated-workflow/ensure-node');
     expect(handler).toBeDefined();
 
     const res = makeResponse();
-    await handler!(makeRequest({ url: '/dsh-agent-workflow/ensure-node', body: { sessionId } }), res);
+    await handler!(makeRequest({ url: '/dsh-gated-workflow/ensure-node', body: { sessionId } }), res);
 
     const body = JSON.parse(res.body);
     expect(body.ok).toBe(true);
     expect(body.node?.current_state).toBe('discussing');
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession(sessionId)).not.toBeNull();
   });
 
@@ -372,18 +372,18 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'workflow', sessions: new Map(), routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/ensure-node');
+    const handler = routes.get('/dsh-gated-workflow/ensure-node');
     expect(handler).toBeDefined();
 
     const res = makeResponse();
     await handler!(makeRequest({
-      url: '/dsh-agent-workflow/ensure-node',
+      url: '/dsh-gated-workflow/ensure-node',
       body: { sessionId: 'session-unknown', workingDirectory: workDir },
     }), res);
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).node).toBeNull();
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession('session-unknown')).toBeNull();
     expect(recentEvents(500).some((event) => event.message.includes('ensure-node refused')
       && event.message.includes('reason=unknown-session-without-test-flag'))).toBe(true);
@@ -393,18 +393,18 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'workflow', sessions: new Map(), routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/ensure-node');
+    const handler = routes.get('/dsh-gated-workflow/ensure-node');
 
     const res = makeResponse();
     await handler!(makeRequest({
-      url: '/dsh-agent-workflow/ensure-node',
+      url: '/dsh-gated-workflow/ensure-node',
       body: { sessionId: 'session-regression', workingDirectory: workDir, test: true },
     }), res);
 
     const body = JSON.parse(res.body);
     expect(body.ok).toBe(true);
     expect(body.node?.current_state).toBe('discussing');
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession('session-regression')).not.toBeNull();
   });
 
@@ -414,16 +414,16 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const routes = new Map<string, (req: any, res: any) => any>();
     const { ctx } = makeCtx({ preset: 'default', sessions, routes });
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/ensure-node');
+    const handler = routes.get('/dsh-gated-workflow/ensure-node');
 
     const res = makeResponse();
     await handler!(makeRequest({
-      url: '/dsh-agent-workflow/ensure-node',
+      url: '/dsh-gated-workflow/ensure-node',
       body: { sessionId, workingDirectory: workDir },
     }), res);
 
     expect(JSON.parse(res.body).node).toBeNull();
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     expect(await repository.findBySession(sessionId)).toBeNull();
   });
 
@@ -435,9 +435,9 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const { ctx } = makeCtx({ preset: () => preset, sessions, routes });
 
     apply(ctx);
-    const handler = routes.get('/dsh-agent-workflow/node-by-session');
+    const handler = routes.get('/dsh-gated-workflow/node-by-session');
     expect(handler).toBeDefined();
-    const url = `/dsh-agent-workflow/node-by-session?sessionId=${sessionId}`;
+    const url = `/dsh-gated-workflow/node-by-session?sessionId=${sessionId}`;
 
     const first = makeResponse();
     await handler!(makeRequest({ method: 'GET', url }), first);
@@ -466,7 +466,7 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
   });
 
   it('侧栏状态点：会话切回标准模式后不再返回（预设读不到的会话保留）', async () => {
-    const repository = new WorkflowRepository(join(profileDir, 'dsh-agent-workflow'));
+    const repository = new WorkflowRepository(join(profileDir, 'dsh-gated-workflow'));
     await repository.ensureNode({ sessionId: 'session-dot-workflow', workingDirectory: workDir });
     await repository.ensureNode({ sessionId: 'session-dot-default', workingDirectory: workDir });
     await repository.ensureNode({ sessionId: 'session-dot-unknown', workingDirectory: workDir });
@@ -487,10 +487,10 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     });
     apply(ctx);
 
-    const handler = routes.get('/dsh-agent-workflow/sidebar-nodes');
+    const handler = routes.get('/dsh-gated-workflow/sidebar-nodes');
     expect(handler).toBeDefined();
     const res = makeResponse();
-    await handler!(makeRequest({ method: 'GET', url: '/dsh-agent-workflow/sidebar-nodes' }), res);
+    await handler!(makeRequest({ method: 'GET', url: '/dsh-gated-workflow/sidebar-nodes' }), res);
 
     const nodes = JSON.parse(res.body).nodes;
     expect(nodes['session-dot-workflow']).toBe('discussing');
@@ -506,17 +506,17 @@ describe('宿主：agent/created 之后节点必须已经存在', () => {
     const { ctx } = makeCtx({ preset: () => preset, sessions, routes });
 
     apply(ctx);
-    const streamHandler = routes.get('/dsh-agent-workflow/stream');
-    const nodeHandler = routes.get('/dsh-agent-workflow/node-by-session');
+    const streamHandler = routes.get('/dsh-gated-workflow/stream');
+    const nodeHandler = routes.get('/dsh-gated-workflow/node-by-session');
     expect(streamHandler).toBeDefined();
     expect(nodeHandler).toBeDefined();
 
     const stream = makeStreamResponse();
-    await streamHandler!(makeRequest({ method: 'GET', url: '/dsh-agent-workflow/stream' }), stream);
+    await streamHandler!(makeRequest({ method: 'GET', url: '/dsh-gated-workflow/stream' }), stream);
     expect(stream.statusCode).toBe(200);
     expect(String(stream.headers['content-type'])).toContain('text/event-stream');
 
-    const url = `/dsh-agent-workflow/node-by-session?sessionId=${sessionId}`;
+    const url = `/dsh-gated-workflow/node-by-session?sessionId=${sessionId}`;
     const first = makeResponse();
     await nodeHandler!(makeRequest({ method: 'GET', url }), first);
     expect(JSON.parse(first.body).node?.current_state).toBe('discussing');

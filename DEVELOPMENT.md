@@ -1,4 +1,4 @@
-# 开发手册（dsh-agent-workflow）
+# 开发手册（dsh-gated-workflow）
 
 > **用法**：每次开发踩到「宿主行为与直觉不符」的坑，就在第 4 节追加一条，编号连续、不删旧条。
 > 每条写清 **现象 / 根因 / 正确做法 / 怎么验证**，只写可复现的事实，不写猜测。
@@ -20,7 +20,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 & $node $pnpm run smoke     # 客户端冒烟：能否注册 sidebar.workspaces
 ```
 
-- 插件以**目录链接**方式装在 profile：`~/.dsh/profiles/desktop/node_modules/dsh-agent-workflow -> 本目录`。
+- 插件以**目录链接**方式装在 profile：`~/.dsh/profiles/desktop/node_modules/dsh-gated-workflow -> 本目录`。
 - **客户端改动**：必须让页面**硬刷新**（Ctrl+Shift+R）才加载新包；普通刷新可能命中缓存。
 - **宿主改动**：`dist/host.js` 重建后要重启插件半才生效（`plugin_manager set_plugin` 关→开，或重启应用）。
 - `dist/` 已提交进仓库，改源码后必须重新 `build` 并提交，否则仓库产物与源码不一致。
@@ -80,7 +80,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 
 ### 3.5 操作细节（A/B/C/D）
 
-- **应用级全局**：存在 `<DSH home>/dsh-agent-workflow/global-settings.json`，所有 workflow 共用一份。
+- **应用级全局**：存在 `<DSH home>/dsh-gated-workflow/global-settings.json`，所有 workflow 共用一份。
   **不再挂在 workflow 工作区菜单上**（那是早期错误做法，已移除）。
 - **入口**：DSH「设置」左侧导航 → **Agent 工作流**（注册 `settings.section`）。
 - **布局**：四个页签横向排开（公共 / 讨论中 / 实现中 / 验收中）；B/C/D 每个页签内 **默认输入在上（20%）、操作细节在下（80%）**；公共页只有一个大文本框。
@@ -110,7 +110,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 - **节点「全局附加」**：节点弹窗第一块「本节点附加（所有状态都会追加）」，相当于「这个会话的全局」；
   存在节点字段 `additional_detail.global`，同一套 `POST /node-note`（`state: 'global'`）。
 - **弹窗必须在侧栏那棵树渲染**：输入框工具条所在容器带 `transform`，会让 `position: fixed` 相对它定位、
-  弹窗跑到右下角。所以会话里的状态徽标只 `window.dispatchEvent('dsh-agent-workflow:open-node-detail')`，
+  弹窗跑到右下角。所以会话里的状态徽标只 `window.dispatchEvent('dsh-gated-workflow:open-node-detail')`，
   由 `WorkflowWorkspaceItem` 监听并渲染弹窗。
 - 读写接口：`GET /global-settings`、`POST /global-settings-save`，走 `GlobalOperationDetail` 的 zod 校验。
 
@@ -300,16 +300,16 @@ git -c http.proxy=http://127.0.0.1:8899 push origin main
 
 ```
 1) workspaces.create({ path })            -> hostWorkspaceId
-2) POST /dsh-agent-workflow/create { path, hostWorkspaceId }
+2) POST /dsh-gated-workflow/create { path, hostWorkspaceId }
 3) 快照里写 host_workspace_id（类型 z.string().optional()）
 ```
 
 - **列表契约**：`/list` 返回的每一项带 `workspaceId`（= `host_workspace_id`）；旧快照没有该字段，侧栏用 `path` 兜底匹配。
 - **旧数据一次性回写**：侧栏加载时，若某条 workflow 没有 `workspaceId` 但按路径找到了宿主目录工作区，
-  就 `POST /dsh-agent-workflow/link-workspace { id, hostWorkspaceId }` 写回快照（客户端用 ref 记录已处理项，只跑一次）。
+  就 `POST /dsh-gated-workflow/link-workspace { id, hostWorkspaceId }` 写回快照（客户端用 ref 记录已处理项，只跑一次）。
   写回后认领不再依赖路径比对；传空串 `hostWorkspaceId` 可清除绑定。
 - **侧栏渲染顺序**：先遍历宿主 `useWorkspaces()`，命中被认领的交给 `plugin.renderItem`；没被认领的类型项再单独渲染（兼容旧数据/建工作区失败的孤儿）。
-- **改名/删除走宿主**：认领行不自己维护标题——渲染时用宿主工作区标题覆盖；「重命名」调用宿主对话框，「删除工作区」先删宿主工作区、**再删对应的类型快照**（否则会留下打不开的孤儿行，`POST /dsh-agent-workflow/delete`）。
+- **改名/删除走宿主**：认领行不自己维护标题——渲染时用宿主工作区标题覆盖；「重命名」调用宿主对话框，「删除工作区」先删宿主工作区、**再删对应的类型快照**（否则会留下打不开的孤儿行，`POST /dsh-gated-workflow/delete`）。
 - **验证**：侧栏同一目录只有一行；新建 workflow 后立刻只出现一行（树图标），不会多出同名文件夹行；点节点建会话不再产生新行。
 - **涉及文件**：`workspace-kind-registry.ts`（`matchWorkspace` / `normalizeWorkspacePath`）、`workflow-embedded.tsx`、`workspace-browser.tsx`、`src/host/workflow-repository.ts`（`host_workspace_id`）、`src/host.ts`（create 路由）。
 
@@ -375,7 +375,7 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 - **需求**：当前会话若是 workflow 节点绑定的，就在输入框工具条（权限控件右边）显示该节点状态。
 - **槽位**：`conversation.input.left`（list、session 作用域），说明是"工具行左侧的紧凑控件"，正好排在权限控件之后；
   `props.sessionId` 就是当前会话 id（hero 态为 `undefined`，此时必须直接返回 `null`，否则会拿空 id 去请求）。
-- **取状态**：宿主没有 workflow 事件，新增 `GET /dsh-agent-workflow/node-by-session?sessionId=`，
+- **取状态**：宿主没有 workflow 事件，新增 `GET /dsh-gated-workflow/node-by-session?sessionId=`，
   扫一遍 workflows/*.json 找到绑定该会话的节点，返回 `{ workflowId, nodeId, title, current_state }`。
 - **为什么轮询**：状态可能被侧栏的「推进」改掉，我们没有事件通道，所以每 3 秒读一次这个本地小接口（成本可忽略）。
 - **冒烟脚本**：`scripts/smoke-client.mjs` 里"注册了几个槽"的断言已改为允许
@@ -385,7 +385,7 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 
 ### D-19 同一个路径不能注册两条 exact 路由（否则整个宿主半全挂）
 
-- **现象**：加完新路由后，插件行显示 `active`，但**所有** `/dsh-agent-workflow/*` 都返回 404，像插件没加载。
+- **现象**：加完新路由后，插件行显示 `active`，但**所有** `/dsh-gated-workflow/*` 都返回 404，像插件没加载。
 - **根因**：`webServer.register({kind:'exact', path})` 按路径唯一。我把 `GET /settings` 和 `POST /settings`
   注册成同一个 path，第二次注册抛错，而这个错发生在 `ctx.inject(['webServer'], ...)` 的回调里，
   整个回调中断 → 六条既有路由也一起没注册。
@@ -401,7 +401,7 @@ const a = node.session_id ? archived.has(node.session_id) : false;    // 变淡 
 
 ```powershell
 $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
-& $node -e "fetch('http://127.0.0.1:PORT/dsh-agent-workflow/global-settings-save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({globalOperationDetail:...})}).then(r=>r.json()).then(console.log)"
+& $node -e "fetch('http://127.0.0.1:PORT/dsh-gated-workflow/global-settings-save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({globalOperationDetail:...})}).then(r=>r.json()).then(console.log)"
 ```
 
 - **教训**：任何带中文的写接口，测试时别用 PS 5.1 的 `Invoke-WebRequest`；只读 GET 用它可以。
@@ -444,7 +444,7 @@ $node='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies
 
 ### D-23 删除工作区 = 软删除：快照进回收站 + 界面二次确认
 
-- **现象**：在侧栏删掉 workflow 工作区后，`~/.dsh/dsh-agent-workflow/workflows/` 里的快照没了，节点树/状态/会话绑定全丢；
+- **现象**：在侧栏删掉 workflow 工作区后，`~/.dsh/dsh-gated-workflow/workflows/` 里的快照没了，节点树/状态/会话绑定全丢；
   文件夹、会话日志（`~/.dsh/sessions/`）、`.workflow/` 笔记都还在（三者本来就不受这个删除影响）。
 - **现在的做法**：
   - `repository.remove(id)` **不再 unlink**，而是把 `workflows/<id>.json` 移到 `workflows-trash/<id>.<ISO时间戳>.json`；

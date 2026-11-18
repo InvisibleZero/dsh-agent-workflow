@@ -13,7 +13,7 @@ exports.reportClientEvent = reportClientEvent;
  */
 async function reportClientEvent(level, message) {
     try {
-        await fetch('/dsh-agent-workflow/client-log', {
+        await fetch('/dsh-gated-workflow/client-log', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ level, message }),

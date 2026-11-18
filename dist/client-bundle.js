@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: "dsh-agent-workflow",
+  id: "dsh-gated-workflow",
   factory: (require) => {
     var __mods = {
     "client/dsh-plugin.js": function(__req, module, exports) {
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
     const workflow_embedded_1 = __req("client/workflow-embedded.js");
     const workflow_dialogs_1 = __req("client/workflow-dialogs.js");
     const session_row_dot_1 = __req("client/session-row-dot.js");
-    exports.name = 'dsh-agent-workflow-client';
+    exports.name = 'dsh-gated-workflow-client';
     exports.inject = ['slots'];
     function apply(ctx) {
         // 输入框工具条里的 workflow 状态徽标（权限控件右边）。
@@ -27,21 +27,21 @@ window.__ModuleLoader__.load({
             (0, workflow_embedded_1.applyWorkflowComposerBadge)(ctx);
         }
         catch (error) {
-            console.error('[dsh-agent-workflow] 状态徽标注册失败：', error);
+            console.error('[dsh-gated-workflow] 状态徽标注册失败：', error);
         }
         // 侧栏会话行的行尾常驻状态点（非交互，颜色按节点状态）。
         try {
             (0, session_row_dot_1.applySessionRowStateDots)(ctx);
         }
         catch (error) {
-            console.error('[dsh-agent-workflow] 会话行状态点注册失败：', error);
+            console.error('[dsh-gated-workflow] 会话行状态点注册失败：', error);
         }
         // 设置页里的「操作细节」（应用级全局 A/B/C/D）。
         try {
             (0, workflow_dialogs_1.applyWorkflowSettingsSection)(ctx);
         }
         catch (error) {
-            console.error('[dsh-agent-workflow] 设置分区注册失败：', error);
+            console.error('[dsh-gated-workflow] 设置分区注册失败：', error);
         }
     }
     //# sourceMappingURL=dsh-plugin.js.map
@@ -138,7 +138,7 @@ window.__ModuleLoader__.load({
         };
         const ensureNode = async (workingDirectory) => {
             try {
-                const response = await fetch('/dsh-agent-workflow/ensure-node', {
+                const response = await fetch('/dsh-gated-workflow/ensure-node', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ sessionId, workingDirectory }),
@@ -154,7 +154,7 @@ window.__ModuleLoader__.load({
         };
         const readChecklist = async (workflowId, nodeId) => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                const response = await fetch(`/dsh-gated-workflow/node-checklist?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                 const responseBody = await response.json().catch(() => null);
                 if (responseBody?.ok === true) {
                     const items = Array.isArray(responseBody.checklist) ? responseBody.checklist : [];
@@ -168,7 +168,7 @@ window.__ModuleLoader__.load({
             }
             catch (error) {
                 // 埋点：读失败会降级成「不拦、交给服务端」，必须留痕，否则分不清「放行」和「没读到」。
-                console.warn('[dsh-agent-workflow] 读清单失败，降级为交给服务端校验：', error);
+                console.warn('[dsh-gated-workflow] 读清单失败，降级为交给服务端校验：', error);
                 setChecklist([]);
                 setVerification([]);
             }
@@ -176,7 +176,7 @@ window.__ModuleLoader__.load({
         };
         const readNode = async () => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
+                const response = await fetch(`/dsh-gated-workflow/node-by-session?sessionId=${encodeURIComponent(sessionId)}`);
                 const responseBody = await response.json().catch(() => null);
                 // 宿主顺带告诉「这个会话有没有对话过」：空会话要轮询，聊过的靠推送。
                 hasMessagesRef.current = responseBody?.hasMessages === true;
@@ -223,16 +223,16 @@ window.__ModuleLoader__.load({
                     return true;
                 }
                 catch (error) {
-                    console.warn('[dsh-agent-workflow] 写入默认输入失败：', name, error);
+                    console.warn('[dsh-gated-workflow] 写入默认输入失败：', name, error);
                 }
             }
-            console.warn('[dsh-agent-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
+            console.warn('[dsh-gated-workflow] 输入框没有可用的写入方法，现有方法：', Object.keys(actions).join(','));
             return false;
         };
         /** 读应用级开关：切换状态时是否自动发送默认输入（默认关闭）。 */
         const readAutoSend = async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/app-settings');
+                const response = await fetch('/dsh-gated-workflow/app-settings');
                 const responseBody = await response.json().catch(() => null);
                 return responseBody?.ok === true && responseBody.autoSendEnterTrigger === true;
             }
@@ -254,7 +254,7 @@ window.__ModuleLoader__.load({
                         return true;
                     }
                     catch (error) {
-                        console.warn('[dsh-agent-workflow] 提交默认输入失败：', name, error);
+                        console.warn('[dsh-gated-workflow] 提交默认输入失败：', name, error);
                     }
                 }
             }
@@ -346,7 +346,7 @@ window.__ModuleLoader__.load({
             setAdvancing(true);
             const startedAt = Date.now();
             try {
-                const response = await fetch('/dsh-agent-workflow/transition', {
+                const response = await fetch('/dsh-gated-workflow/transition', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id: nodeInfo.workflowId, nodeId: nodeInfo.nodeId, to }),
@@ -370,10 +370,10 @@ window.__ModuleLoader__.load({
                     setChecklist([]);
                     setVerification([]);
                 }
-                console.info(`[dsh-agent-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
+                console.info(`[dsh-gated-workflow] 推进成功 (to=${to}, ${Date.now() - startedAt}ms)`);
             }
             catch (error) {
-                console.error('[dsh-agent-workflow] 推进状态失败：', error);
+                console.error('[dsh-gated-workflow] 推进状态失败：', error);
             }
             finally {
                 setAdvancing(false);
@@ -393,7 +393,7 @@ window.__ModuleLoader__.load({
                 const meta = await readChecklist(nodeInfo.workflowId, nodeInfo.nodeId);
                 if (!meta.hasPlan) {
                     // 埋点：本地拦下要留痕，否则日志里只有「点了没反应」，排查时这一跳答不上来。
-                    console.info(`[dsh-agent-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
+                    console.info(`[dsh-gated-workflow] 推进被本地方案校验拦下 (node=${nodeInfo.nodeId}, to=${nextState})`);
                     setConfirmOpen(true);
                     return;
                 }
@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
         /** 同意 / 拒绝模型发起的推进请求（状态只由这里或手动 → 改变）。 */
         const respondAdvance = async (accept) => {
             try {
-                const response = await fetch('/dsh-agent-workflow/approve-advance', {
+                const response = await fetch('/dsh-gated-workflow/approve-advance', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ sessionId, accept }),
@@ -429,7 +429,7 @@ window.__ModuleLoader__.load({
                 }
             }
             catch (error) {
-                console.error('[dsh-agent-workflow] 处理推进请求失败：', error);
+                console.error('[dsh-gated-workflow] 处理推进请求失败：', error);
             }
         };
         const doneCount = checklist.filter((item) => item.done).length;
@@ -511,7 +511,7 @@ window.__ModuleLoader__.load({
     function applyWorkflowComposerBadge(ctx) {
         ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
             name: 'conversation.input.left',
-            id: 'dsh-agent-workflow.state',
+            id: 'dsh-gated-workflow.state',
             order: 10,
             label: 'workflow 状态',
         }, WorkflowStateBadge));
@@ -726,7 +726,7 @@ window.__ModuleLoader__.load({
             setError('');
             void (async () => {
                 try {
-                    const response = await fetch('/dsh-agent-workflow/tools');
+                    const response = await fetch('/dsh-gated-workflow/tools');
                     const body = await response.json().catch(() => null);
                     if (cancelled)
                         return;
@@ -795,7 +795,7 @@ window.__ModuleLoader__.load({
             setError('');
             void (async () => {
                 try {
-                    const response = await fetch('/dsh-agent-workflow/appendix');
+                    const response = await fetch('/dsh-gated-workflow/appendix');
                     const body = await response.json().catch(() => null);
                     if (cancelled)
                         return;
@@ -894,7 +894,7 @@ window.__ModuleLoader__.load({
             let cancelled = false;
             void (async () => {
                 try {
-                    const response = await fetch('/dsh-agent-workflow/global-settings');
+                    const response = await fetch('/dsh-gated-workflow/global-settings');
                     const responseBody = await response.json().catch(() => null);
                     if (cancelled)
                         return;
@@ -919,7 +919,7 @@ window.__ModuleLoader__.load({
         /** 存档相关的写操作统一走这里：成功就刷新列表与内容。 */
         const callProfileRoute = async (route, payload) => {
             try {
-                const response = await fetch(`/dsh-agent-workflow/${route}`, {
+                const response = await fetch(`/dsh-gated-workflow/${route}`, {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -950,7 +950,7 @@ window.__ModuleLoader__.load({
             let cancelled = false;
             void (async () => {
                 try {
-                    const response = await fetch('/dsh-agent-workflow/app-settings');
+                    const response = await fetch('/dsh-gated-workflow/app-settings');
                     const responseBody = await response.json().catch(() => null);
                     if (!cancelled && responseBody?.ok === true) {
                         setAutoSend(responseBody.autoSendEnterTrigger === true);
@@ -968,14 +968,14 @@ window.__ModuleLoader__.load({
         const saveAutoSend = async (next) => {
             setAutoSend(next);
             try {
-                await fetch('/dsh-agent-workflow/app-settings-save', {
+                await fetch('/dsh-gated-workflow/app-settings-save', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ autoSendEnterTrigger: next }),
                 });
             }
             catch (reason) {
-                console.warn('[dsh-agent-workflow] 保存自动发送开关失败：', reason);
+                console.warn('[dsh-gated-workflow] 保存自动发送开关失败：', reason);
             }
         };
         /** 手册字数上限：失焦即存；越界值由后端收成合法区间，这里只做输入框约束。 */
@@ -985,7 +985,7 @@ window.__ModuleLoader__.load({
             const next = { ...limits, [field]: value };
             setLimits(next);
             try {
-                const response = await fetch('/dsh-agent-workflow/app-settings-save', {
+                const response = await fetch('/dsh-gated-workflow/app-settings-save', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ manualLimits: next }),
@@ -1005,7 +1005,7 @@ window.__ModuleLoader__.load({
             setStatus('saving');
             setError(null);
             try {
-                const response = await fetch('/dsh-agent-workflow/global-settings-save', {
+                const response = await fetch('/dsh-gated-workflow/global-settings-save', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ globalOperationDetail: value }),
@@ -1057,7 +1057,7 @@ window.__ModuleLoader__.load({
         /** 重新扫一遍存档目录：手动往文件夹里丢 json 之后点它。 */
         const refreshProfiles = async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/global-settings');
+                const response = await fetch('/dsh-gated-workflow/global-settings');
                 const body = await response.json().catch(() => null);
                 if (body?.ok !== true) {
                     window.alert(String(body?.error ?? '刷新失败'));
@@ -1233,7 +1233,7 @@ window.__ModuleLoader__.load({
     }
     /** 把「操作细节」分区挂进 设置 → 左侧导航。 */
     function applyWorkflowSettingsSection(ctx) {
-        const sectionId = 'dsh-agent-workflow';
+        const sectionId = 'dsh-gated-workflow';
         ctx.slots.inject('settings.section', () => ctx.slots.register({
             name: 'settings.section',
             id: sectionId,
@@ -1282,7 +1282,7 @@ window.__ModuleLoader__.load({
             let cancelled = false;
             void (async () => {
                 try {
-                    const response = await fetch(`/dsh-agent-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                    const response = await fetch(`/dsh-gated-workflow/node-detail?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                     const responseBody = await response.json().catch(() => null);
                     if (cancelled)
                         return;
@@ -1303,7 +1303,7 @@ window.__ModuleLoader__.load({
             let cancelled = false;
             void (async () => {
                 try {
-                    const response = await fetch(`/dsh-agent-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                    const response = await fetch(`/dsh-gated-workflow/node-manual?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                     const responseBody = await response.json().catch(() => null);
                     if (cancelled || responseBody?.ok !== true)
                         return;
@@ -1326,7 +1326,7 @@ window.__ModuleLoader__.load({
             let cancelled = false;
             void (async () => {
                 try {
-                    const response = await fetch(`/dsh-agent-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
+                    const response = await fetch(`/dsh-gated-workflow/node-verification?id=${encodeURIComponent(workflowId)}&nodeId=${encodeURIComponent(nodeId)}`);
                     const responseBody = await response.json().catch(() => null);
                     if (cancelled)
                         return;
@@ -1346,7 +1346,7 @@ window.__ModuleLoader__.load({
         const exportReport = async () => {
             setExporting(true);
             try {
-                const response = await fetch('/dsh-agent-workflow/export-report', {
+                const response = await fetch('/dsh-gated-workflow/export-report', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id: workflowId, nodeId }),
@@ -1393,7 +1393,7 @@ window.__ModuleLoader__.load({
                 timers.current[state] = undefined;
                 setNoteStatus('保存中…');
                 try {
-                    const response = await fetch('/dsh-agent-workflow/node-note', {
+                    const response = await fetch('/dsh-gated-workflow/node-note', {
                         method: 'POST',
                         headers: { 'content-type': 'application/json' },
                         body: JSON.stringify({ id: workflowId, nodeId, state, text }),
@@ -1411,7 +1411,7 @@ window.__ModuleLoader__.load({
                                         onOpenSettings?.();
                                         onClose();
                                     }, style: TEXT_LINK_STYLE, children: "\u6253\u5F00\u64CD\u4F5C\u7EC6\u8282\u8BBE\u7F6E" }), manualData !== null && manualData.notesDir !== '' ? ((0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => {
-                                        void fetch('/dsh-agent-workflow/open-folder', {
+                                        void fetch('/dsh-gated-workflow/open-folder', {
                                             method: 'POST',
                                             headers: { 'content-type': 'application/json' },
                                             body: JSON.stringify({ path: manualData.notesDir }),
@@ -1702,7 +1702,7 @@ window.__ModuleLoader__.load({
      */
     async function reportClientEvent(level, message) {
         try {
-            await fetch('/dsh-agent-workflow/client-log', {
+            await fetch('/dsh-gated-workflow/client-log', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ level, message }),
@@ -1934,7 +1934,7 @@ window.__ModuleLoader__.load({
             singleton = createWorkflowStream(() => {
                 if (typeof EventSource === 'undefined')
                     return null;
-                return new EventSource('/dsh-agent-workflow/stream');
+                return new EventSource('/dsh-gated-workflow/stream');
             }, (open) => {
                 // 连接状态是「界面为什么不更新」这条链路上的第一跳，必须能观测到。
                 void (0, client_log_1.reportClientEvent)(open ? 'info' : 'warn', open ? 'stream open' : 'stream error');
@@ -1969,18 +1969,18 @@ window.__ModuleLoader__.load({
             return loadingPromise;
         loadingPromise = (async () => {
             try {
-                const response = await fetch('/dsh-agent-workflow/sidebar-nodes');
+                const response = await fetch('/dsh-gated-workflow/sidebar-nodes');
                 const responseBody = await response.json().catch(() => null);
                 if (responseBody?.ok === true && typeof responseBody.nodes === 'object' && responseBody.nodes !== null) {
                     (0, session_state_store_1.replaceSessionStates)(responseBody.nodes);
                     return;
                 }
                 // 埋点：接口回了但不是成功结构，必须留痕，否则「一个点都没有」分不清是没数据还是加载失败。
-                console.warn(`[dsh-agent-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
+                console.warn(`[dsh-gated-workflow] 侧栏状态全量加载返回异常（HTTP ${response.status}）：`, responseBody?.error ?? responseBody);
             }
             catch (error) {
                 // 网络/接口暂时不可用：不缓存失败，下一次挂载重试。
-                console.warn('[dsh-agent-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
+                console.warn('[dsh-gated-workflow] 侧栏状态全量加载失败（下次挂载会重试）：', error);
             }
             loadingPromise = null;
         })();
@@ -2032,7 +2032,7 @@ window.__ModuleLoader__.load({
     function applySessionRowStateDots(ctx) {
         ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
             name: 'sidebar.session.row.trailing',
-            id: 'dsh-agent-workflow.state-dot',
+            id: 'dsh-gated-workflow.state-dot',
             order: 10,
             label: 'workflow 状态点',
         }, SessionStateDot));

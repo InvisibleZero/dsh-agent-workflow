@@ -1,4 +1,4 @@
-# 照抄清单（dsh-agent-workflow 伪装层）
+# 照抄清单（dsh-gated-workflow 伪装层）
 
 宿主源码：`E:\DeepSeek Harness\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js`（5356 行，rolldown 产物）。
 
@@ -39,7 +39,7 @@
 ## 置顶（结论）
 
 - ✅ 直接复用宿主能力：菜单项 + 行内星标由宿主提供；我们只按 `pinnedSessionIds` 排序（本工作区内置顶优先）。
-- ⛔ 已删除失败的替代方案：本地置顶仓库 + `/dsh-agent-workflow/pins` 路由 + `uiWorkspace.pinSession` 补丁（宿主自带，无需接管）。
+- ⛔ 已删除失败的替代方案：本地置顶仓库 + `/dsh-gated-workflow/pins` 路由 + `uiWorkspace.pinSession` 补丁（宿主自带，无需接管）。
 
 ## 样式
 

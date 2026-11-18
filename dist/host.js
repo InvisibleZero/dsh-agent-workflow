@@ -1173,7 +1173,7 @@ var WorkflowRepository = class {
     await fs2.mkdir(this.profilesDir(), { recursive: true });
     const target = join(this.profilesDir(), this.profileFileName(name));
     const tmp = `${target}.tmp`;
-    await fs2.writeFile(tmp, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name, detail }, null, 2)}
+    await fs2.writeFile(tmp, `${JSON.stringify({ kind: "dsh-gated-workflow/operation-detail", version: 1, name, detail }, null, 2)}
 `, "utf8");
     await fs2.rename(tmp, target);
   }
@@ -1272,7 +1272,7 @@ var WorkflowRepository = class {
     const backupDir = join(this.profilesDir(), "backup");
     await fs2.mkdir(backupDir, { recursive: true });
     const target = join(backupDir, `\u64CD\u4F5C\u7EC6\u8282-${active}-${stamp}.json`);
-    await fs2.writeFile(target, `${JSON.stringify({ kind: "dsh-agent-workflow/operation-detail", version: 1, name: active, detail }, null, 2)}
+    await fs2.writeFile(target, `${JSON.stringify({ kind: "dsh-gated-workflow/operation-detail", version: 1, name: active, detail }, null, 2)}
 `, "utf8");
     return { path: target, name: active };
   }
@@ -4989,7 +4989,7 @@ var inject = [];
 function resolveDataDir() {
   const profileDir = process.env.DSH_PROFILE_DIR;
   const base = profileDir && profileDir.trim() !== "" ? profileDir : join6(homedir(), ".dsh");
-  return join6(base, "dsh-agent-workflow");
+  return join6(base, "dsh-gated-workflow");
 }
 function resolvePackageRoot() {
   return join6(dirname4(fileURLToPath(import.meta.url)), "..");
@@ -5041,7 +5041,7 @@ function readJsonBody(req) {
 }
 function routeNameOf(req) {
   const routePath = String(req?.url ?? "").split("?")[0];
-  return routePath.replace(/^\/dsh-agent-workflow\//, "") || "(root)";
+  return routePath.replace(/^\/dsh-gated-workflow\//, "") || "(root)";
 }
 function makeHandler(ctx, repository, method, run) {
   return async (req, res) => {
@@ -5344,7 +5344,7 @@ function apply(ctx) {
   ctx.inject(["webServer"], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/stream",
+      path: "/dsh-gated-workflow/stream",
       handler: (req, res) => {
         if (!isLoopbackRequest(req)) return denyRequest(res);
         try {
@@ -5378,12 +5378,12 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/list",
+      path: "/dsh-gated-workflow/list",
       handler: makeHandler(ctx, repository, "GET", async () => ({ items: await repository.list() }))
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/create",
+      path: "/dsh-gated-workflow/create",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.path !== "string" || body.path.trim() === "") {
           throw new Error("\u7F3A\u5C11\u5DE5\u4F5C\u76EE\u5F55 path");
@@ -5398,7 +5398,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/get",
+      path: "/dsh-gated-workflow/get",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const id = query.get("id");
         if (typeof id !== "string" || id === "") throw new Error("\u7F3A\u5C11 id");
@@ -5409,7 +5409,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/state-context",
+      path: "/dsh-gated-workflow/state-context",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const sessionId = query.get("sessionId");
         if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
@@ -5418,7 +5418,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/app-settings",
+      path: "/dsh-gated-workflow/app-settings",
       handler: makeHandler(ctx, repository, "GET", async () => {
         const settings = await repository.getAppSettings();
         return { autoSendEnterTrigger: settings.autoSendEnterTrigger, manualLimits: settings.manualLimits };
@@ -5426,7 +5426,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/app-settings-save",
+      path: "/dsh-gated-workflow/app-settings-save",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         const saved = await repository.updateAppSettings({
           autoSendEnterTrigger: body?.autoSendEnterTrigger === void 0 ? void 0 : body.autoSendEnterTrigger === true,
@@ -5438,7 +5438,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/appendix",
+      path: "/dsh-gated-workflow/appendix",
       handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const template = await repository.readSessionManualTemplate();
@@ -5465,7 +5465,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/global-settings",
+      path: "/dsh-gated-workflow/global-settings",
       handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const globalOperationDetail = await repository.getAppGlobalOperationDetail();
@@ -5476,7 +5476,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/global-settings-save",
+      path: "/dsh-gated-workflow/global-settings-save",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (body?.globalOperationDetail === void 0 || body.globalOperationDetail === null) {
           throw new Error("\u7F3A\u5C11 globalOperationDetail");
@@ -5489,7 +5489,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/profiles-save",
+      path: "/dsh-gated-workflow/profiles-save",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.name !== "string" || body.name.trim() === "") throw new Error("\u7F3A\u5C11 name");
         const profiles = await repository.saveProfile(body.name, body.globalOperationDetail);
@@ -5500,7 +5500,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/profiles-activate",
+      path: "/dsh-gated-workflow/profiles-activate",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.name !== "string" || body.name === "") throw new Error("\u7F3A\u5C11 name");
         const profiles = await repository.activateProfile(body.name);
@@ -5511,7 +5511,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/profiles-delete",
+      path: "/dsh-gated-workflow/profiles-delete",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.name !== "string" || body.name === "") throw new Error("\u7F3A\u5C11 name");
         const profiles = await repository.deleteProfile(body.name);
@@ -5522,7 +5522,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/profiles-export",
+      path: "/dsh-gated-workflow/profiles-export",
       handler: makeHandler(ctx, repository, "POST", async (_body, _query, traceId) => {
         const exported = await repository.exportActiveProfile();
         spawn2("explorer.exe", [join6(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
@@ -5532,7 +5532,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/profiles-import",
+      path: "/dsh-gated-workflow/profiles-import",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.json !== "string" || body.json.trim() === "") throw new Error("\u7F3A\u5C11 json\uFF1A\u8BF7\u7C98\u8D34\u5BFC\u51FA\u7684\u6587\u4EF6\u5185\u5BB9");
         const result = await repository.importProfile(typeof body.name === "string" ? body.name : "", body.json);
@@ -5542,7 +5542,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-detail",
+      path: "/dsh-gated-workflow/node-detail",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const id = query.get("id");
         const nodeId = query.get("nodeId");
@@ -5564,7 +5564,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-note",
+      path: "/dsh-gated-workflow/node-note",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
@@ -5583,7 +5583,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-by-session",
+      path: "/dsh-gated-workflow/node-by-session",
       handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
         const sessionId = query.get("sessionId");
         if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
@@ -5614,7 +5614,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/sidebar-nodes",
+      path: "/dsh-gated-workflow/sidebar-nodes",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const path2 = query.get("path");
         const startedAt = Date.now();
@@ -5637,7 +5637,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/events",
+      path: "/dsh-gated-workflow/events",
       handler: makeHandler(ctx, repository, "GET", async (_body, query) => {
         const rawLimit = Number(query.get("limit") ?? "100");
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
@@ -5645,7 +5645,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/tools",
+      path: "/dsh-gated-workflow/tools",
       handler: makeHandler(ctx, repository, "GET", async (_body, _query, traceId) => {
         const startedAt = Date.now();
         const snapshot = await registryStore.snapshot();
@@ -5678,7 +5678,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/client-log",
+      path: "/dsh-gated-workflow/client-log",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         const level = body?.level === "warn" ? "warn" : "info";
         const message = typeof body?.message === "string" ? body.message.trim() : "";
@@ -5692,7 +5692,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/bind-session",
+      path: "/dsh-gated-workflow/bind-session",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
@@ -5707,7 +5707,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/approve-advance",
+      path: "/dsh-gated-workflow/approve-advance",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.sessionId !== "string" || body.sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
         const pending = readPendingAdvance(body.sessionId);
@@ -5734,7 +5734,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/delete",
+      path: "/dsh-gated-workflow/delete",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         await repository.remove(body.id);
@@ -5744,12 +5744,12 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/trash-list",
+      path: "/dsh-gated-workflow/trash-list",
       handler: makeHandler(ctx, repository, "GET", async () => ({ items: await repository.listTrash() }))
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/trash-restore",
+      path: "/dsh-gated-workflow/trash-restore",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         const restored = await repository.restoreFromTrash(body.id);
@@ -5759,7 +5759,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/link-workspace",
+      path: "/dsh-gated-workflow/link-workspace",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.hostWorkspaceId !== "string") throw new Error("\u7F3A\u5C11 hostWorkspaceId");
@@ -5769,7 +5769,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/ensure-node",
+      path: "/dsh-gated-workflow/ensure-node",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.sessionId !== "string" || body.sessionId === "") throw new Error("\u7F3A\u5C11 sessionId");
         const workingDirectory = typeof body?.workingDirectory === "string" && body.workingDirectory.trim() !== "" ? body.workingDirectory.trim() : resolveSessionWorkingDirectory(ctx, body.sessionId);
@@ -5807,7 +5807,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-manual",
+      path: "/dsh-gated-workflow/node-manual",
       handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
         const id = query.get("id");
         const nodeId = query.get("nodeId");
@@ -5822,7 +5822,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-checklist",
+      path: "/dsh-gated-workflow/node-checklist",
       handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
         const id = query.get("id");
         const nodeId = query.get("nodeId");
@@ -5849,7 +5849,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/node-verification",
+      path: "/dsh-gated-workflow/node-verification",
       handler: makeHandler(ctx, repository, "GET", async (_body, query, traceId) => {
         const id = query.get("id");
         const nodeId = query.get("nodeId");
@@ -5879,7 +5879,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/export-report",
+      path: "/dsh-gated-workflow/export-report",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
@@ -5891,7 +5891,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/open-folder",
+      path: "/dsh-gated-workflow/open-folder",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         const target = body?.path;
         if (typeof target !== "string" || target.trim() === "") throw new Error("\u7F3A\u5C11 path");
@@ -5901,7 +5901,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/verify-report",
+      path: "/dsh-gated-workflow/verify-report",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
@@ -5927,7 +5927,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/transition",
+      path: "/dsh-gated-workflow/transition",
       handler: makeHandler(ctx, repository, "POST", async (body, _query, traceId) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
@@ -5964,7 +5964,7 @@ function apply(ctx) {
     }));
     webCtx.effect(() => webCtx.webServer.register({
       kind: "exact",
-      path: "/dsh-agent-workflow/pin",
+      path: "/dsh-gated-workflow/pin",
       handler: makeHandler(ctx, repository, "POST", async (body) => {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         const snapshot = await repository.setPinned({ id: body.id, pinned: body.pinned === true });

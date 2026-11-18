@@ -1,4 +1,4 @@
-# dsh-agent-workflow bundle patch
+# dsh-gated-workflow bundle patch
 #
 # 一个 bundle 同时做两件事：
 #   1) 把插件宿主半插进组合树（客户端半走 package.json 的 dsh.client）；
@@ -8,11 +8,11 @@
 # 不会出现"插件还在但预设没了、于是静默失效"的情况。
 - insert:
     # 1) 插件本体（宿主半）
-    - id: dsh-agent-workflow
-      name: dsh-agent-workflow
+    - id: dsh-gated-workflow
+      name: dsh-gated-workflow
 
     # 2) 「工作流模式」预设：与「标准模式」同一套工具，只是多了一个可被识别的 id。
-    #    这里刻意不列 dsh-agent-workflow——插件已经是全局挂载的，列进来会重复注册路由。
+    #    这里刻意不列 dsh-gated-workflow——插件已经是全局挂载的，列进来会重复注册路由。
     - id: preset-workflow
       name: '@deepseek-ai/dsh-agent-preset'
       config:

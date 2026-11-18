@@ -47,7 +47,7 @@ for (const [k, v] of modules) {
 }
 
 const out = `window.__ModuleLoader__.load({
-  id: "dsh-agent-workflow",
+  id: "dsh-gated-workflow",
   factory: (require) => {
     var __mods = {
 ${modsCode}    };

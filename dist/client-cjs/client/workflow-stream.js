@@ -107,7 +107,7 @@ function workflowStream() {
         singleton = createWorkflowStream(() => {
             if (typeof EventSource === 'undefined')
                 return null;
-            return new EventSource('/dsh-agent-workflow/stream');
+            return new EventSource('/dsh-gated-workflow/stream');
         }, (open) => {
             // 连接状态是「界面为什么不更新」这条链路上的第一跳，必须能观测到。
             void (0, client_log_1.reportClientEvent)(open ? 'info' : 'warn', open ? 'stream open' : 'stream error');
