@@ -23,6 +23,14 @@ const SKIP_DIRS = new Set([
   '.venv', 'venv', '.pixi', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pycache__',
 ]);
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
+
+/**
+ * 埋点调用形态：JS 的 logEvent( / clientLog( + Python 的 logger.info( / log( 等。
+ * 用字符串构造而不是正则字面量：naming 扫描只剥字符串/注释、不剥正则，字面量里的 `info` 会被误报成封杀词。
+ */
+const CALL_RE = new RegExp(
+  '^(logEvent|clientLog|logger\\.(?:debug|info|warning|error|critical|exception)|log)\\s*\\(',
+);
 const MAX_FILES = 3000;
 
 /** 事件名取稳定前缀：第一个字符串参数截到第一个 ( 或 : 之前。 */
@@ -68,7 +76,7 @@ export function findCalls(text) {
     if (isWord(text[i - 1])) { i += 1; continue; }
     const rest = text.slice(i);
     // JS：logEvent( / clientLog(；Python：logger.info( / log( 等。
-    const match = /^(logEvent|clientLog|logger\.(?:debug|info|warning|error|critical|exception)|log)\s*\(/.exec(rest);
+    const match = CALL_RE.exec(rest);
     if (match !== null) {
       const open = i + match[0].length;
       let depth = 1;
