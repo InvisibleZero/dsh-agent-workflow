@@ -21,6 +21,9 @@ export interface CheckerRequirement {
   require_run?: boolean;
 }
 
+/** 验收步骤默认允许改的东西：none=只读；docs=只写文档；source=允许改源码。 */
+export type VerifyCheckModifies = 'none' | 'docs' | 'source';
+
 export interface VerifyCheckDefinition {
   id: number;
   name: string;
@@ -29,24 +32,23 @@ export interface VerifyCheckDefinition {
   /** 一句话判据：注入给模型看，也当菜单提示。 */
   judge: string;
   /**
-   * 验收中这一项默认是否允许改文件。
-   * 名字审查只读（false）；其余允许（true）——埋点要插源码、收尾要写手册，都属于验收动作。
+   * 验收中这一项默认允许改什么：none=只读；docs=只写文档；source=允许改源码。
    * 它只影响「默认口径」，不改变写门禁（门禁只在讨论中拦写）。
    */
-  modifies_files: boolean;
+  modifies: VerifyCheckModifies;
   /** 挂在这项上的检查器；没有 = 本轮无检查器（如第 5 项命名审查）。 */
   checker?: CheckerRequirement;
 }
 
 export const VERIFY_CHECKS: readonly VerifyCheckDefinition[] = [
-  { id: 1, name: '契约测试', needs_command: true, modifies_files: true, judge: '对外行为与原实现一致或按新契约验证，要有可复现对照', checker: { id: 'contract', enforcement: 'required' } },
-  { id: 2, name: '依赖检查', needs_command: false, modifies_files: true, judge: '无反向依赖、无循环依赖、无跨层引用', checker: { id: 'deps', enforcement: 'required' } },
-  { id: 3, name: '死代码扫描', needs_command: false, modifies_files: true, judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）', checker: { id: 'deadcode', enforcement: 'required' } },
-  { id: 4, name: '边界测试', needs_command: true, modifies_files: true, judge: '外部依赖可 mock，模块能独立测试', checker: { id: 'boundary', enforcement: 'required' } },
-  { id: 5, name: '命名与边界审查', needs_command: false, modifies_files: false, judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项', checker: { id: 'naming', enforcement: 'assistive', require_run: true } },
-  { id: 6, name: '埋点检测', needs_command: false, modifies_files: true, judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
-  { id: 7, name: '回归与压测', needs_command: true, modifies_files: true, judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
-  { id: 8, name: '收尾', needs_command: false, modifies_files: true, judge: '把新决策 / 新坑 / 文档一致性写进项目手册，然后推进到已完结（自动，不再要人同意）' },
+  { id: 1, name: '契约测试', needs_command: true, modifies: 'source', judge: '对外行为与原实现一致或按新契约验证，要有可复现对照', checker: { id: 'contract', enforcement: 'required' } },
+  { id: 2, name: '依赖检查', needs_command: false, modifies: 'source', judge: '无反向依赖、无循环依赖、无跨层引用', checker: { id: 'deps', enforcement: 'required' } },
+  { id: 3, name: '死代码扫描', needs_command: false, modifies: 'source', judge: '无用导出 / 参数 / 字段，且要证明确实可删（引用计数为零）', checker: { id: 'deadcode', enforcement: 'required' } },
+  { id: 4, name: '边界测试', needs_command: true, modifies: 'source', judge: '外部依赖可 mock，模块能独立测试', checker: { id: 'boundary', enforcement: 'required' } },
+  { id: 5, name: '命名与边界审查', needs_command: false, modifies: 'none', judge: '泛化词、跨模块暴露、反向冗长、前缀越界四项', checker: { id: 'naming', enforcement: 'assistive', require_run: true } },
+  { id: 6, name: '埋点检测', needs_command: false, modifies: 'source', judge: '黑盒逐跳三问 + 白盒五字段，三类结论：断点 / 无效埋点 / 质量盲区', checker: { id: 'instrumentation', enforcement: 'assistive', require_run: true } },
+  { id: 7, name: '回归与压测', needs_command: true, modifies: 'source', judge: '跑现有测试套件，给 pass / fail + 证据（耗时、错误率、埋点抽样）', checker: { id: 'regression', enforcement: 'required' } },
+  { id: 8, name: '收尾', needs_command: false, modifies: 'docs', judge: '把新决策 / 新坑 / 文档一致性写进项目手册，然后推进到已完结（自动，不再要人同意）' },
 ];
 
 /** 条目状态：○ 待处理 / ✓ 通过 / ？ 问询（查出问题但本轮不修）。 */

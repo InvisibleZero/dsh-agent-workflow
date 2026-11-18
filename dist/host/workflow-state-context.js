@@ -157,6 +157,10 @@ options) {
                 }),
                 '（✓ = 已报备通过；？ = 查出问题本轮不修；○ = 还没报备。报备用 workflow_verify_report，七项全非 ○ 才能进「已完结」。）',
             ];
+            // 第 6 项报「问询」时给一条可行动提示：否则模型只会记「未验证」，不会去把草稿整理成计划。
+            if (verification.items.find((item) => item.id === 6)?.mark === 'deferred') {
+                lines.push('提示：第 6 项还没验过。缺埋点计划就先跑 check_instrumentation——它会自动在项目根生成 instrumentation-skeleton.json 草稿；整理成 instrumentation.json 再跑就会真的插埋点（验收阶段允许改文件）。');
+            }
             verifyProgress = lines.join('\n');
         }
         // 会话手册：按层注入的方案 + 垂直切片坑（仅实现中）+ 未勾清单。

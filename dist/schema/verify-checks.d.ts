@@ -19,6 +19,8 @@ export interface CheckerRequirement {
      */
     require_run?: boolean;
 }
+/** 验收步骤默认允许改的东西：none=只读；docs=只写文档；source=允许改源码。 */
+export type VerifyCheckModifies = 'none' | 'docs' | 'source';
 export interface VerifyCheckDefinition {
     id: number;
     name: string;
@@ -27,11 +29,10 @@ export interface VerifyCheckDefinition {
     /** 一句话判据：注入给模型看，也当菜单提示。 */
     judge: string;
     /**
-     * 验收中这一项默认是否允许改文件。
-     * 名字审查只读（false）；其余允许（true）——埋点要插源码、收尾要写手册，都属于验收动作。
+     * 验收中这一项默认允许改什么：none=只读；docs=只写文档；source=允许改源码。
      * 它只影响「默认口径」，不改变写门禁（门禁只在讨论中拦写）。
      */
-    modifies_files: boolean;
+    modifies: VerifyCheckModifies;
     /** 挂在这项上的检查器；没有 = 本轮无检查器（如第 5 项命名审查）。 */
     checker?: CheckerRequirement;
 }
