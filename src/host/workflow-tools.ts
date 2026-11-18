@@ -15,8 +15,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
 import { VERIFY_CHECKS, verifyMarkSymbol } from '../schema/verify-checks';
 import { describePendingItems, resolveVerifyCheckId, summarizeVerification, validateVerifyReportInput } from '../engine/verify-rules';
@@ -31,6 +31,7 @@ import { findChecker } from '../engine/checkers';
 import { hasMachineDriver } from '../engine/degrade';
 import { runCommand } from './command-runner';
 import { detectStack } from './stack-detect';
+import { listCandidateProjects, nearestProject, resolveProjects, type ProjectRef } from './project-root';
 import { lintImportsPath, resolvePython } from './tool-locate';
 import type { ToolLedgerInput } from './tool-ledger';
 
@@ -501,53 +502,28 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
   }
 
   const target = resolveCheckerTarget(args?.target, checker);
-  const detection = await detectStack(workingDirectory);
-  // 允许 AI 在调用时显式指定技术栈（自动探测不到 / 探测错时兜底，例如工作目录不是项目根）。
   const requestedStack = args?.stack === 'js' || args?.stack === 'python' ? args.stack : null;
-  const stack = requestedStack ?? detection.stack;
-  const root = detection.root;
+  const requestedProject = typeof args?.project === 'string' && args.project.trim() !== '' ? args.project.trim() : null;
 
-  // deps + python：import-linter 必须先有 [tool.importlinter] 契约，否则 lint-imports 只会报「没契约」或空输出。
-  // 缺配置属于项目资产缺失：明确报出来，不跑命令、不产生假证据。
-  if (checker.id === 'deps' && stack === 'python') {
-    const pyproject = root !== null ? join(root, 'pyproject.toml') : join(workingDirectory, 'pyproject.toml');
-    const text = existsSync(pyproject) ? await readFile(pyproject, 'utf8').catch(() => '') : '';
-    if (!text.includes('[tool.importlinter]')) {
-      const problem = text === ''
-        ? `缺 pyproject.toml：[tool.importlinter] 契约通常写在 pyproject.toml 里，但 ${pyproject} 不存在或读不到；先把工作目录指到项目根，或确认项目用的是别的 import-linter 配置文件；这一项可降级为 AI 证据`
-        : '缺 [tool.importlinter] 契约配置：请在 pyproject.toml 里声明架构契约（layers / forbidden 等），否则 lint-imports 无法判依赖；这一项可降级为 AI 证据';
-      const findings = [{ location: pyproject, problem }];
-      await deps.repository.recordCheckerRun?.({
-        workflowId: found.workflowId,
-        nodeId: found.nodeId,
-        checkerId: checker.id,
-        ok: false,
-        findings: 1,
-        exit_code: null,
-        evidence: `.workflow/evidence/${checker.evidence}`,
-      });
-      logEvent(deps.logger, 'warn', `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, file=${pyproject})`);
-      return {
-        ok: false,
-        checker: checker.id,
-        config_missing: 'tool.importlinter',
-        command: null,
-        exit_code: null,
-        timed_out: false,
-        findings,
-        stats: {},
-      };
-    }
+  // 1. 确定要测的项目根：AI 指定了就用它，否则从「改动范围」推断（范围里每一条向上找 marker）。
+  let projects: ProjectRef[];
+  let candidates: string[] = [];
+  if (requestedProject !== null) {
+    const picked = await nearestProject(resolve(workingDirectory, requestedProject));
+    projects = picked !== null ? [picked] : [];
+    if (projects.length === 0) candidates = await listCandidateProjects(workingDirectory);
+  } else {
+    const scopeInfo = await deps.repository.getChecklistScope?.(found.workflowId, found.nodeId);
+    const resolution = await resolveProjects(workingDirectory, scopeInfo?.scope ?? []);
+    projects = resolution.projects;
+    candidates = resolution.candidates;
   }
 
-  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
-  if (tools === null) {
-    // 工具缺失：明确报「工具缺失」，让上层降级 AI 证据（不跑命令、不产生假证据）。
-    const missing = 'DSH Python';
-    const findings = [{
-      location: checker.evidence,
-      problem: `工具缺失：${missing} 没找到（先装/配置好再重试；这一项可降级为 AI 证据）`,
-    }];
+  // 2. 一个都找不到：返回候选目录，让 AI 用选择框让用户挑，再带 project 参数重跑。
+  if (projects.length === 0) {
+    const problem = candidates.length > 0
+      ? '找不到项目根：用选择框让用户从候选目录里挑一个，再带 project 参数重跑 `check_*`'
+      : '找不到项目根：工作目录及上层没有 pyproject.toml / package.json，也没有带 marker 的一级子目录；先把工作目录指到项目根';
     await deps.repository.recordCheckerRun?.({
       workflowId: found.workflowId,
       nodeId: found.nodeId,
@@ -557,26 +533,154 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
       exit_code: null,
       evidence: `.workflow/evidence/${checker.evidence}`,
     });
-    logEvent(deps.logger, 'warn', `[workflow] checker tool missing (session=${sessionId}, checker=${checker.id}, stack=${stack}, tool=${missing})`);
+    logEvent(deps.logger, 'warn', `[workflow] checker project not found (session=${sessionId}, checker=${checker.id}, candidates=${candidates.length})`);
     return {
       ok: false,
       checker: checker.id,
-      tool_missing: missing,
+      project_candidates: candidates,
       command: null,
       exit_code: null,
       timed_out: false,
-      findings,
+      findings: [{ location: checker.evidence, problem }],
       stats: {},
     };
   }
+
+  // 3. 逐个项目跑：各自的项目根 + 各自的技术栈（多项目语言可以不同）。
+  const perProject: Array<{ root: string; stack: string | null; result: any }> = [];
+  for (const project of projects) {
+    const stack = requestedStack ?? project.stack;
+    const result = await runCheckerInProject(deps, checker, args, target, project.root, stack);
+    perProject.push({ root: project.root, stack, result });
+  }
+
+  // 4. 合并：ok 全过才算过；findings 带项目前缀；stats 求和 + per_project 明细（不求和掩盖）。
+  const multi = perProject.length > 1;
+  const ok = perProject.every((item) => item.result.ok);
+  const findings = perProject.flatMap((item) => {
+    const label = relative(workingDirectory, item.root) || '.';
+    const prefix = multi ? `[${label}] ` : '';
+    return item.result.findings.map((finding: any) => ({
+      location: `${prefix}${finding.location}`,
+      problem: finding.problem,
+    }));
+  });
+  const stats: Record<string, number> = { projects: perProject.length };
+  for (const item of perProject) {
+    for (const [key, value] of Object.entries(item.result.stats ?? {})) {
+      stats[key] = (stats[key] ?? 0) + Number(value);
+    }
+  }
+  const per_project = perProject.map((item) => ({
+    root: relative(workingDirectory, item.root) || '.',
+    stack: item.stack,
+    ok: item.result.ok,
+    stats: item.result.stats,
+  }));
+
+  // 5. 会话证据（报备锚点要指它）：单项目且项目根=工作目录时，原证据就在那；
+  //    否则写一份合并记录，保证 `.workflow/evidence/<file>` 存在、审计能看到每个项目。
+  const sameAsWorking = perProject.length === 1 && perProject[0] !== undefined
+    && perProject[0].root === resolve(workingDirectory);
+  if (!sameAsWorking) {
+    const recordPath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
+    await mkdir(dirname(recordPath), { recursive: true });
+    await writeFile(
+      recordPath,
+      JSON.stringify({ checker: checker.id, ok, findings, per_project, stats }, null, 2),
+      'utf8',
+    ).catch(() => {});
+  }
+
+  // 6. 记录 + 返回。
+  try {
+    await deps.repository.recordCheckerRun?.({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      checkerId: checker.id,
+      ok,
+      findings: findings.length,
+      exit_code: perProject[0]?.result.exit_code ?? null,
+      evidence: `.workflow/evidence/${checker.evidence}`,
+    });
+  } catch (error) {
+    logEvent(
+      deps.logger,
+      'warn',
+      `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String((error as Error)?.message ?? error)}`,
+    );
+  }
+
+  logEvent(
+    deps.logger,
+    'info',
+    `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, `
+    + `projects=${perProject.length}, stacks=${perProject.map((item) => item.stack).join(',')}, `
+    + `ok=${String(ok)}, findings=${findings.length})`,
+  );
+  return {
+    ok,
+    checker: checker.id,
+    command: perProject.length === 1 ? perProject[0].result.command : null,
+    exit_code: perProject[0]?.result.exit_code ?? null,
+    timed_out: perProject.some((item) => item.result.timed_out === true),
+    findings,
+    stats,
+    per_project,
+  };
+}
+
+/**
+ * 在单个项目根里跑一个检查器：缺配置 / 缺工具 / 命令 / 证据 / 判定，都收在这一层。
+ * 返回的 findings 不带项目前缀（合并时由 invokeChecker 加）。
+ */
+async function runCheckerInProject(
+  deps: WorkflowToolsDeps,
+  checker: any,
+  args: any,
+  target: string,
+  projectRoot: string,
+  stack: string | null,
+): Promise<any> {
+  // deps + python：import-linter 必须先有 [tool.importlinter] 契约，否则 lint-imports 只会报「没契约」或空输出。
+  if (checker.id === 'deps' && stack === 'python') {
+    const pyproject = join(projectRoot, 'pyproject.toml');
+    const text = existsSync(pyproject) ? await readFile(pyproject, 'utf8').catch(() => '') : '';
+    if (!text.includes('[tool.importlinter]')) {
+      const problem = text === ''
+        ? `缺 pyproject.toml：[tool.importlinter] 契约通常写在 pyproject.toml 里，但 ${pyproject} 不存在或读不到；确认项目用的是别的 import-linter 配置文件；这一项可降级为 AI 证据`
+        : '缺 [tool.importlinter] 契约配置：请在 pyproject.toml 里声明架构契约（layers / forbidden 等），否则 lint-imports 无法判依赖；这一项可降级为 AI 证据';
+      return {
+        ok: false,
+        command: null,
+        exit_code: null,
+        timed_out: false,
+        findings: [{ location: pyproject, problem }],
+        stats: {},
+      };
+    }
+  }
+
+  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
+  if (tools === null) {
+    return {
+      ok: false,
+      command: null,
+      exit_code: null,
+      timed_out: false,
+      findings: [{ location: checker.evidence, problem: '工具缺失：DSH Python 没找到（先装/配置好再重试；这一项可降级为 AI 证据）' }],
+      stats: {},
+    };
+  }
+
   const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
-  const evidencePath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
+  const evidencePath = join(projectRoot, '.workflow', 'evidence', checker.evidence);
   await mkdir(dirname(evidencePath), { recursive: true });
 
   let commandResult: { ok: boolean; exit_code: number | null; timed_out: boolean; ms: number; tail: string } | null = null;
   if (checker.autoRun) {
     const execute = deps.runCommand ?? runCommand;
-    commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
+    commandResult = await execute({ cwd: projectRoot, command, binDir: deps.nodeModulesBin });
   }
 
   const normalizer = typeof stack === 'string' && stack !== ''
@@ -587,7 +691,6 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
   let parseError = '';
   try {
     const rawText = await readFile(evidencePath, 'utf8');
-    // 有归一化就喂原始文本（工具原生产物可能是 JSONL / 纯文本）；否则按 JSON 解析。
     evidenceJson = normalizer !== null ? normalizer(rawText) : JSON.parse(rawText);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
@@ -603,7 +706,6 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     };
 
   // 命令失败 + 判据说「没违规」= 工具没产出有效证据（不是真的零违规），判不合格。
-  // 典型：lint-imports / vulture 崩溃留下空文件 → 归一化成「零违规 / 零问题」→ 假绿。
   if (commandResult !== null && commandResult.ok !== true && result.ok === true) {
     result = {
       ok: false,
@@ -618,44 +720,14 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     };
   }
 
-  // 把这次真实运行落进快照，让报备门禁能核对「真跑没跑、结果对不对」。落盘失败只记 warn，
-  // 不把检查器本身打挂——门禁后续会按「没跑过」拒绝，那是对的方向（fail-closed）。
-  try {
-    await deps.repository.recordCheckerRun?.({
-      workflowId: found.workflowId,
-      nodeId: found.nodeId,
-      checkerId: checker.id,
-      ok: result.ok,
-      findings: result.findings.length,
-      exit_code: commandResult?.exit_code ?? null,
-      evidence: `.workflow/evidence/${checker.evidence}`,
-    });
-  } catch (error) {
-    logEvent(
-      deps.logger,
-      'warn',
-      `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String((error as Error)?.message ?? error)}`,
-    );
-  }
-
-  logEvent(
-    deps.logger,
-    'info',
-    `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, `
-    + `stack=${String(stack ?? 'none')}, auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? 'n/a')}, `
-    + `ok=${String(result.ok)}, findings=${result.findings.length}, ${commandResult?.ms ?? 0}ms)`,
-  );
   return {
     ok: result.ok,
-    checker: checker.id,
     command: checker.autoRun ? command : null,
     exit_code: commandResult?.exit_code ?? null,
     timed_out: commandResult?.timed_out ?? false,
     findings: result.findings,
     stats: result.stats,
-    ...(commandResult !== null && commandResult.ok !== true
-      ? { command_output: commandResult.tail.slice(-800) }
-      : {}),
+    ...(commandResult !== null && commandResult.ok !== true ? { command_output: commandResult.tail.slice(-800) } : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 // src/host.ts
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname6, join as join7 } from "node:path";
+import { dirname as dirname7, join as join8 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -314,7 +314,7 @@ var JsonStorageAdapter = class {
       } catch (error) {
         const code = error.code;
         if ((code === "EPERM" || code === "EACCES") && attempt < 6) {
-          await new Promise((resolve4) => setTimeout(resolve4, 8 * (attempt + 1)));
+          await new Promise((resolve5) => setTimeout(resolve5, 8 * (attempt + 1)));
           continue;
         }
         await fs.rm(tmp, { force: true }).catch(() => {
@@ -1316,8 +1316,8 @@ var WorkflowRepository = class {
       if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
       const state = input.state;
       if (!["global", "discussing", "implementing", "verifying"].includes(state)) throw new Error("\u975E\u6CD5\u72B6\u6001");
-      const exists2 = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-      if (!exists2) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const exists3 = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+      if (!exists3) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
       const text = input.text.trim();
       const updated = {
         ...snapshot,
@@ -1571,8 +1571,8 @@ var WorkflowRepository = class {
     const snapshot = await this.storage.load(input.id);
     if (snapshot === null) throw new Error("\u627E\u4E0D\u5230\u8BE5 workflow");
     if (typeof input.sessionId !== "string") throw new Error("\u7F3A\u5C11 sessionId");
-    const exists2 = snapshot.nodes.some((node) => node.node_id === input.nodeId);
-    if (!exists2) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+    const exists3 = snapshot.nodes.some((node) => node.node_id === input.nodeId);
+    if (!exists3) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
     const sessionId = input.sessionId.trim();
     const updated = {
       ...snapshot,
@@ -2084,8 +2084,8 @@ ${entry}`;
   async backupOldPlan(manualFile, current) {
     const oldPlan = pickSectionBody(current, ["\u65B9\u6848"]);
     if (oldPlan.trim() === "") return;
-    const exists2 = await fs2.access(manualFile).then(() => true).catch(() => false);
-    if (!exists2) return;
+    const exists3 = await fs2.access(manualFile).then(() => true).catch(() => false);
+    if (!exists3) return;
     const dir = join(dirname(manualFile), "backups");
     await fs2.mkdir(dir, { recursive: true });
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
@@ -2350,8 +2350,8 @@ ${oldPlan}
     const workingDir = snapshot.working_directory;
     if (typeof workingDir !== "string" || workingDir === "") throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55");
     if (nodeId !== null) {
-      const exists2 = snapshot.nodes.some((node) => node.node_id === nodeId);
-      if (!exists2) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
+      const exists3 = snapshot.nodes.some((node) => node.node_id === nodeId);
+      if (!exists3) throw new Error("\u627E\u4E0D\u5230\u8282\u70B9");
     }
     const wfDir = join(workingDir, WORKFLOW_SUBDIR);
     await fs2.mkdir(wfDir, { recursive: true });
@@ -2896,8 +2896,8 @@ function pickSessionId(context) {
 // src/host/workflow-tools.ts
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir as mkdir2, readFile } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute, join as join6, resolve as resolve3 } from "node:path";
+import { mkdir as mkdir2, readFile, writeFile } from "node:fs/promises";
+import { dirname as dirname6, isAbsolute, join as join7, relative, resolve as resolve4 } from "node:path";
 
 // src/schema/tool-kind.ts
 var TOOL_KIND = { base: "base", extension: "extension" };
@@ -3793,7 +3793,7 @@ import { delimiter } from "node:path";
 var COMMAND_TIMEOUT_MS = 12e4;
 var TAIL_LIMIT = 4096;
 function runCommand(input) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const startedAt = Date.now();
     const timeoutMs = typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : COMMAND_TIMEOUT_MS;
     let tail = "";
@@ -3802,7 +3802,7 @@ function runCommand(input) {
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      resolve4(result);
+      resolve5(result);
     };
     let child;
     try {
@@ -3905,13 +3905,74 @@ async function detectStack(workingDirectory) {
   }
 }
 
-// src/host/tool-locate.ts
-import { access as access2 } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname as dirname4, join as join5 } from "node:path";
-async function defaultExists(file) {
+// src/host/project-root.ts
+import { access as access2, readdir } from "node:fs/promises";
+import { dirname as dirname4, join as join5, resolve as resolve3 } from "node:path";
+async function exists2(file) {
   try {
     await access2(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function nearestProject(path2) {
+  let dir = resolve3(path2);
+  for (; ; ) {
+    const [pyproject, packageJson] = await Promise.all([
+      exists2(join5(dir, "pyproject.toml")),
+      exists2(join5(dir, "package.json"))
+    ]);
+    const stack = stackFromMarkers({ pyproject, packageJson });
+    if (stack !== null) return { root: dir, stack };
+    const parent = dirname4(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+async function listCandidateProjects(workingDirectory) {
+  const candidates = [];
+  const base = resolve3(workingDirectory);
+  const self = await nearestProject(base);
+  if (self !== null && self.root === base) candidates.push(base);
+  let entries;
+  try {
+    entries = await readdir(base, { withFileTypes: true });
+  } catch {
+    return candidates;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    const child = join5(base, entry.name);
+    const found = await nearestProject(child);
+    if (found !== null && found.root === resolve3(child) && !candidates.includes(found.root)) {
+      candidates.push(found.root);
+    }
+  }
+  return candidates;
+}
+async function resolveProjects(workingDirectory, scope) {
+  const projects = [];
+  for (const path2 of scope) {
+    const found = await nearestProject(resolve3(workingDirectory, path2));
+    if (found !== null && !projects.some((project) => project.root === found.root)) {
+      projects.push(found);
+    }
+  }
+  if (projects.length > 0) return { projects, candidates: [] };
+  const fallback = await nearestProject(workingDirectory);
+  if (fallback !== null) return { projects: [fallback], candidates: [] };
+  return { projects: [], candidates: await listCandidateProjects(workingDirectory) };
+}
+
+// src/host/tool-locate.ts
+import { access as access3 } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname as dirname5, join as join6 } from "node:path";
+async function defaultExists(file) {
+  try {
+    await access3(file);
     return true;
   } catch {
     return false;
@@ -3921,21 +3982,21 @@ async function resolvePython(deps = {}) {
   const env = deps.env ?? process.env;
   const home = deps.home ?? homedir();
   const platform = deps.platform ?? process.platform;
-  const exists2 = deps.exists ?? defaultExists;
+  const exists3 = deps.exists ?? defaultExists;
   const fromEnv = typeof env.DSH_PYTHON === "string" ? env.DSH_PYTHON.trim() : "";
-  if (fromEnv !== "" && await exists2(fromEnv)) return fromEnv;
-  const candidates = platform === "win32" ? [join5(home, ".dsh", "dsh-runtimes", "dsh-primary-runtime", "dependencies", "python", "python.exe")] : [join5(home, ".dsh", "dsh-runtimes", "dsh-primary-runtime", "dependencies", "python", "bin", "python3")];
+  if (fromEnv !== "" && await exists3(fromEnv)) return fromEnv;
+  const candidates = platform === "win32" ? [join6(home, ".dsh", "dsh-runtimes", "dsh-primary-runtime", "dependencies", "python", "python.exe")] : [join6(home, ".dsh", "dsh-runtimes", "dsh-primary-runtime", "dependencies", "python", "bin", "python3")];
   for (const candidate of candidates) {
-    if (await exists2(candidate)) return candidate;
+    if (await exists3(candidate)) return candidate;
   }
   return null;
 }
 function pythonScriptsDir(pythonPath) {
-  const dir = dirname4(pythonPath);
-  return process.platform === "win32" ? join5(dir, "Scripts") : dir;
+  const dir = dirname5(pythonPath);
+  return process.platform === "win32" ? join6(dir, "Scripts") : dir;
 }
 function lintImportsPath(pythonPath) {
-  return join5(pythonScriptsDir(pythonPath), process.platform === "win32" ? "lint-imports.exe" : "lint-imports");
+  return join6(pythonScriptsDir(pythonPath), process.platform === "win32" ? "lint-imports.exe" : "lint-imports");
 }
 
 // src/host/workflow-tools.ts
@@ -4022,8 +4083,8 @@ function registerWorkflowGuard(ctx, deps) {
           if (scopeInfo !== null && scopeInfo.scope.length > 0) {
             const writePath = extractWritePath(exec);
             if (writePath !== null) {
-              const writeAbs = resolve3(isAbsolute(writePath) ? writePath : join6(scopeInfo.workingDir, writePath));
-              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve3(scopeInfo.workingDir, scopePath));
+              const writeAbs = resolve4(isAbsolute(writePath) ? writePath : join7(scopeInfo.workingDir, writePath));
+              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve4(scopeInfo.workingDir, scopePath));
               if (!isWithinScope(writeAbs, scopeAbs)) {
                 logEvent(ctx.logger, "info", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=implementing, reason=out-of-scope)`);
                 deps.reportGuardError?.(sessionId, null);
@@ -4239,7 +4300,7 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
     if (typeof packageRoot !== "string" || packageRoot === "") {
       throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u7528\u811A\u672C\u6267\u884C\uFF0C\u4F46\u5BBF\u4E3B\u6CA1\u7ED9\u51FA packageRoot\uFF1A\u5148\u4FEE\u5BBF\u4E3B\u6CE8\u5165`);
     }
-    return `node "${join6(packageRoot, "scripts", checker.script)}"`;
+    return `node "${join7(packageRoot, "scripts", checker.script)}"`;
   }
   if (typeof stack === "string" && stack !== "" && typeof checker.buildCommands?.[stack] === "function") {
     return checker.buildCommands[stack](target, tools);
@@ -4257,7 +4318,7 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
 function ensurePythonTools(python, packageRoot) {
   const probe = spawnSync(python, ["-c", "import pytest, importlinter, vulture"], { stdio: "ignore" });
   if (probe.status === 0) return true;
-  const wheelsDir = join6(packageRoot, "python-wheels");
+  const wheelsDir = join7(packageRoot, "python-wheels");
   if (!existsSync(wheelsDir)) return false;
   const install = spawnSync(
     python,
@@ -4290,45 +4351,22 @@ async function invokeChecker(deps, entry, args, sessionId) {
     throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u68C0\u67E5\u5668\u8DD1\u4E0D\u4E86\uFF1A\u5148\u7ED9\u5B83\u6307\u5B9A\u5DE5\u4F5C\u76EE\u5F55");
   }
   const target = resolveCheckerTarget(args?.target, checker);
-  const detection = await detectStack(workingDirectory);
   const requestedStack = args?.stack === "js" || args?.stack === "python" ? args.stack : null;
-  const stack = requestedStack ?? detection.stack;
-  const root = detection.root;
-  if (checker.id === "deps" && stack === "python") {
-    const pyproject = root !== null ? join6(root, "pyproject.toml") : join6(workingDirectory, "pyproject.toml");
-    const text = existsSync(pyproject) ? await readFile(pyproject, "utf8").catch(() => "") : "";
-    if (!text.includes("[tool.importlinter]")) {
-      const problem = text === "" ? `\u7F3A pyproject.toml\uFF1A[tool.importlinter] \u5951\u7EA6\u901A\u5E38\u5199\u5728 pyproject.toml \u91CC\uFF0C\u4F46 ${pyproject} \u4E0D\u5B58\u5728\u6216\u8BFB\u4E0D\u5230\uFF1B\u5148\u628A\u5DE5\u4F5C\u76EE\u5F55\u6307\u5230\u9879\u76EE\u6839\uFF0C\u6216\u786E\u8BA4\u9879\u76EE\u7528\u7684\u662F\u522B\u7684 import-linter \u914D\u7F6E\u6587\u4EF6\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E` : "\u7F3A [tool.importlinter] \u5951\u7EA6\u914D\u7F6E\uFF1A\u8BF7\u5728 pyproject.toml \u91CC\u58F0\u660E\u67B6\u6784\u5951\u7EA6\uFF08layers / forbidden \u7B49\uFF09\uFF0C\u5426\u5219 lint-imports \u65E0\u6CD5\u5224\u4F9D\u8D56\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E";
-      const findings = [{ location: pyproject, problem }];
-      await deps.repository.recordCheckerRun?.({
-        workflowId: found.workflowId,
-        nodeId: found.nodeId,
-        checkerId: checker.id,
-        ok: false,
-        findings: 1,
-        exit_code: null,
-        evidence: `.workflow/evidence/${checker.evidence}`
-      });
-      logEvent(deps.logger, "warn", `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, file=${pyproject})`);
-      return {
-        ok: false,
-        checker: checker.id,
-        config_missing: "tool.importlinter",
-        command: null,
-        exit_code: null,
-        timed_out: false,
-        findings,
-        stats: {}
-      };
-    }
+  const requestedProject = typeof args?.project === "string" && args.project.trim() !== "" ? args.project.trim() : null;
+  let projects;
+  let candidates = [];
+  if (requestedProject !== null) {
+    const picked = await nearestProject(resolve4(workingDirectory, requestedProject));
+    projects = picked !== null ? [picked] : [];
+    if (projects.length === 0) candidates = await listCandidateProjects(workingDirectory);
+  } else {
+    const scopeInfo = await deps.repository.getChecklistScope?.(found.workflowId, found.nodeId);
+    const resolution = await resolveProjects(workingDirectory, scopeInfo?.scope ?? []);
+    projects = resolution.projects;
+    candidates = resolution.candidates;
   }
-  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
-  if (tools === null) {
-    const missing = "DSH Python";
-    const findings = [{
-      location: checker.evidence,
-      problem: `\u5DE5\u5177\u7F3A\u5931\uFF1A${missing} \u6CA1\u627E\u5230\uFF08\u5148\u88C5/\u914D\u7F6E\u597D\u518D\u91CD\u8BD5\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E\uFF09`
-    }];
+  if (projects.length === 0) {
+    const problem = candidates.length > 0 ? "\u627E\u4E0D\u5230\u9879\u76EE\u6839\uFF1A\u7528\u9009\u62E9\u6846\u8BA9\u7528\u6237\u4ECE\u5019\u9009\u76EE\u5F55\u91CC\u6311\u4E00\u4E2A\uFF0C\u518D\u5E26 project \u53C2\u6570\u91CD\u8DD1 `check_*`" : "\u627E\u4E0D\u5230\u9879\u76EE\u6839\uFF1A\u5DE5\u4F5C\u76EE\u5F55\u53CA\u4E0A\u5C42\u6CA1\u6709 pyproject.toml / package.json\uFF0C\u4E5F\u6CA1\u6709\u5E26 marker \u7684\u4E00\u7EA7\u5B50\u76EE\u5F55\uFF1B\u5148\u628A\u5DE5\u4F5C\u76EE\u5F55\u6307\u5230\u9879\u76EE\u6839";
     await deps.repository.recordCheckerRun?.({
       workflowId: found.workflowId,
       nodeId: found.nodeId,
@@ -4338,25 +4376,124 @@ async function invokeChecker(deps, entry, args, sessionId) {
       exit_code: null,
       evidence: `.workflow/evidence/${checker.evidence}`
     });
-    logEvent(deps.logger, "warn", `[workflow] checker tool missing (session=${sessionId}, checker=${checker.id}, stack=${stack}, tool=${missing})`);
+    logEvent(deps.logger, "warn", `[workflow] checker project not found (session=${sessionId}, checker=${checker.id}, candidates=${candidates.length})`);
     return {
       ok: false,
       checker: checker.id,
-      tool_missing: missing,
+      project_candidates: candidates,
       command: null,
       exit_code: null,
       timed_out: false,
-      findings,
+      findings: [{ location: checker.evidence, problem }],
+      stats: {}
+    };
+  }
+  const perProject = [];
+  for (const project of projects) {
+    const stack = requestedStack ?? project.stack;
+    const result = await runCheckerInProject(deps, checker, args, target, project.root, stack);
+    perProject.push({ root: project.root, stack, result });
+  }
+  const multi = perProject.length > 1;
+  const ok = perProject.every((item) => item.result.ok);
+  const findings = perProject.flatMap((item) => {
+    const label = relative(workingDirectory, item.root) || ".";
+    const prefix = multi ? `[${label}] ` : "";
+    return item.result.findings.map((finding) => ({
+      location: `${prefix}${finding.location}`,
+      problem: finding.problem
+    }));
+  });
+  const stats = { projects: perProject.length };
+  for (const item of perProject) {
+    for (const [key, value] of Object.entries(item.result.stats ?? {})) {
+      stats[key] = (stats[key] ?? 0) + Number(value);
+    }
+  }
+  const per_project = perProject.map((item) => ({
+    root: relative(workingDirectory, item.root) || ".",
+    stack: item.stack,
+    ok: item.result.ok,
+    stats: item.result.stats
+  }));
+  const sameAsWorking = perProject.length === 1 && perProject[0] !== void 0 && perProject[0].root === resolve4(workingDirectory);
+  if (!sameAsWorking) {
+    const recordPath = join7(workingDirectory, ".workflow", "evidence", checker.evidence);
+    await mkdir2(dirname6(recordPath), { recursive: true });
+    await writeFile(
+      recordPath,
+      JSON.stringify({ checker: checker.id, ok, findings, per_project, stats }, null, 2),
+      "utf8"
+    ).catch(() => {
+    });
+  }
+  try {
+    await deps.repository.recordCheckerRun?.({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      checkerId: checker.id,
+      ok,
+      findings: findings.length,
+      exit_code: perProject[0]?.result.exit_code ?? null,
+      evidence: `.workflow/evidence/${checker.evidence}`
+    });
+  } catch (error) {
+    logEvent(
+      deps.logger,
+      "warn",
+      `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String(error?.message ?? error)}`
+    );
+  }
+  logEvent(
+    deps.logger,
+    "info",
+    `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, projects=${perProject.length}, stacks=${perProject.map((item) => item.stack).join(",")}, ok=${String(ok)}, findings=${findings.length})`
+  );
+  return {
+    ok,
+    checker: checker.id,
+    command: perProject.length === 1 ? perProject[0].result.command : null,
+    exit_code: perProject[0]?.result.exit_code ?? null,
+    timed_out: perProject.some((item) => item.result.timed_out === true),
+    findings,
+    stats,
+    per_project
+  };
+}
+async function runCheckerInProject(deps, checker, args, target, projectRoot, stack) {
+  if (checker.id === "deps" && stack === "python") {
+    const pyproject = join7(projectRoot, "pyproject.toml");
+    const text = existsSync(pyproject) ? await readFile(pyproject, "utf8").catch(() => "") : "";
+    if (!text.includes("[tool.importlinter]")) {
+      const problem = text === "" ? `\u7F3A pyproject.toml\uFF1A[tool.importlinter] \u5951\u7EA6\u901A\u5E38\u5199\u5728 pyproject.toml \u91CC\uFF0C\u4F46 ${pyproject} \u4E0D\u5B58\u5728\u6216\u8BFB\u4E0D\u5230\uFF1B\u786E\u8BA4\u9879\u76EE\u7528\u7684\u662F\u522B\u7684 import-linter \u914D\u7F6E\u6587\u4EF6\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E` : "\u7F3A [tool.importlinter] \u5951\u7EA6\u914D\u7F6E\uFF1A\u8BF7\u5728 pyproject.toml \u91CC\u58F0\u660E\u67B6\u6784\u5951\u7EA6\uFF08layers / forbidden \u7B49\uFF09\uFF0C\u5426\u5219 lint-imports \u65E0\u6CD5\u5224\u4F9D\u8D56\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E";
+      return {
+        ok: false,
+        command: null,
+        exit_code: null,
+        timed_out: false,
+        findings: [{ location: pyproject, problem }],
+        stats: {}
+      };
+    }
+  }
+  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
+  if (tools === null) {
+    return {
+      ok: false,
+      command: null,
+      exit_code: null,
+      timed_out: false,
+      findings: [{ location: checker.evidence, problem: "\u5DE5\u5177\u7F3A\u5931\uFF1ADSH Python \u6CA1\u627E\u5230\uFF08\u5148\u88C5/\u914D\u7F6E\u597D\u518D\u91CD\u8BD5\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E\uFF09" }],
       stats: {}
     };
   }
   const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
-  const evidencePath = join6(workingDirectory, ".workflow", "evidence", checker.evidence);
-  await mkdir2(dirname5(evidencePath), { recursive: true });
+  const evidencePath = join7(projectRoot, ".workflow", "evidence", checker.evidence);
+  await mkdir2(dirname6(evidencePath), { recursive: true });
   let commandResult = null;
   if (checker.autoRun) {
     const execute = deps.runCommand ?? runCommand;
-    commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
+    commandResult = await execute({ cwd: projectRoot, command, binDir: deps.nodeModulesBin });
   }
   const normalizer = typeof stack === "string" && stack !== "" && typeof checker.normalizers?.[stack] === "function" ? checker.normalizers[stack] : null;
   let evidenceJson = null;
@@ -4386,31 +4523,8 @@ async function invokeChecker(deps, entry, args, sessionId) {
       stats: result.stats
     };
   }
-  try {
-    await deps.repository.recordCheckerRun?.({
-      workflowId: found.workflowId,
-      nodeId: found.nodeId,
-      checkerId: checker.id,
-      ok: result.ok,
-      findings: result.findings.length,
-      exit_code: commandResult?.exit_code ?? null,
-      evidence: `.workflow/evidence/${checker.evidence}`
-    });
-  } catch (error) {
-    logEvent(
-      deps.logger,
-      "warn",
-      `[workflow] checker run record failed (session=${sessionId}, checker=${checker.id}): ${String(error?.message ?? error)}`
-    );
-  }
-  logEvent(
-    deps.logger,
-    "info",
-    `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, stack=${String(stack ?? "none")}, auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? "n/a")}, ok=${String(result.ok)}, findings=${result.findings.length}, ${commandResult?.ms ?? 0}ms)`
-  );
   return {
     ok: result.ok,
-    checker: checker.id,
     command: checker.autoRun ? command : null,
     exit_code: commandResult?.exit_code ?? null,
     timed_out: commandResult?.timed_out ?? false,
@@ -4846,11 +4960,11 @@ function planSectionsFromTemplate(template) {
 var inject = [];
 function resolveDataDir() {
   const profileDir = process.env.DSH_PROFILE_DIR;
-  const base = profileDir && profileDir.trim() !== "" ? profileDir : join7(homedir2(), ".dsh");
-  return join7(base, "dsh-gated-workflow");
+  const base = profileDir && profileDir.trim() !== "" ? profileDir : join8(homedir2(), ".dsh");
+  return join8(base, "dsh-gated-workflow");
 }
 function resolvePackageRoot() {
-  return join7(dirname6(fileURLToPath(import.meta.url)), "..");
+  return join8(dirname7(fileURLToPath(import.meta.url)), "..");
 }
 function isLoopbackRequest(req) {
   try {
@@ -4875,7 +4989,7 @@ function sendJson(res, status, value) {
   }
 }
 function readJsonBody(req) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
@@ -4889,7 +5003,7 @@ function readJsonBody(req) {
     });
     req.on("end", () => {
       try {
-        resolve4(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+        resolve5(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
         reject(new Error("JSON \u89E3\u6790\u5931\u8D25"));
       }
@@ -4931,9 +5045,9 @@ function makeHandler(ctx, repository, method, run) {
 }
 function apply(ctx) {
   const packageRoot = resolvePackageRoot();
-  const settingsDir = join7(packageRoot, "settings");
-  const toolsDir = join7(packageRoot, "tools");
-  const nodeModulesBin = join7(packageRoot, "node_modules", ".bin");
+  const settingsDir = join8(packageRoot, "settings");
+  const toolsDir = join8(packageRoot, "tools");
+  const nodeModulesBin = join8(packageRoot, "node_modules", ".bin");
   configureEventLog(resolveDataDir());
   const repository = new WorkflowRepository(resolveDataDir(), settingsDir);
   const streamClients = /* @__PURE__ */ new Set();
@@ -5377,7 +5491,7 @@ function apply(ctx) {
       path: "/dsh-gated-workflow/profiles-export",
       handler: makeHandler(ctx, repository, "POST", async (_body, _query, traceId) => {
         const exported = await repository.exportActiveProfile();
-        spawn2("explorer.exe", [join7(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
+        spawn2("explorer.exe", [join8(exported.path, "..")], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] profiles-export ok (name=${exported.name})`, traceId);
         return exported;
       })
@@ -5703,7 +5817,7 @@ function apply(ctx) {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         const exported = await repository.exportVerificationReport(body.id, body.nodeId);
-        spawn2("explorer.exe", [dirname6(exported.path)], { stdio: "ignore", detached: true }).unref();
+        spawn2("explorer.exe", [dirname7(exported.path)], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] export-report ok (node=${body.nodeId}, name=${exported.name})`, traceId);
         return exported;
       })

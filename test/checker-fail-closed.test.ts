@@ -23,7 +23,7 @@ function makeToolRuntime() {
   return { ctx, tools };
 }
 
-describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', () => {
+describe('门禁 fail-closed：找不到项目 / 命令失败都不能假绿', () => {
   let dir: string;
   let workDir: string;
   let repo: WorkflowRepository;
@@ -72,14 +72,18 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
     await rm(workDir, { recursive: true, force: true });
   });
 
-  it('探测不到技术栈：不跑 JS 命令，明确报「需要技术栈」', async () => {
+  it('找不到项目根：不跑命令，返回候选（空工作区 → 候选为空）', async () => {
     mount();
-    // 空目录：没有 pyproject.toml / package.json → stack = null
-    await expect(call('check_deps', {})).rejects.toThrow(/需要技术栈/);
+    // 空目录：没有 pyproject.toml / package.json，上层也没有 → 找不到项目
+    const result = await call('check_deps', {});
+    expect(result.value.ok).toBe(false);
+    expect(result.value.project_candidates).toEqual([]);
+    expect(result.value.findings.some((f: any) => String(f.problem).includes('找不到项目根'))).toBe(true);
   });
 
-  it('显式指定 stack 覆盖自动探测：空目录 + stack:js → 不报需要技术栈，走 depcruise', async () => {
+  it('显式 stack 覆盖自动探测：pyproject + stack:js → 走 depcruise', async () => {
     mount();
+    await writeFile(join(workDir, 'pyproject.toml'), '[project]\nname="x"\n', 'utf8');
     const evidenceDir = join(workDir, '.workflow', 'evidence');
     await mkdir(evidenceDir, { recursive: true });
     await writeFile(join(evidenceDir, 'deps.json'), JSON.stringify({ summary: { violations: [] } }), 'utf8');
@@ -119,7 +123,6 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
     await writeFile(join(workDir, 'pyproject.toml'), '[project]\nname="x"\n', 'utf8');
     const result = await call('check_deps', {});
     expect(result.value.ok).toBe(false);
-    expect(result.value.config_missing).toBe('tool.importlinter');
     expect(result.value.findings.some((f: any) => String(f.problem).includes('[tool.importlinter]'))).toBe(true);
   });
 
@@ -141,5 +144,31 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
     runResult = { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
     const result = await call('check_deps', {});
     expect(result.value.ok).toBe(true);
+  });
+
+  it('多项目：范围落到两个项目 → 都跑、按项目分开合并', async () => {
+    mount();
+    const py = join(workDir, 'pyproj');
+    const js = join(workDir, 'jsproj');
+    await mkdir(join(py, '.workflow', 'evidence'), { recursive: true });
+    await mkdir(join(js, '.workflow', 'evidence'), { recursive: true });
+    await writeFile(join(py, 'pyproject.toml'), '[project]\nname="x"\n\n[tool.importlinter]\nroot_packages = ["x"]\n', 'utf8');
+    await writeFile(join(js, 'package.json'), '{}', 'utf8');
+    await writeFile(join(py, '.workflow', 'evidence', 'deps.json'), 'Import Linter\n\nContracts: 1 kept, 0 broken.\n', 'utf8');
+    await writeFile(join(js, '.workflow', 'evidence', 'deps.json'), JSON.stringify({ summary: { violations: [] } }), 'utf8');
+
+    const found = await repo.findBySession(SESSION);
+    await repo.extendSessionScope({
+      workflowId: found!.workflowId,
+      nodeId: found!.nodeId,
+      paths: ['pyproj', 'jsproj'],
+      reason: '测试多项目',
+    });
+
+    runResult = { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
+    const result = await call('check_deps', {});
+    expect(result.value.ok).toBe(true);
+    expect(result.value.per_project).toHaveLength(2);
+    expect(result.value.per_project.map((item: any) => item.stack).sort()).toEqual(['js', 'python']);
   });
 });
