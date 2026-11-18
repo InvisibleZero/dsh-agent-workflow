@@ -36,7 +36,10 @@
     "icon.svg",
     "README.md",
     "DEVELOPMENT.md",
-    "JOURNEY.md"
+    "JOURNEY.md",
+    "THIRD-PARTY.md",
+    "CHANGELOG.md",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-host.mjs && tsc -p tsconfig.client-cjs.json && node scripts/bundle-client.mjs",
