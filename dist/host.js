@@ -3308,6 +3308,14 @@ var buildChecker = {
   check(evidence_json) {
     if (evidence_json === null) return missingEvidence(EVIDENCE3, "node scripts/build-check.mjs");
     const root = asRecord(evidence_json);
+    if (root.skipped === true) {
+      return {
+        ok: true,
+        findings: [],
+        stats: { skipped: 1 },
+        note: asString(root.reason) || "\u672C\u6808\u6CA1\u6709 build \u6B65\u9AA4\uFF0C\u8DF3\u8FC7"
+      };
+    }
     if (typeof root.build_exit !== "number") {
       return {
         ok: false,
@@ -4438,6 +4446,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
     ok: item.result.ok,
     stats: item.result.stats
   }));
+  const notes = perProject.map((item) => item.result.note).filter((note) => typeof note === "string" && note !== "");
   const sameAsWorking = perProject.length === 1 && perProject[0] !== void 0 && perProject[0].root === resolve4(workingDirectory);
   if (!sameAsWorking) {
     const recordPath = join7(workingDirectory, ".workflow", "evidence", checker.evidence);
@@ -4479,7 +4488,8 @@ async function invokeChecker(deps, entry, args, sessionId) {
     timed_out: perProject.some((item) => item.result.timed_out === true),
     findings,
     stats,
-    per_project
+    per_project,
+    ...notes.length > 0 ? { notes } : {}
   };
 }
 async function runCheckerInProject(deps, checker, args, target, projectRoot, stack) {
@@ -4552,6 +4562,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
     timed_out: commandResult?.timed_out ?? false,
     findings: result.findings,
     stats: result.stats,
+    ...typeof result.note === "string" && result.note !== "" ? { note: result.note } : {},
     ...commandResult !== null && commandResult.ok !== true ? { command_output: commandResult.tail.slice(-800) } : {}
   };
 }

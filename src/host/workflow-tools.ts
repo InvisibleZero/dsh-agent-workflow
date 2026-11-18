@@ -585,6 +585,9 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     ok: item.result.ok,
     stats: item.result.stats,
   }));
+  const notes = perProject
+    .map((item) => item.result.note)
+    .filter((note) => typeof note === 'string' && note !== '');
 
   // 5. 会话证据（报备锚点要指它）：单项目且项目根=工作目录时，原证据就在那；
   //    否则写一份合并记录，保证 `.workflow/evidence/<file>` 存在、审计能看到每个项目。
@@ -635,6 +638,7 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     findings,
     stats,
     per_project,
+    ...(notes.length > 0 ? { notes } : {}),
   };
 }
 
@@ -735,6 +739,7 @@ async function runCheckerInProject(
     timed_out: commandResult?.timed_out ?? false,
     findings: result.findings,
     stats: result.stats,
+    ...(typeof result.note === 'string' && result.note !== '' ? { note: result.note } : {}),
     ...(commandResult !== null && commandResult.ok !== true ? { command_output: commandResult.tail.slice(-800) } : {}),
   };
 }

@@ -33,6 +33,8 @@ export interface CheckResult {
   findings: CheckerFinding[];
   /** 关键数字（用例数、违规数、耗时），进审计与返回值，便于事后核对。 */
   stats: Record<string, number>;
+  /** 通过但需要说明的（比如「本栈没有 build 步骤」）：不是失败，但要让人看见。 */
+  note?: string;
 }
 
 export interface Checker {
