@@ -3611,7 +3611,10 @@ var instrumentationChecker = {
     }
     const result = validateInstrumentation(evidence_json);
     if (result.stats.config_missing === 1) {
-      return { ...result, note: `${result.note ?? ""}\u3000\u683C\u5F0F\uFF1A${PLAN_FORMAT_HINT}` };
+      return {
+        ...result,
+        note: `${result.note ?? ""}\u3000\u5DE5\u5177\u5DF2\u6309\u4EE3\u7801\u91CC\u7684\u51FD\u6570\u751F\u6210\u8349\u7A3F instrumentation-skeleton.json\uFF1A\u6539 label / event \u6574\u7406\u6210\u6392\u67E5\u8DEF\u5F84\uFF0C\u5B58\u6210 instrumentation.json \u518D\u8DD1\u3002\u683C\u5F0F\uFF1A${PLAN_FORMAT_HINT}`
+      };
     }
     return result;
   }

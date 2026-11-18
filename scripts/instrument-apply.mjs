@@ -261,6 +261,29 @@ export function applyPlan(plan, scan, files) {
   return { inserted, skipped };
 }
 
+/** 扫函数定义（Python def / JS function），给「没计划时自动生成草稿」用。 */
+async function scanFunctions(root) {
+  const files = await walkFiles(root);
+  const found = [];
+  const seen = new Set();
+  for (const file of files) {
+    let text;
+    try { text = await readFile(file, 'utf8'); } catch { continue; }
+    const rel = relative(root, file).replaceAll('\\', '/');
+    for (const line of text.split(/\r?\n/)) {
+      const py = /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/.exec(line);
+      const js = /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/.exec(line);
+      const name = py?.[1] ?? js?.[1] ?? '';
+      if (name === '') continue;
+      const key = `${rel}::${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({ name, file: rel });
+    }
+  }
+  return found;
+}
+
 /** CLI 入口：读计划、扫描、应用、重扫、落报告。 */
 async function main(root) {
   const evidenceDir = join(root, EVIDENCE_DIR);
@@ -316,6 +339,33 @@ async function main(root) {
         result.skipped.push({ key: item.key, reason: '插入后重扫仍未找到该事件' });
       }
     }
+  }
+
+  // 没计划：按代码里的函数自动生成一份草稿，降低「从零手写整棵树」的成本。
+  // 草稿写到单独文件，不自动激活（避免占位事件被直接插进源码）；AI 整理后再写成 instrumentation.json。
+  if (plan === null) {
+    const functions = (await scanFunctions(root)).slice(0, 40);
+    const nodes = {};
+    const children = functions.map((fn, index) => {
+      nodes[`${fn.name}::${fn.name}`] = { function: fn.name, event: fn.name, tree_version: 1, kind: 'path' };
+      return {
+        id: `fn-${index}`,
+        label: fn.name,
+        instrument: { function: fn.name, event: fn.name, tree_version: 1, kind: 'path' },
+        children: [],
+      };
+    });
+    const skeleton = {
+      tree_version: 1,
+      root: {
+        id: 'none',
+        label: 'none',
+        children: [{ id: 'draft', label: `草稿（自动生成 ${children.length} 个函数，待整理成排查路径）`, children }],
+      },
+      nodes,
+    };
+    await writeFile(join(evidenceDir, 'instrumentation-skeleton.json'), `${JSON.stringify(skeleton, null, 2)}\n`, 'utf8');
+    result.skeleton = children.length;
   }
 
   await writeFile(join(evidenceDir, EXISTING_FILE), `${JSON.stringify(scan.items, null, 2)}\n`, 'utf8');
