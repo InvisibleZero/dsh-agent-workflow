@@ -410,7 +410,39 @@ async function invokeChecker(deps, entry, args, sessionId) {
         throw new Error('该 workflow 没有工作目录，检查器跑不了：先给它指定工作目录');
     }
     const target = resolveCheckerTarget(args?.target, checker);
-    const stack = await detectStack(workingDirectory);
+    const { stack, root } = await detectStack(workingDirectory);
+    // deps + python：import-linter 必须先有 [tool.importlinter] 契约，否则 lint-imports 只会报「没契约」或空输出。
+    // 缺配置属于项目资产缺失：明确报出来，不跑命令、不产生假证据。
+    if (checker.id === 'deps' && stack === 'python' && root !== null) {
+        const pyproject = join(root, 'pyproject.toml');
+        const text = await readFile(pyproject, 'utf8').catch(() => '');
+        if (!text.includes('[tool.importlinter]')) {
+            const findings = [{
+                    location: pyproject,
+                    problem: '缺 [tool.importlinter] 契约配置：请在 pyproject.toml 里声明架构契约（layers / forbidden 等），否则 lint-imports 无法判依赖；这一项可降级为 AI 证据',
+                }];
+            await deps.repository.recordCheckerRun?.({
+                workflowId: found.workflowId,
+                nodeId: found.nodeId,
+                checkerId: checker.id,
+                ok: false,
+                findings: 1,
+                exit_code: null,
+                evidence: `.workflow/evidence/${checker.evidence}`,
+            });
+            logEvent(deps.logger, 'warn', `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, root=${root})`);
+            return {
+                ok: false,
+                checker: checker.id,
+                config_missing: 'tool.importlinter',
+                command: null,
+                exit_code: null,
+                timed_out: false,
+                findings,
+                stats: {},
+            };
+        }
+    }
     const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
     if (tools === null) {
         // 工具缺失：明确报「工具缺失」，让上层降级 AI 证据（不跑命令、不产生假证据）。
@@ -751,7 +783,8 @@ async function invokeVerifyReport(deps, sessionId, args) {
     // 无机器驱动（非 JS/Python/Go 或该栈无对应命令）时降级为 AI 证据，跳过这条强制。
     const requiredChecker = checkerMeta?.enforcement === 'required' ? findChecker(checkerMeta.id) : undefined;
     const requiredSnapshot = requiredChecker !== undefined ? await deps.repository.get(found.workflowId) : null;
-    const requiredStack = requiredChecker !== undefined ? await detectStack(requiredSnapshot?.working_directory) : null;
+    const requiredDetection = requiredChecker !== undefined ? await detectStack(requiredSnapshot?.working_directory) : null;
+    const requiredStack = requiredDetection?.stack ?? null;
     if (checkerMeta?.enforcement === 'required' && report.result === 'pass'
         && requiredChecker !== undefined && hasMachineDriver(requiredChecker, requiredStack)) {
         const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);

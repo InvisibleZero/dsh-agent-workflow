@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stackFromMarkers, type Stack } from '../src/engine/checkers/stack';
@@ -30,7 +30,7 @@ describe('check_deps 按栈选命令（depsCommandFor）', () => {
   });
 });
 
-describe('宿主侧探测（detectStack 读工作目录 marker）', () => {
+describe('宿主侧探测（detectStack 从工作目录向上找 marker）', () => {
   async function withDir(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
     const dir = await mkdtemp(join(tmpdir(), 'stack-detect-'));
     try {
@@ -45,25 +45,30 @@ describe('宿主侧探测（detectStack 读工作目录 marker）', () => {
 
   it('有 pyproject.toml → python', async () => {
     await withDir({ 'pyproject.toml': '[project]\nname="x"\n' }, async (dir) => {
-      expect(await detectStack(dir)).toBe('python');
+      expect((await detectStack(dir)).stack).toBe('python');
     });
   });
 
   it('只有 package.json → js', async () => {
     await withDir({ 'package.json': '{}' }, async (dir) => {
-      expect(await detectStack(dir)).toBe('js');
+      expect((await detectStack(dir)).stack).toBe('js');
     });
   });
 
-  it('空目录 → null', async () => {
-    await withDir({}, async (dir) => {
-      expect(await detectStack(dir)).toBeNull();
+  it('工作目录在项目子目录：向上命中项目根（root = marker 所在目录）', async () => {
+    await withDir({}, async (base) => {
+      const project = join(base, 'project');
+      await mkdir(join(project, 'src', 'deep'), { recursive: true });
+      await writeFile(join(project, 'pyproject.toml'), '[project]\nname="x"\n', 'utf8');
+      const detection = await detectStack(join(project, 'src', 'deep'));
+      expect(detection.stack).toBe('python');
+      expect(detection.root).toBe(project);
     });
   });
 
   it('go.mod 不再触发 go（Go 支持已撤）', async () => {
     await withDir({ 'go.mod': 'module x\n' }, async (dir) => {
-      expect(await detectStack(dir)).toBeNull();
+      expect((await detectStack(dir)).stack).toBeNull();
     });
   });
 });

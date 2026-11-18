@@ -45,6 +45,8 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
       clearPendingAdvance: () => {},
       notify: () => {},
       runCommand: async () => runResult,
+      // 跳过真实工具探测 / 离线安装：测试不依赖本机 Python 装了 pytest / lint-imports。
+      ensurePythonTools: () => true,
     };
     registerWorkflowTools(runtime.ctx, deps as any);
     tools = runtime.tools;
@@ -96,6 +98,35 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
     const evidenceDir = join(workDir, '.workflow', 'evidence');
     await mkdir(evidenceDir, { recursive: true });
     await writeFile(join(evidenceDir, 'deps.json'), JSON.stringify({ summary: { violations: [] } }), 'utf8');
+    runResult = { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
+    const result = await call('check_deps', {});
+    expect(result.value.ok).toBe(true);
+  });
+
+  it('python 项目缺 [tool.importlinter]：明确报缺配置，不跑命令', async () => {
+    mount();
+    await writeFile(join(workDir, 'pyproject.toml'), '[project]\nname="x"\n', 'utf8');
+    const result = await call('check_deps', {});
+    expect(result.value.ok).toBe(false);
+    expect(result.value.config_missing).toBe('tool.importlinter');
+    expect(result.value.findings.some((f: any) => String(f.problem).includes('[tool.importlinter]'))).toBe(true);
+  });
+
+  it('python 项目有 [tool.importlinter]：正常跑命令', async () => {
+    mount();
+    await writeFile(
+      join(workDir, 'pyproject.toml'),
+      '[project]\nname="x"\n\n[tool.importlinter]\nroot_packages = ["x"]\n',
+      'utf8',
+    );
+    const evidenceDir = join(workDir, '.workflow', 'evidence');
+    await mkdir(evidenceDir, { recursive: true });
+    // import-linter 文本报告，没有 Broken contracts 段 → 零违规
+    await writeFile(
+      join(evidenceDir, 'deps.json'),
+      '=============\nImport Linter\n=============\n\n---------\nContracts\n---------\n\nAnalyzed 1 files, 0 dependencies.\n\nContracts: 1 kept, 0 broken.\n',
+      'utf8',
+    );
     runResult = { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
     const result = await call('check_deps', {});
     expect(result.value.ok).toBe(true);

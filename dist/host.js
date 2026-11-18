@@ -1,6 +1,6 @@
 // src/host.ts
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { dirname as dirname6, join as join7 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawn2 } from "node:child_process";
 
@@ -314,7 +314,7 @@ var JsonStorageAdapter = class {
       } catch (error) {
         const code = error.code;
         if ((code === "EPERM" || code === "EACCES") && attempt < 6) {
-          await new Promise((resolve3) => setTimeout(resolve3, 8 * (attempt + 1)));
+          await new Promise((resolve4) => setTimeout(resolve4, 8 * (attempt + 1)));
           continue;
         }
         await fs.rm(tmp, { force: true }).catch(() => {
@@ -2897,7 +2897,7 @@ function pickSessionId(context) {
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir as mkdir2, readFile } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute, join as join6, resolve as resolve2 } from "node:path";
+import { dirname as dirname5, isAbsolute, join as join6, resolve as resolve3 } from "node:path";
 
 // src/schema/tool-kind.ts
 var TOOL_KIND = { base: "base", extension: "extension" };
@@ -3793,7 +3793,7 @@ import { delimiter } from "node:path";
 var COMMAND_TIMEOUT_MS = 12e4;
 var TAIL_LIMIT = 4096;
 function runCommand(input) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     const startedAt = Date.now();
     const timeoutMs = typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : COMMAND_TIMEOUT_MS;
     let tail = "";
@@ -3802,7 +3802,7 @@ function runCommand(input) {
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      resolve3(result);
+      resolve4(result);
     };
     let child;
     try {
@@ -3871,7 +3871,7 @@ function runCommand(input) {
 
 // src/host/stack-detect.ts
 import { access } from "node:fs/promises";
-import { join as join4 } from "node:path";
+import { dirname as dirname3, join as join4, resolve as resolve2 } from "node:path";
 
 // src/engine/checkers/stack.ts
 function stackFromMarkers(markers) {
@@ -3890,18 +3890,25 @@ async function exists(file) {
   }
 }
 async function detectStack(workingDirectory) {
-  if (typeof workingDirectory !== "string" || workingDirectory === "") return null;
-  const [pyproject, packageJson] = await Promise.all([
-    exists(join4(workingDirectory, "pyproject.toml")),
-    exists(join4(workingDirectory, "package.json"))
-  ]);
-  return stackFromMarkers({ pyproject, packageJson });
+  if (typeof workingDirectory !== "string" || workingDirectory === "") return { stack: null, root: null };
+  let dir = resolve2(workingDirectory);
+  for (; ; ) {
+    const [pyproject, packageJson] = await Promise.all([
+      exists(join4(dir, "pyproject.toml")),
+      exists(join4(dir, "package.json"))
+    ]);
+    const stack = stackFromMarkers({ pyproject, packageJson });
+    if (stack !== null) return { stack, root: dir };
+    const parent = dirname3(dir);
+    if (parent === dir) return { stack: null, root: null };
+    dir = parent;
+  }
 }
 
 // src/host/tool-locate.ts
 import { access as access2 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname as dirname3, join as join5 } from "node:path";
+import { dirname as dirname4, join as join5 } from "node:path";
 async function defaultExists(file) {
   try {
     await access2(file);
@@ -3924,7 +3931,7 @@ async function resolvePython(deps = {}) {
   return null;
 }
 function pythonScriptsDir(pythonPath) {
-  const dir = dirname3(pythonPath);
+  const dir = dirname4(pythonPath);
   return process.platform === "win32" ? join5(dir, "Scripts") : dir;
 }
 function lintImportsPath(pythonPath) {
@@ -4015,8 +4022,8 @@ function registerWorkflowGuard(ctx, deps) {
           if (scopeInfo !== null && scopeInfo.scope.length > 0) {
             const writePath = extractWritePath(exec);
             if (writePath !== null) {
-              const writeAbs = resolve2(isAbsolute(writePath) ? writePath : join6(scopeInfo.workingDir, writePath));
-              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve2(scopeInfo.workingDir, scopePath));
+              const writeAbs = resolve3(isAbsolute(writePath) ? writePath : join6(scopeInfo.workingDir, writePath));
+              const scopeAbs = scopeInfo.scope.map((scopePath) => resolve3(scopeInfo.workingDir, scopePath));
               if (!isWithinScope(writeAbs, scopeAbs)) {
                 logEvent(ctx.logger, "info", `[workflow] guard denied (session=${sessionId}, tool=${toolName}, state=implementing, reason=out-of-scope)`);
                 deps.reportGuardError?.(sessionId, null);
@@ -4283,7 +4290,37 @@ async function invokeChecker(deps, entry, args, sessionId) {
     throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u68C0\u67E5\u5668\u8DD1\u4E0D\u4E86\uFF1A\u5148\u7ED9\u5B83\u6307\u5B9A\u5DE5\u4F5C\u76EE\u5F55");
   }
   const target = resolveCheckerTarget(args?.target, checker);
-  const stack = await detectStack(workingDirectory);
+  const { stack, root } = await detectStack(workingDirectory);
+  if (checker.id === "deps" && stack === "python" && root !== null) {
+    const pyproject = join6(root, "pyproject.toml");
+    const text = await readFile(pyproject, "utf8").catch(() => "");
+    if (!text.includes("[tool.importlinter]")) {
+      const findings = [{
+        location: pyproject,
+        problem: "\u7F3A [tool.importlinter] \u5951\u7EA6\u914D\u7F6E\uFF1A\u8BF7\u5728 pyproject.toml \u91CC\u58F0\u660E\u67B6\u6784\u5951\u7EA6\uFF08layers / forbidden \u7B49\uFF09\uFF0C\u5426\u5219 lint-imports \u65E0\u6CD5\u5224\u4F9D\u8D56\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E"
+      }];
+      await deps.repository.recordCheckerRun?.({
+        workflowId: found.workflowId,
+        nodeId: found.nodeId,
+        checkerId: checker.id,
+        ok: false,
+        findings: 1,
+        exit_code: null,
+        evidence: `.workflow/evidence/${checker.evidence}`
+      });
+      logEvent(deps.logger, "warn", `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, root=${root})`);
+      return {
+        ok: false,
+        checker: checker.id,
+        config_missing: "tool.importlinter",
+        command: null,
+        exit_code: null,
+        timed_out: false,
+        findings,
+        stats: {}
+      };
+    }
+  }
   const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
   if (tools === null) {
     const missing = "DSH Python";
@@ -4314,7 +4351,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
   }
   const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
   const evidencePath = join6(workingDirectory, ".workflow", "evidence", checker.evidence);
-  await mkdir2(dirname4(evidencePath), { recursive: true });
+  await mkdir2(dirname5(evidencePath), { recursive: true });
   let commandResult = null;
   if (checker.autoRun) {
     const execute = deps.runCommand ?? runCommand;
@@ -4594,7 +4631,8 @@ async function invokeVerifyReport(deps, sessionId, args) {
   }
   const requiredChecker = checkerMeta?.enforcement === "required" ? findChecker(checkerMeta.id) : void 0;
   const requiredSnapshot = requiredChecker !== void 0 ? await deps.repository.get(found.workflowId) : null;
-  const requiredStack = requiredChecker !== void 0 ? await detectStack(requiredSnapshot?.working_directory) : null;
+  const requiredDetection = requiredChecker !== void 0 ? await detectStack(requiredSnapshot?.working_directory) : null;
+  const requiredStack = requiredDetection?.stack ?? null;
   if (checkerMeta?.enforcement === "required" && report.result === "pass" && requiredChecker !== void 0 && hasMachineDriver(requiredChecker, requiredStack)) {
     const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
     const toolName = `check_${checkerMeta.id}`;
@@ -4811,7 +4849,7 @@ function resolveDataDir() {
   return join7(base, "dsh-gated-workflow");
 }
 function resolvePackageRoot() {
-  return join7(dirname5(fileURLToPath(import.meta.url)), "..");
+  return join7(dirname6(fileURLToPath(import.meta.url)), "..");
 }
 function isLoopbackRequest(req) {
   try {
@@ -4836,7 +4874,7 @@ function sendJson(res, status, value) {
   }
 }
 function readJsonBody(req) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
@@ -4850,7 +4888,7 @@ function readJsonBody(req) {
     });
     req.on("end", () => {
       try {
-        resolve3(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+        resolve4(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
         reject(new Error("JSON \u89E3\u6790\u5931\u8D25"));
       }
@@ -5664,7 +5702,7 @@ function apply(ctx) {
         if (typeof body?.id !== "string" || body.id === "") throw new Error("\u7F3A\u5C11 id");
         if (typeof body?.nodeId !== "string" || body.nodeId === "") throw new Error("\u7F3A\u5C11 nodeId");
         const exported = await repository.exportVerificationReport(body.id, body.nodeId);
-        spawn2("explorer.exe", [dirname5(exported.path)], { stdio: "ignore", detached: true }).unref();
+        spawn2("explorer.exe", [dirname6(exported.path)], { stdio: "ignore", detached: true }).unref();
         logEvent(ctx.logger, "info", `[workflow] export-report ok (node=${body.nodeId}, name=${exported.name})`, traceId);
         return exported;
       })
