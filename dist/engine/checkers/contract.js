@@ -11,7 +11,7 @@ const DEFAULT_TARGET = 'test';
 /** 各技术栈的契约测试取证命令；python 用宿主定位到的绝对路径，不靠 PATH。 */
 const CONTRACT_COMMANDS = {
     js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`,
-    python: (_target, tools) => `"${tools.python ?? 'python'}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`,
+    python: (_target, tools) => `"${tools.projectPython ?? tools.python ?? 'python'}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`,
 };
 /** 命令模板：默认 JS，只把 target 填进去。 */
 function buildCommand(target) {

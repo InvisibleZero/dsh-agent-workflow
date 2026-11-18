@@ -13,4 +13,9 @@ export declare function pythonScriptsDir(pythonPath: string): string;
  * 给它绝对路径，避免依赖 PATH。
  */
 export declare function lintImportsPath(pythonPath: string): string;
+/**
+ * 项目自己的虚拟环境 Python（有项目依赖）：`.venv` / `venv` 优先，找不到返回 null。
+ * 跑项目测试（pytest）必须用它——DSH 自带的 Python 只有插件工具，没有项目依赖（jieba / pyyaml 等）。
+ */
+export declare function resolveProjectPython(projectRoot: string, deps?: LocateDeps): Promise<string | null>;
 //# sourceMappingURL=tool-locate.d.ts.map

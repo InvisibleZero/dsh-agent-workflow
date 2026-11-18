@@ -3216,7 +3216,7 @@ var EVIDENCE = "contract.json";
 var DEFAULT_TARGET = "test";
 var CONTRACT_COMMANDS = {
   js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`
+  python: (_target, tools) => `"${tools.projectPython ?? tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE}`
 };
 function buildCommand(target) {
   return CONTRACT_COMMANDS.js(target, {});
@@ -3277,7 +3277,7 @@ var EVIDENCE2 = "boundary.json";
 var DEFAULT_TARGET2 = "test/boundary";
 var BOUNDARY_COMMANDS = {
   js: (target) => `vitest run ${target} --reporter=json --outputFile=.workflow/evidence/${EVIDENCE2}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE2}`
+  python: (_target, tools) => `"${tools.projectPython ?? tools.python ?? "python"}" -m pytest --json-report --json-report-file=.workflow/evidence/${EVIDENCE2}`
 };
 function buildCommand2(target) {
   return BOUNDARY_COMMANDS.js(target, {});
@@ -3998,6 +3998,22 @@ function pythonScriptsDir(pythonPath) {
 function lintImportsPath(pythonPath) {
   return join6(pythonScriptsDir(pythonPath), process.platform === "win32" ? "lint-imports.exe" : "lint-imports");
 }
+async function resolveProjectPython(projectRoot, deps = {}) {
+  const platform = deps.platform ?? process.platform;
+  const exists3 = deps.exists ?? defaultExists;
+  if (typeof projectRoot !== "string" || projectRoot === "") return null;
+  const candidates = platform === "win32" ? [
+    join6(projectRoot, ".venv", "Scripts", "python.exe"),
+    join6(projectRoot, "venv", "Scripts", "python.exe")
+  ] : [
+    join6(projectRoot, ".venv", "bin", "python3"),
+    join6(projectRoot, "venv", "bin", "python3")
+  ];
+  for (const candidate of candidates) {
+    if (await exists3(candidate)) return candidate;
+  }
+  return null;
+}
 
 // src/host/workflow-tools.ts
 var SIDE_EFFECT_TOOLS = /* @__PURE__ */ new Set(["write", "edit", "apply_patch", "pwsh", "bash", "notebook"]);
@@ -4328,12 +4344,18 @@ function ensurePythonTools(python, packageRoot) {
   if (install.status !== 0) return false;
   return spawnSync(python, ["-c", "import pytest, importlinter, vulture"], { stdio: "ignore" }).status === 0;
 }
-async function resolveToolsFor(stack, packageRoot, ensure = ensurePythonTools) {
+async function resolveToolsFor(stack, projectRoot, packageRoot, ensure = ensurePythonTools) {
   if (stack === "python") {
     const python = await resolvePython();
-    if (python === null) return null;
-    if (!ensure(python, packageRoot ?? "")) return null;
-    return { python, lintImports: lintImportsPath(python) };
+    const projectPython = await resolveProjectPython(projectRoot ?? "");
+    if (python === null && projectPython === null) return null;
+    const toolPython = python ?? projectPython;
+    if (!ensure(toolPython, packageRoot ?? "")) return null;
+    return {
+      python: toolPython,
+      projectPython: projectPython ?? void 0,
+      lintImports: lintImportsPath(toolPython)
+    };
   }
   return {};
 }
@@ -4476,7 +4498,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
       };
     }
   }
-  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
+  const tools = await resolveToolsFor(stack, projectRoot, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
   if (tools === null) {
     return {
       ok: false,

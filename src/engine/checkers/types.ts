@@ -13,7 +13,10 @@ import type { Stack } from './stack';
 
 /** 检查器跑命令时用到的工具绝对路径（非 JS 栈）。缺省 = 该工具没找到。 */
 export interface CheckerTools {
+  /** DSH 自带 Python（插件工具装在这里：vulture / lint-imports）。 */
   python?: string;
+  /** 项目自己的 Python（`.venv` / `venv`，带项目依赖）：跑 pytest 用它。 */
+  projectPython?: string;
   /** import-linter 没有 __main__，只能用 console script `lint-imports`。 */
   lintImports?: string;
 }

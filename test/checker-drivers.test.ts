@@ -33,6 +33,14 @@ describe('驱动表：各检查器按栈选取证命令（用定位到的工具�
     expect(cmdOf(boundaryChecker, 'python')).toContain('pytest');
   });
 
+  it('契约测试 python 命令优先项目 venv（有项目依赖的 Python）', () => {
+    const cmd = contractChecker.buildCommands?.python?.('test', {
+      python: 'dsh-python',
+      projectPython: 'C:\\proj\\.venv\\Scripts\\python.exe',
+    }) ?? '';
+    expect(cmd).toContain('C:\\proj\\.venv\\Scripts\\python.exe');
+  });
+
   it('命令里带的是定位到的工具绝对路径，不是裸命令名', () => {
     expect(cmdOf(contractChecker, 'python')).toContain('python3');
     expect(cmdOf(depsChecker, 'python')).toContain('"lint-imports"');

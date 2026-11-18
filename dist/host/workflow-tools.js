@@ -28,7 +28,7 @@ import { hasMachineDriver } from '../engine/degrade';
 import { runCommand } from './command-runner';
 import { detectStack } from './stack-detect';
 import { listCandidateProjects, nearestProject, resolveProjects } from './project-root';
-import { lintImportsPath, resolvePython } from './tool-locate';
+import { lintImportsPath, resolveProjectPython, resolvePython } from './tool-locate';
 /** 会被门禁拦的"动手"类工具。 */
 const SIDE_EFFECT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'pwsh', 'bash', 'notebook']);
 /** 合法状态迁移表（客户端「返工」菜单是它的展示子集，两边都要能走通）。 */
@@ -378,14 +378,21 @@ function ensurePythonTools(python, packageRoot) {
  * 按技术栈定位取证工具：python → DSH 自带 Python + 它的 lint-imports console script。
  * 返回 null = 关键工具没找到（调用方报「工具缺失」并降级）。
  */
-async function resolveToolsFor(stack, packageRoot, ensure = ensurePythonTools) {
+async function resolveToolsFor(stack, projectRoot, packageRoot, ensure = ensurePythonTools) {
     if (stack === 'python') {
         const python = await resolvePython();
-        if (python === null)
+        // 项目自己的 venv 有项目依赖（pytest 跑测试用它）；DSH Python 只有插件工具。
+        const projectPython = await resolveProjectPython(projectRoot ?? '');
+        if (python === null && projectPython === null)
             return null;
-        if (!ensure(python, packageRoot ?? ''))
+        const toolPython = python ?? projectPython;
+        if (!ensure(toolPython, packageRoot ?? ''))
             return null;
-        return { python, lintImports: lintImportsPath(python) };
+        return {
+            python: toolPython,
+            projectPython: projectPython ?? undefined,
+            lintImports: lintImportsPath(toolPython),
+        };
     }
     return {};
 }
@@ -545,7 +552,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
             };
         }
     }
-    const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
+    const tools = await resolveToolsFor(stack, projectRoot, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
     if (tools === null) {
         return {
             ok: false,

@@ -59,3 +59,26 @@ export function pythonScriptsDir(pythonPath: string): string {
 export function lintImportsPath(pythonPath: string): string {
   return join(pythonScriptsDir(pythonPath), process.platform === 'win32' ? 'lint-imports.exe' : 'lint-imports');
 }
+
+/**
+ * 项目自己的虚拟环境 Python（有项目依赖）：`.venv` / `venv` 优先，找不到返回 null。
+ * 跑项目测试（pytest）必须用它——DSH 自带的 Python 只有插件工具，没有项目依赖（jieba / pyyaml 等）。
+ */
+export async function resolveProjectPython(projectRoot: string, deps: LocateDeps = {}): Promise<string | null> {
+  const platform = deps.platform ?? process.platform;
+  const exists = deps.exists ?? defaultExists;
+  if (typeof projectRoot !== 'string' || projectRoot === '') return null;
+  const candidates = platform === 'win32'
+    ? [
+      join(projectRoot, '.venv', 'Scripts', 'python.exe'),
+      join(projectRoot, 'venv', 'Scripts', 'python.exe'),
+    ]
+    : [
+      join(projectRoot, '.venv', 'bin', 'python3'),
+      join(projectRoot, 'venv', 'bin', 'python3'),
+    ];
+  for (const candidate of candidates) {
+    if (await exists(candidate)) return candidate;
+  }
+  return null;
+}

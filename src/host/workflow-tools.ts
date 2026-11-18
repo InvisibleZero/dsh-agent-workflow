@@ -32,7 +32,7 @@ import { hasMachineDriver } from '../engine/degrade';
 import { runCommand } from './command-runner';
 import { detectStack } from './stack-detect';
 import { listCandidateProjects, nearestProject, resolveProjects, type ProjectRef } from './project-root';
-import { lintImportsPath, resolvePython } from './tool-locate';
+import { lintImportsPath, resolveProjectPython, resolvePython } from './tool-locate';
 import type { ToolLedgerInput } from './tool-ledger';
 
 /** 会被门禁拦的"动手"类工具。 */
@@ -468,14 +468,22 @@ function ensurePythonTools(python: string, packageRoot: string): boolean {
  */
 async function resolveToolsFor(
   stack: string | null,
+  projectRoot: string | undefined,
   packageRoot?: string,
   ensure: (python: string, packageRoot: string) => boolean = ensurePythonTools,
 ): Promise<any | null> {
   if (stack === 'python') {
     const python = await resolvePython();
-    if (python === null) return null;
-    if (!ensure(python, packageRoot ?? '')) return null;
-    return { python, lintImports: lintImportsPath(python) };
+    // 项目自己的 venv 有项目依赖（pytest 跑测试用它）；DSH Python 只有插件工具。
+    const projectPython = await resolveProjectPython(projectRoot ?? '');
+    if (python === null && projectPython === null) return null;
+    const toolPython = python ?? projectPython;
+    if (!ensure(toolPython, packageRoot ?? '')) return null;
+    return {
+      python: toolPython,
+      projectPython: projectPython ?? undefined,
+      lintImports: lintImportsPath(toolPython),
+    };
   }
   return {};
 }
@@ -661,7 +669,7 @@ async function runCheckerInProject(
     }
   }
 
-  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
+  const tools = await resolveToolsFor(stack, projectRoot, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
   if (tools === null) {
     return {
       ok: false,
