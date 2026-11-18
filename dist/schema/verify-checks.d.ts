@@ -26,6 +26,12 @@ export interface VerifyCheckDefinition {
     needs_command: boolean;
     /** 一句话判据：注入给模型看，也当菜单提示。 */
     judge: string;
+    /**
+     * 验收中这一项默认是否允许改文件。
+     * 名字审查只读（false）；其余允许（true）——埋点要插源码、收尾要写手册，都属于验收动作。
+     * 它只影响「默认口径」，不改变写门禁（门禁只在讨论中拦写）。
+     */
+    modifies_files: boolean;
     /** 挂在这项上的检查器；没有 = 本轮无检查器（如第 5 项命名审查）。 */
     checker?: CheckerRequirement;
 }
