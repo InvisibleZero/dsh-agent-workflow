@@ -232,7 +232,7 @@ export const EXTENSION_TOOLS = [
     },
     {
         name: 'check_instrumentation',
-        description: '协助型埋点检测：先写埋点计划再调工具；没埋点的项目靠它建树（工具会把缺失埋点插进源码，这是正常交付，不是越界）。工具扫已有埋点（JS logEvent(/clientLog(；Python logger.*/log(），按函数名锚点补插后重扫，落 instrumentation-existing.json 与 instrumentation-apply.json；已有同事件会跳过、不重复插。没计划时先按代码函数生成 instrumentation-skeleton.json 草稿并带回格式，整理成 instrumentation.json 再跑。跑完读 instrumentation-apply.json 的 scanned / existing / inserted / skipped 写进第 6 项 summary。',
+        description: '协助型埋点检测：先写埋点计划（项目根 instrumentation.json，跟仓库走、可提交）再调工具；没埋点的项目靠它建树（工具会把埋点插进源码，属正常交付）。工具扫已有埋点（JS logEvent(/clientLog(；Python logger.*/log(），按函数名锚点补插后重扫，落 instrumentation-existing.json 与 instrumentation-apply.json；已有同事件会跳过、不重复插。没计划时先按代码函数在项目根生成 instrumentation-skeleton.json 草稿并带回格式，整理成 instrumentation.json 再跑。跑完读 instrumentation-apply.json 的 scanned / existing / inserted / skipped 写进第 6 项 summary。',
         kind: TOOL_KIND.extension,
         run: { kind: 'checker', checker: 'instrumentation' },
         allowed_states: ['verifying'],

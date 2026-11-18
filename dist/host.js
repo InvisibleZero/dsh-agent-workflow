@@ -3096,7 +3096,7 @@ var EXTENSION_TOOLS = [
   },
   {
     name: "check_instrumentation",
-    description: "\u534F\u52A9\u578B\u57CB\u70B9\u68C0\u6D4B\uFF1A\u5148\u5199\u57CB\u70B9\u8BA1\u5212\u518D\u8C03\u5DE5\u5177\uFF1B\u6CA1\u57CB\u70B9\u7684\u9879\u76EE\u9760\u5B83\u5EFA\u6811\uFF08\u5DE5\u5177\u4F1A\u628A\u7F3A\u5931\u57CB\u70B9\u63D2\u8FDB\u6E90\u7801\uFF0C\u8FD9\u662F\u6B63\u5E38\u4EA4\u4ED8\uFF0C\u4E0D\u662F\u8D8A\u754C\uFF09\u3002\u5DE5\u5177\u626B\u5DF2\u6709\u57CB\u70B9\uFF08JS logEvent(/clientLog(\uFF1BPython logger.*/log(\uFF09\uFF0C\u6309\u51FD\u6570\u540D\u951A\u70B9\u8865\u63D2\u540E\u91CD\u626B\uFF0C\u843D instrumentation-existing.json \u4E0E instrumentation-apply.json\uFF1B\u5DF2\u6709\u540C\u4E8B\u4EF6\u4F1A\u8DF3\u8FC7\u3001\u4E0D\u91CD\u590D\u63D2\u3002\u6CA1\u8BA1\u5212\u65F6\u5148\u6309\u4EE3\u7801\u51FD\u6570\u751F\u6210 instrumentation-skeleton.json \u8349\u7A3F\u5E76\u5E26\u56DE\u683C\u5F0F\uFF0C\u6574\u7406\u6210 instrumentation.json \u518D\u8DD1\u3002\u8DD1\u5B8C\u8BFB instrumentation-apply.json \u7684 scanned / existing / inserted / skipped \u5199\u8FDB\u7B2C 6 \u9879 summary\u3002",
+    description: "\u534F\u52A9\u578B\u57CB\u70B9\u68C0\u6D4B\uFF1A\u5148\u5199\u57CB\u70B9\u8BA1\u5212\uFF08\u9879\u76EE\u6839 instrumentation.json\uFF0C\u8DDF\u4ED3\u5E93\u8D70\u3001\u53EF\u63D0\u4EA4\uFF09\u518D\u8C03\u5DE5\u5177\uFF1B\u6CA1\u57CB\u70B9\u7684\u9879\u76EE\u9760\u5B83\u5EFA\u6811\uFF08\u5DE5\u5177\u4F1A\u628A\u57CB\u70B9\u63D2\u8FDB\u6E90\u7801\uFF0C\u5C5E\u6B63\u5E38\u4EA4\u4ED8\uFF09\u3002\u5DE5\u5177\u626B\u5DF2\u6709\u57CB\u70B9\uFF08JS logEvent(/clientLog(\uFF1BPython logger.*/log(\uFF09\uFF0C\u6309\u51FD\u6570\u540D\u951A\u70B9\u8865\u63D2\u540E\u91CD\u626B\uFF0C\u843D instrumentation-existing.json \u4E0E instrumentation-apply.json\uFF1B\u5DF2\u6709\u540C\u4E8B\u4EF6\u4F1A\u8DF3\u8FC7\u3001\u4E0D\u91CD\u590D\u63D2\u3002\u6CA1\u8BA1\u5212\u65F6\u5148\u6309\u4EE3\u7801\u51FD\u6570\u5728\u9879\u76EE\u6839\u751F\u6210 instrumentation-skeleton.json \u8349\u7A3F\u5E76\u5E26\u56DE\u683C\u5F0F\uFF0C\u6574\u7406\u6210 instrumentation.json \u518D\u8DD1\u3002\u8DD1\u5B8C\u8BFB instrumentation-apply.json \u7684 scanned / existing / inserted / skipped \u5199\u8FDB\u7B2C 6 \u9879 summary\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "instrumentation" },
     allowed_states: ["verifying"],
@@ -3596,6 +3596,8 @@ var instrumentationChecker = {
   id: "instrumentation",
   name: "\u57CB\u70B9\u68C0\u6D4B",
   evidence: EVIDENCE6,
+  // 埋点树是项目资产（跟项目走、可提交、可 review），放项目根而不是 .workflow/evidence/。
+  evidenceAtProjectRoot: true,
   defaultTarget: "",
   autoRun: true,
   script: "instrument-apply.mjs",
@@ -3613,7 +3615,7 @@ var instrumentationChecker = {
     if (result.stats.config_missing === 1) {
       return {
         ...result,
-        note: `${result.note ?? ""}\u3000\u5DE5\u5177\u5DF2\u6309\u4EE3\u7801\u91CC\u7684\u51FD\u6570\u751F\u6210\u8349\u7A3F instrumentation-skeleton.json\uFF1A\u6539 label / event \u6574\u7406\u6210\u6392\u67E5\u8DEF\u5F84\uFF0C\u5B58\u6210 instrumentation.json \u518D\u8DD1\u3002\u5DE5\u5177\u4F1A\u6309\u8BA1\u5212\u628A\u7F3A\u5931\u57CB\u70B9\u63D2\u8FDB\u6E90\u7801\uFF08\u6CA1\u57CB\u70B9\u7684\u9879\u76EE\u9760\u8FD9\u4E00\u6B65\u5EFA\u6811\uFF0C\u5C5E\u6B63\u5E38\u4EA4\u4ED8\uFF09\uFF1B\u5DF2\u6709\u540C\u4E8B\u4EF6\u4F1A\u8DF3\u8FC7\u3001\u4E0D\u91CD\u590D\u63D2\u3002\u683C\u5F0F\uFF1A${PLAN_FORMAT_HINT}`
+        note: `${result.note ?? ""}\u3000\u5DE5\u5177\u5DF2\u6309\u4EE3\u7801\u91CC\u7684\u51FD\u6570\u751F\u6210\u8349\u7A3F\uFF08\u9879\u76EE\u6839\u7684 instrumentation-skeleton.json\uFF09\uFF1A\u6539 label / event \u6574\u7406\u6210\u6392\u67E5\u8DEF\u5F84\uFF0C\u5B58\u6210**\u9879\u76EE\u6839\u7684 instrumentation.json**\uFF08\u8DDF\u4ED3\u5E93\u8D70\u3001\u53EF\u63D0\u4EA4\uFF09\u518D\u8DD1\u3002\u5DE5\u5177\u4F1A\u6309\u8BA1\u5212\u628A\u7F3A\u5931\u57CB\u70B9\u63D2\u8FDB\u6E90\u7801\uFF08\u6CA1\u57CB\u70B9\u7684\u9879\u76EE\u9760\u8FD9\u4E00\u6B65\u5EFA\u6811\uFF0C\u5C5E\u6B63\u5E38\u4EA4\u4ED8\uFF09\uFF1B\u5DF2\u6709\u540C\u4E8B\u4EF6\u4F1A\u8DF3\u8FC7\u3001\u4E0D\u91CD\u590D\u63D2\u3002\u683C\u5F0F\uFF1A${PLAN_FORMAT_HINT}`
       };
     }
     return result;
@@ -4589,7 +4591,9 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
     };
   }
   const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
-  const evidencePath = join7(projectRoot, ".workflow", "evidence", checker.evidence);
+  const projectEvidence = checker.evidenceAtProjectRoot === true ? join7(projectRoot, checker.evidence) : null;
+  const legacyEvidence = join7(projectRoot, ".workflow", "evidence", checker.evidence);
+  const evidencePath = projectEvidence !== null && existsSync(projectEvidence) ? projectEvidence : legacyEvidence;
   await ensureWorkflowDir(join7(projectRoot, ".workflow"));
   await mkdir2(dirname6(evidencePath), { recursive: true });
   let commandResult = null;

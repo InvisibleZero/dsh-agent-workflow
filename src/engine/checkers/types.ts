@@ -46,6 +46,11 @@ export interface Checker {
   name: string;
   /** 证据文件（相对 `.workflow/evidence/`）。 */
   evidence: string;
+  /**
+   * 证据**在项目根**（不在 `.workflow/evidence/`）。
+   * 用于「计划/配置本身就是项目资产」的检查器（埋点树要跟项目走、可提交、可 review）。
+   */
+  evidenceAtProjectRoot?: boolean;
   /** 默认目标：目录或测试路径；不需要目标的工具给空串。 */
   defaultTarget: string;
   /** 是否由插件直接执行命令；false = 只读现成产物。 */

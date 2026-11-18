@@ -600,7 +600,10 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
         };
     }
     const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
-    const evidencePath = join(projectRoot, '.workflow', 'evidence', checker.evidence);
+    // 计划/配置本身就是项目资产的检查器（埋点树）：优先读项目根；项目根还没有时兼容旧的 .workflow/evidence/。
+    const projectEvidence = checker.evidenceAtProjectRoot === true ? join(projectRoot, checker.evidence) : null;
+    const legacyEvidence = join(projectRoot, '.workflow', 'evidence', checker.evidence);
+    const evidencePath = projectEvidence !== null && existsSync(projectEvidence) ? projectEvidence : legacyEvidence;
     await ensureWorkflowDir(join(projectRoot, '.workflow'));
     await mkdir(dirname(evidencePath), { recursive: true });
     let commandResult = null;

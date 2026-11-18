@@ -290,10 +290,14 @@ async function main(root) {
   await mkdir(evidenceDir, { recursive: true });
   const result = { scanned: 0, existing: 0, inserted: [], skipped: [], errors: [] };
   let plan = null;
-  try {
-    plan = JSON.parse(await readFile(join(evidenceDir, PLAN_FILE), 'utf8'));
-  } catch (error) {
-    if ((error instanceof Error) && error.code !== 'ENOENT') result.errors.push(`读计划失败：${error.message}`);
+  // 计划优先读项目根（埋点树是项目资产、可提交）；兼容旧的 .workflow/evidence/ 位置。
+  for (const candidate of [join(root, PLAN_FILE), join(evidenceDir, PLAN_FILE)]) {
+    try {
+      plan = JSON.parse(await readFile(candidate, 'utf8'));
+      break;
+    } catch (error) {
+      if ((error instanceof Error) && error.code !== 'ENOENT') result.errors.push(`读计划失败：${candidate} ${error.message}`);
+    }
   }
 
   const filePaths = await walkFiles(root);
@@ -364,7 +368,7 @@ async function main(root) {
       },
       nodes,
     };
-    await writeFile(join(evidenceDir, 'instrumentation-skeleton.json'), `${JSON.stringify(skeleton, null, 2)}\n`, 'utf8');
+    await writeFile(join(root, 'instrumentation-skeleton.json'), `${JSON.stringify(skeleton, null, 2)}\n`, 'utf8');
     result.skeleton = children.length;
   }
 
