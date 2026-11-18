@@ -500,6 +500,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
         && perProject[0].root === resolve(workingDirectory);
     if (!sameAsWorking) {
         const recordPath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
+        await ensureWorkflowDir(join(workingDirectory, '.workflow'));
         await mkdir(dirname(recordPath), { recursive: true });
         await writeFile(recordPath, JSON.stringify({ checker: checker.id, ok, findings, per_project, stats }, null, 2), 'utf8').catch(() => { });
     }
@@ -532,6 +533,17 @@ async function invokeChecker(deps, entry, args, sessionId) {
         per_project,
         ...(notes.length > 0 ? { notes } : {}),
     };
+}
+/**
+ * 确保 `.workflow` 目录存在，并在里面放一个忽略一切的 `.gitignore`。
+ * 证据（build.json / contract.json 等）不该被提交进项目仓库；放这儿比改项目根的 .gitignore 侵入性小。
+ */
+async function ensureWorkflowDir(dir) {
+    await mkdir(dir, { recursive: true });
+    const ignore = join(dir, '.gitignore');
+    if (!existsSync(ignore)) {
+        await writeFile(ignore, '*\n!.gitignore\n', 'utf8').catch(() => { });
+    }
 }
 /**
  * 在单个项目根里跑一个检查器：缺配置 / 缺工具 / 命令 / 证据 / 判定，都收在这一层。
@@ -569,6 +581,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
     }
     const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
     const evidencePath = join(projectRoot, '.workflow', 'evidence', checker.evidence);
+    await ensureWorkflowDir(join(projectRoot, '.workflow'));
     await mkdir(dirname(evidencePath), { recursive: true });
     let commandResult = null;
     if (checker.autoRun) {

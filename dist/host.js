@@ -3390,7 +3390,8 @@ var EVIDENCE5 = "deps.json";
 var DEFAULT_TARGET3 = "src";
 var DEPS_COMMANDS = {
   js: (target) => `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE5}`,
-  python: (_target, tools) => `"${tools.lintImports ?? "lint-imports"}" > .workflow/evidence/${EVIDENCE5}`
+  // --no-cache：不在项目根留 .import_linter_cache（证据目录自带 .gitignore，缓存不该进仓库）。
+  python: (_target, tools) => `"${tools.lintImports ?? "lint-imports"}" --no-cache > .workflow/evidence/${EVIDENCE5}`
 };
 function buildCommand4(target) {
   return DEPS_COMMANDS.js(target, {});
@@ -4450,6 +4451,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
   const sameAsWorking = perProject.length === 1 && perProject[0] !== void 0 && perProject[0].root === resolve4(workingDirectory);
   if (!sameAsWorking) {
     const recordPath = join7(workingDirectory, ".workflow", "evidence", checker.evidence);
+    await ensureWorkflowDir(join7(workingDirectory, ".workflow"));
     await mkdir2(dirname6(recordPath), { recursive: true });
     await writeFile(
       recordPath,
@@ -4492,6 +4494,14 @@ async function invokeChecker(deps, entry, args, sessionId) {
     ...notes.length > 0 ? { notes } : {}
   };
 }
+async function ensureWorkflowDir(dir) {
+  await mkdir2(dir, { recursive: true });
+  const ignore = join7(dir, ".gitignore");
+  if (!existsSync(ignore)) {
+    await writeFile(ignore, "*\n!.gitignore\n", "utf8").catch(() => {
+    });
+  }
+}
 async function runCheckerInProject(deps, checker, args, target, projectRoot, stack) {
   if (checker.id === "deps" && stack === "python") {
     const pyproject = join7(projectRoot, "pyproject.toml");
@@ -4521,6 +4531,7 @@ async function runCheckerInProject(deps, checker, args, target, projectRoot, sta
   }
   const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
   const evidencePath = join7(projectRoot, ".workflow", "evidence", checker.evidence);
+  await ensureWorkflowDir(join7(projectRoot, ".workflow"));
   await mkdir2(dirname6(evidencePath), { recursive: true });
   let commandResult = null;
   if (checker.autoRun) {

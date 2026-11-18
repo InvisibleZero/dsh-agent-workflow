@@ -14,7 +14,8 @@ const DEFAULT_TARGET = 'src';
 /** 各技术栈的依赖取证命令：都用宿主定位到的绝对路径，不靠 PATH。 */
 const DEPS_COMMANDS = {
     js: (target) => `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE}`,
-    python: (_target, tools) => `"${tools.lintImports ?? 'lint-imports'}" > .workflow/evidence/${EVIDENCE}`,
+    // --no-cache：不在项目根留 .import_linter_cache（证据目录自带 .gitignore，缓存不该进仓库）。
+    python: (_target, tools) => `"${tools.lintImports ?? 'lint-imports'}" --no-cache > .workflow/evidence/${EVIDENCE}`,
 };
 /** 按技术栈选依赖取证命令。 */
 export function depsCommandFor(stack, target) {
