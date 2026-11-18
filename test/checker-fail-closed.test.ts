@@ -78,6 +78,17 @@ describe('门禁 fail-closed：探测不到栈 / 命令失败都不能假绿', (
     await expect(call('check_deps', {})).rejects.toThrow(/需要技术栈/);
   });
 
+  it('显式指定 stack 覆盖自动探测：空目录 + stack:js → 不报需要技术栈，走 depcruise', async () => {
+    mount();
+    const evidenceDir = join(workDir, '.workflow', 'evidence');
+    await mkdir(evidenceDir, { recursive: true });
+    await writeFile(join(evidenceDir, 'deps.json'), JSON.stringify({ summary: { violations: [] } }), 'utf8');
+    runResult = { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
+    const result = await call('check_deps', { stack: 'js' });
+    expect(result.value.ok).toBe(true);
+    expect(result.value.command).toContain('depcruise');
+  });
+
   it('命令失败 + 证据为空：不能判「零违规」假绿', async () => {
     mount();
     await writeFile(join(workDir, 'package.json'), '{}', 'utf8');

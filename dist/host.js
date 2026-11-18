@@ -3046,7 +3046,7 @@ var BASE_TOOLS = [
 var EXTENSION_TOOLS = [
   {
     name: "check_contract",
-    description: "\u8DD1\u5951\u7EA6\u6D4B\u8BD5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C vitest run test \u751F\u6210\u8BC1\u636E\uFF0C\u518D\u5224\u7528\u4F8B\u6570\u4E0E\u5931\u8D25\u6570\uFF1A0 \u4E2A\u7528\u4F8B\u3001\u6709\u5931\u8D25\u90FD\u62A5\u4E0D\u5408\u683C\u3002",
+    description: "\u8DD1\u5951\u7EA6\u6D4B\u8BD5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C vitest run test \u751F\u6210\u8BC1\u636E\uFF0C\u518D\u5224\u7528\u4F8B\u6570\u4E0E\u5931\u8D25\u6570\uFF1A0 \u4E2A\u7528\u4F8B\u3001\u6709\u5931\u8D25\u90FD\u62A5\u4E0D\u5408\u683C\u3002\u53EF\u9009\u53C2\u6570 stack\uFF08js / python\uFF09\u663E\u5F0F\u6307\u5B9A\u6280\u672F\u6808\uFF1B\u4E0D\u4F20\u5219\u6309\u5DE5\u4F5C\u76EE\u5F55 marker \u81EA\u52A8\u63A2\u6D4B\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "contract" },
     allowed_states: ["implementing", "verifying"],
@@ -3056,7 +3056,7 @@ var EXTENSION_TOOLS = [
   },
   {
     name: "check_deps",
-    description: "\u8DD1\u4F9D\u8D56\u8FB9\u754C\u68C0\u67E5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C dependency-cruiser \u626B\u63CF src\uFF0C\u518D\u628A\u5FAA\u73AF\u4F9D\u8D56\u4E0E\u8DE8\u5C42\u5F15\u7528\u62A5\u6210\u4E0D\u5408\u683C\u3002",
+    description: "\u8DD1\u4F9D\u8D56\u8FB9\u754C\u68C0\u67E5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C dependency-cruiser \u626B\u63CF src\uFF0C\u518D\u628A\u5FAA\u73AF\u4F9D\u8D56\u4E0E\u8DE8\u5C42\u5F15\u7528\u62A5\u6210\u4E0D\u5408\u683C\u3002\u53EF\u9009\u53C2\u6570 stack\uFF08js / python\uFF09\u663E\u5F0F\u6307\u5B9A\u6280\u672F\u6808\uFF1B\u4E0D\u4F20\u5219\u6309\u5DE5\u4F5C\u76EE\u5F55 marker \u81EA\u52A8\u63A2\u6D4B\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "deps" },
     allowed_states: ["implementing", "verifying"],
@@ -3066,7 +3066,7 @@ var EXTENSION_TOOLS = [
   },
   {
     name: "check_deadcode",
-    description: "\u8DD1\u6B7B\u4EE3\u7801\u626B\u63CF\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C knip\uFF0C\u518D\u628A\u672A\u4F7F\u7528\u7684\u6587\u4EF6 / \u5BFC\u51FA / \u4F9D\u8D56\u62A5\u6210\u4E0D\u5408\u683C\u3002",
+    description: "\u8DD1\u6B7B\u4EE3\u7801\u626B\u63CF\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C knip\uFF0C\u518D\u628A\u672A\u4F7F\u7528\u7684\u6587\u4EF6 / \u5BFC\u51FA / \u4F9D\u8D56\u62A5\u6210\u4E0D\u5408\u683C\u3002\u53EF\u9009\u53C2\u6570 stack\uFF08js / python\uFF09\u663E\u5F0F\u6307\u5B9A\u6280\u672F\u6808\uFF1B\u4E0D\u4F20\u5219\u6309\u5DE5\u4F5C\u76EE\u5F55 marker \u81EA\u52A8\u63A2\u6D4B\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "deadcode" },
     allowed_states: ["verifying"],
@@ -3076,7 +3076,7 @@ var EXTENSION_TOOLS = [
   },
   {
     name: "check_boundary",
-    description: "\u8DD1\u8FB9\u754C\u6D4B\u8BD5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C vitest run test/boundary \u751F\u6210\u8BC1\u636E\uFF0C\u518D\u5224\u7528\u4F8B\u6570\u4E0E\u5931\u8D25\u6570\uFF0C\u4E0E\u5951\u7EA6\u6D4B\u8BD5\u5206\u5F00\u53D6\u8BC1\u636E\u3002",
+    description: "\u8DD1\u8FB9\u754C\u6D4B\u8BD5\u5E76\u5224\u7ED3\u679C\u3002\u5148\u6267\u884C vitest run test/boundary \u751F\u6210\u8BC1\u636E\uFF0C\u518D\u5224\u7528\u4F8B\u6570\u4E0E\u5931\u8D25\u6570\uFF0C\u4E0E\u5951\u7EA6\u6D4B\u8BD5\u5206\u5F00\u53D6\u8BC1\u636E\u3002\u53EF\u9009\u53C2\u6570 stack\uFF08js / python\uFF09\u663E\u5F0F\u6307\u5B9A\u6280\u672F\u6808\uFF1B\u4E0D\u4F20\u5219\u6309\u5DE5\u4F5C\u76EE\u5F55 marker \u81EA\u52A8\u63A2\u6D4B\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "boundary" },
     allowed_states: ["verifying"],
@@ -4290,15 +4290,16 @@ async function invokeChecker(deps, entry, args, sessionId) {
     throw new Error("\u8BE5 workflow \u6CA1\u6709\u5DE5\u4F5C\u76EE\u5F55\uFF0C\u68C0\u67E5\u5668\u8DD1\u4E0D\u4E86\uFF1A\u5148\u7ED9\u5B83\u6307\u5B9A\u5DE5\u4F5C\u76EE\u5F55");
   }
   const target = resolveCheckerTarget(args?.target, checker);
-  const { stack, root } = await detectStack(workingDirectory);
-  if (checker.id === "deps" && stack === "python" && root !== null) {
-    const pyproject = join6(root, "pyproject.toml");
-    const text = await readFile(pyproject, "utf8").catch(() => "");
+  const detection = await detectStack(workingDirectory);
+  const requestedStack = args?.stack === "js" || args?.stack === "python" ? args.stack : null;
+  const stack = requestedStack ?? detection.stack;
+  const root = detection.root;
+  if (checker.id === "deps" && stack === "python") {
+    const pyproject = root !== null ? join6(root, "pyproject.toml") : join6(workingDirectory, "pyproject.toml");
+    const text = existsSync(pyproject) ? await readFile(pyproject, "utf8").catch(() => "") : "";
     if (!text.includes("[tool.importlinter]")) {
-      const findings = [{
-        location: pyproject,
-        problem: "\u7F3A [tool.importlinter] \u5951\u7EA6\u914D\u7F6E\uFF1A\u8BF7\u5728 pyproject.toml \u91CC\u58F0\u660E\u67B6\u6784\u5951\u7EA6\uFF08layers / forbidden \u7B49\uFF09\uFF0C\u5426\u5219 lint-imports \u65E0\u6CD5\u5224\u4F9D\u8D56\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E"
-      }];
+      const problem = text === "" ? `\u7F3A pyproject.toml\uFF1A[tool.importlinter] \u5951\u7EA6\u901A\u5E38\u5199\u5728 pyproject.toml \u91CC\uFF0C\u4F46 ${pyproject} \u4E0D\u5B58\u5728\u6216\u8BFB\u4E0D\u5230\uFF1B\u5148\u628A\u5DE5\u4F5C\u76EE\u5F55\u6307\u5230\u9879\u76EE\u6839\uFF0C\u6216\u786E\u8BA4\u9879\u76EE\u7528\u7684\u662F\u522B\u7684 import-linter \u914D\u7F6E\u6587\u4EF6\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E` : "\u7F3A [tool.importlinter] \u5951\u7EA6\u914D\u7F6E\uFF1A\u8BF7\u5728 pyproject.toml \u91CC\u58F0\u660E\u67B6\u6784\u5951\u7EA6\uFF08layers / forbidden \u7B49\uFF09\uFF0C\u5426\u5219 lint-imports \u65E0\u6CD5\u5224\u4F9D\u8D56\uFF1B\u8FD9\u4E00\u9879\u53EF\u964D\u7EA7\u4E3A AI \u8BC1\u636E";
+      const findings = [{ location: pyproject, problem }];
       await deps.repository.recordCheckerRun?.({
         workflowId: found.workflowId,
         nodeId: found.nodeId,
@@ -4308,7 +4309,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
         exit_code: null,
         evidence: `.workflow/evidence/${checker.evidence}`
       });
-      logEvent(deps.logger, "warn", `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, root=${root})`);
+      logEvent(deps.logger, "warn", `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, file=${pyproject})`);
       return {
         ok: false,
         checker: checker.id,

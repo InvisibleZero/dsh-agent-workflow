@@ -239,7 +239,7 @@ export const BASE_TOOLS: ToolEntry[] = [
 export const EXTENSION_TOOLS: ToolEntry[] = [
   {
     name: 'check_contract',
-    description: '跑契约测试并判结果。先执行 vitest run test 生成证据，再判用例数与失败数：0 个用例、有失败都报不合格。',
+    description: '跑契约测试并判结果。先执行 vitest run test 生成证据，再判用例数与失败数：0 个用例、有失败都报不合格。可选参数 stack（js / python）显式指定技术栈；不传则按工作目录 marker 自动探测。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'contract' },
     allowed_states: ['implementing', 'verifying'],
@@ -249,7 +249,7 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
   },
   {
     name: 'check_deps',
-    description: '跑依赖边界检查并判结果。先执行 dependency-cruiser 扫描 src，再把循环依赖与跨层引用报成不合格。',
+    description: '跑依赖边界检查并判结果。先执行 dependency-cruiser 扫描 src，再把循环依赖与跨层引用报成不合格。可选参数 stack（js / python）显式指定技术栈；不传则按工作目录 marker 自动探测。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'deps' },
     allowed_states: ['implementing', 'verifying'],
@@ -259,7 +259,7 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
   },
   {
     name: 'check_deadcode',
-    description: '跑死代码扫描并判结果。先执行 knip，再把未使用的文件 / 导出 / 依赖报成不合格。',
+    description: '跑死代码扫描并判结果。先执行 knip，再把未使用的文件 / 导出 / 依赖报成不合格。可选参数 stack（js / python）显式指定技术栈；不传则按工作目录 marker 自动探测。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'deadcode' },
     allowed_states: ['verifying'],
@@ -269,7 +269,7 @@ export const EXTENSION_TOOLS: ToolEntry[] = [
   },
   {
     name: 'check_boundary',
-    description: '跑边界测试并判结果。先执行 vitest run test/boundary 生成证据，再判用例数与失败数，与契约测试分开取证据。',
+    description: '跑边界测试并判结果。先执行 vitest run test/boundary 生成证据，再判用例数与失败数，与契约测试分开取证据。可选参数 stack（js / python）显式指定技术栈；不传则按工作目录 marker 自动探测。',
     kind: TOOL_KIND.extension,
     run: { kind: 'checker', checker: 'boundary' },
     allowed_states: ['verifying'],

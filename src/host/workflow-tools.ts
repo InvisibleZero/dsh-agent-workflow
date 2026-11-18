@@ -501,18 +501,22 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
   }
 
   const target = resolveCheckerTarget(args?.target, checker);
-  const { stack, root } = await detectStack(workingDirectory);
+  const detection = await detectStack(workingDirectory);
+  // 允许 AI 在调用时显式指定技术栈（自动探测不到 / 探测错时兜底，例如工作目录不是项目根）。
+  const requestedStack = args?.stack === 'js' || args?.stack === 'python' ? args.stack : null;
+  const stack = requestedStack ?? detection.stack;
+  const root = detection.root;
 
   // deps + python：import-linter 必须先有 [tool.importlinter] 契约，否则 lint-imports 只会报「没契约」或空输出。
   // 缺配置属于项目资产缺失：明确报出来，不跑命令、不产生假证据。
-  if (checker.id === 'deps' && stack === 'python' && root !== null) {
-    const pyproject = join(root, 'pyproject.toml');
-    const text = await readFile(pyproject, 'utf8').catch(() => '');
+  if (checker.id === 'deps' && stack === 'python') {
+    const pyproject = root !== null ? join(root, 'pyproject.toml') : join(workingDirectory, 'pyproject.toml');
+    const text = existsSync(pyproject) ? await readFile(pyproject, 'utf8').catch(() => '') : '';
     if (!text.includes('[tool.importlinter]')) {
-      const findings = [{
-        location: pyproject,
-        problem: '缺 [tool.importlinter] 契约配置：请在 pyproject.toml 里声明架构契约（layers / forbidden 等），否则 lint-imports 无法判依赖；这一项可降级为 AI 证据',
-      }];
+      const problem = text === ''
+        ? `缺 pyproject.toml：[tool.importlinter] 契约通常写在 pyproject.toml 里，但 ${pyproject} 不存在或读不到；先把工作目录指到项目根，或确认项目用的是别的 import-linter 配置文件；这一项可降级为 AI 证据`
+        : '缺 [tool.importlinter] 契约配置：请在 pyproject.toml 里声明架构契约（layers / forbidden 等），否则 lint-imports 无法判依赖；这一项可降级为 AI 证据';
+      const findings = [{ location: pyproject, problem }];
       await deps.repository.recordCheckerRun?.({
         workflowId: found.workflowId,
         nodeId: found.nodeId,
@@ -522,7 +526,7 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
         exit_code: null,
         evidence: `.workflow/evidence/${checker.evidence}`,
       });
-      logEvent(deps.logger, 'warn', `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, root=${root})`);
+      logEvent(deps.logger, 'warn', `[workflow] checker config missing (session=${sessionId}, checker=${checker.id}, file=${pyproject})`);
       return {
         ok: false,
         checker: checker.id,
