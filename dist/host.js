@@ -3208,8 +3208,11 @@ function normalizeVulture(raw) {
   for (const line of raw.split(/\r?\n/)) {
     const match = /^(.+?):(\d+):\s+(.+)$/.exec(line.trim());
     if (match === null) continue;
-    const file = match[1] ?? "";
-    issues.push({ file, files: [{ name: file }], exports: [{ name: match[3] ?? "" }] });
+    issues.push({
+      file: match[1] ?? "",
+      line: Number(match[2] ?? 0),
+      message: match[3] ?? ""
+    });
   }
   return { issues };
 }
@@ -3378,6 +3381,13 @@ var deadcodeChecker = {
     const findings = [];
     for (const issue of asArray(root.issues)) {
       const record = asRecord(issue);
+      const message = asString(record.message);
+      if (message !== "") {
+        const file2 = asString(record.file) || EVIDENCE4;
+        const line = asNumber(record.line);
+        findings.push({ location: line > 0 ? `${file2}:${line}` : file2, problem: message });
+        continue;
+      }
       const file = asString(record.file) || EVIDENCE4;
       for (const item of asArray(record.files)) {
         const name = asString(asRecord(item).name) || asString(item);
@@ -3618,9 +3628,11 @@ var namingChecker = {
       const word = asString(record.word) || "(\u672A\u77E5)";
       const file = asString(record.file) || EVIDENCE7;
       const line = asNumber(record.line);
+      const isNew = record.new;
+      const prefix = isNew === true ? "[\u65B0\u589E] " : isNew === false ? "[\u5B58\u91CF] " : "";
       findings.push({
         location: line > 0 ? `${file}:${line}` : file,
-        problem: `\u5C01\u6740\u8BCD\u300C${word}\u300D\uFF1A\u540D\u5B57\u8981\u5199\u51FA\u542B\u4E49\uFF0C\u522B\u7528\u6CDB\u5316\u8BCD`
+        problem: `${prefix}\u5C01\u6740\u8BCD\u300C${word}\u300D\uFF1A\u540D\u5B57\u8981\u5199\u51FA\u542B\u4E49\uFF0C\u522B\u7528\u6CDB\u5316\u8BCD`
       });
     }
     const scanned = asNumber(root.scanned);
@@ -4507,7 +4519,9 @@ async function invokeChecker(deps, entry, args, sessionId) {
     findings,
     stats,
     per_project,
-    ...notes.length > 0 ? { notes } : {}
+    ...notes.length > 0 ? { notes } : {},
+    // 缺配置（比如没写埋点计划）≠ 检查不合格：给个顶层标记，验收时能判「这层做没做」。
+    ...Number(stats.config_missing) > 0 ? { config_missing: true } : {}
   };
 }
 async function ensureWorkflowDir(dir) {

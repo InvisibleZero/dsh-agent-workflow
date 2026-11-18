@@ -28,4 +28,18 @@ describe('naming 检查器（第 5 项命名审查，协助型，只扫封杀词
     const result = namingChecker.check({ scanned: 1 });
     expect(result.ok).toBe(false);
   });
+
+  it('带 new 标记 → 前缀 [新增] / [存量]；没有则不加前缀', () => {
+    const result = namingChecker.check({
+      scanned: 3,
+      violations: [
+        { word: 'data', file: 'src/a.ts', line: 1, new: true },
+        { word: 'info', file: 'src/b.ts', line: 2, new: false },
+        { word: 'util', file: 'src/c.ts', line: 3 },
+      ],
+    });
+    expect(result.findings[0]?.problem).toContain('[新增]');
+    expect(result.findings[1]?.problem).toContain('[存量]');
+    expect(result.findings[2]?.problem).not.toContain('[');
+  });
 });

@@ -6,6 +6,7 @@
  * 跳过注释与字符串（避免把注释/文案里的同名字样误报），产出 `.workflow/evidence/naming.json`。
  * 复合词（dataset / userData / managerFoo 这类）不算违规：只认「整标识符就是封杀词」。
  */
+import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -101,8 +102,32 @@ function lineOf(text, index) {
   return text.slice(0, index).split('\n').length;
 }
 
+/**
+ * 本次改动的文件集（git：未提交 + 最近一次提交），用于给违规标 new / existing。
+ * 拿不到（不在 git 仓库 / git 不可用）返回 null，调用方不标 new/existing。
+ */
+function changedFiles() {
+  try {
+    const set = new Set();
+    const collect = (output) => {
+      for (const line of String(output).split('\n')) {
+        const trimmed = line.trim().replaceAll('\\', '/');
+        if (trimmed !== '') set.add(trimmed);
+      }
+    };
+    collect(execFileSync('git', ['diff', '--name-only', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    try {
+      collect(execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    } catch { /* 没有 HEAD~1（首次提交）无所谓 */ }
+    return set;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   await mkdir(EVIDENCE_DIR, { recursive: true });
+  const changed = changedFiles();
   const files = [];
   await walk(SCAN_ROOT, files);
   const violations = [];
@@ -116,7 +141,13 @@ async function main() {
     BANNED_RE.lastIndex = 0;
     let match;
     while ((match = BANNED_RE.exec(clean)) !== null) {
-      violations.push({ word: match[1], file: rel, line: lineOf(clean, match.index) });
+      const isNew = changed === null ? null : changed.has(rel);
+      violations.push({
+        word: match[1],
+        file: rel,
+        line: lineOf(clean, match.index),
+        ...(isNew === null ? {} : { new: isNew }),
+      });
     }
   }
   const payload = { scanned, violations };

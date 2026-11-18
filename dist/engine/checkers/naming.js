@@ -30,9 +30,11 @@ export const namingChecker = {
             const word = asString(record.word) || '(未知)';
             const file = asString(record.file) || EVIDENCE;
             const line = asNumber(record.line);
+            const isNew = record.new;
+            const prefix = isNew === true ? '[新增] ' : isNew === false ? '[存量] ' : '';
             findings.push({
                 location: line > 0 ? `${file}:${line}` : file,
-                problem: `封杀词「${word}」：名字要写出含义，别用泛化词`,
+                problem: `${prefix}封杀词「${word}」：名字要写出含义，别用泛化词`,
             });
         }
         const scanned = asNumber(root.scanned);

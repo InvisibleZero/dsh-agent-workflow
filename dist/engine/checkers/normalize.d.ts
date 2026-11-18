@@ -13,6 +13,6 @@
 export declare function normalizePytestReport(raw: string): unknown;
 /** Python 依赖：import-linter 文本报告（`<contract> BROKEN` + `-   a -> b (l.N)`）→ 违规列表。 */
 export declare function normalizeImportLinter(raw: string): unknown;
-/** Python 死代码：vulture 文本（`path:line: unused ...`）→ 未使用列表。 */
+/** Python 死代码：vulture 文本（`path:line: unused ...`）→ 未使用列表（一条 message 一条，不拆 files/exports）。 */
 export declare function normalizeVulture(raw: string): unknown;
 //# sourceMappingURL=normalize.d.ts.map

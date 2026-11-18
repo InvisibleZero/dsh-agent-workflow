@@ -12,6 +12,7 @@
  */
 import {
   asArray,
+  asNumber,
   asRecord,
   asString,
   missingEvidence,
@@ -68,6 +69,15 @@ export const deadcodeChecker: Checker = {
     const findings: CheckerFinding[] = [];
     for (const issue of asArray(root.issues)) {
       const record = asRecord(issue);
+      // vulture 归一化：一条 message 一个 finding（file:line + 原文），不要拆成 files/exports 两条。
+      const message = asString(record.message);
+      if (message !== '') {
+        const file = asString(record.file) || EVIDENCE;
+        const line = asNumber(record.line);
+        findings.push({ location: line > 0 ? `${file}:${line}` : file, problem: message });
+        continue;
+      }
+      // knip 的形状（无 message 字段）：files / exports / ...
       const file = asString(record.file) || EVIDENCE;
       for (const item of asArray(record.files)) {
         const name = asString(asRecord(item).name) || asString(item);

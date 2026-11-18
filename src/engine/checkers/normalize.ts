@@ -64,14 +64,17 @@ export function normalizeImportLinter(raw: string): unknown {
   return { summary: { violations } };
 }
 
-/** Python 死代码：vulture 文本（`path:line: unused ...`）→ 未使用列表。 */
+/** Python 死代码：vulture 文本（`path:line: unused ...`）→ 未使用列表（一条 message 一条，不拆 files/exports）。 */
 export function normalizeVulture(raw: string): unknown {
-  const issues: Array<{ file: string; files: Array<{ name: string }>; exports: Array<{ name: string }> }> = [];
+  const issues: Array<{ file: string; line: number; message: string }> = [];
   for (const line of raw.split(/\r?\n/)) {
     const match = /^(.+?):(\d+):\s+(.+)$/.exec(line.trim());
     if (match === null) continue;
-    const file = match[1] ?? '';
-    issues.push({ file, files: [{ name: file }], exports: [{ name: match[3] ?? '' }] });
+    issues.push({
+      file: match[1] ?? '',
+      line: Number(match[2] ?? 0),
+      message: match[3] ?? '',
+    });
   }
   return { issues };
 }

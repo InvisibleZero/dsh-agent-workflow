@@ -532,6 +532,8 @@ async function invokeChecker(deps, entry, args, sessionId) {
         stats,
         per_project,
         ...(notes.length > 0 ? { notes } : {}),
+        // 缺配置（比如没写埋点计划）≠ 检查不合格：给个顶层标记，验收时能判「这层做没做」。
+        ...(Number(stats.config_missing) > 0 ? { config_missing: true } : {}),
     };
 }
 /**
