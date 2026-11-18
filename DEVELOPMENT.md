@@ -82,7 +82,7 @@ $env:PATH='C:\Users\Administrator\.dsh\dsh-runtimes\dsh-primary-runtime\dependen
 
 - **应用级全局**：存在 `<DSH home>/dsh-gated-workflow/global-settings.json`，所有 workflow 共用一份。
   **不再挂在 workflow 工作区菜单上**（那是早期错误做法，已移除）。
-- **入口**：DSH「设置」左侧导航 → **Agent 工作流**（注册 `settings.section`）。
+- **入口**：DSH「设置」左侧导航 → **门禁工作流**（注册 `settings.section`）。
 - **布局**：四个页签横向排开（公共 / 讨论中 / 实现中 / 验收中）；B/C/D 每个页签内 **默认输入在上（20%）、操作细节在下（80%）**；公共页只有一个大文本框。
 - **UI 文案规则**：界面上**只出现中文状态名**，不显示 A/B/C/D 这些内部代号——代号只用于文档和代码注释。
 - **保存**：**没有保存按钮**——改动后 700ms 防抖自动保存；状态行显示「待保存… / 保存中… / 已自动保存」。

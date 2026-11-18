@@ -4732,7 +4732,7 @@ async function invokeVerifyCheck(deps, sessionId, args) {
 function requireSession(deps, exec) {
   const sessionId = exec?.agent?.session?.id;
   if (typeof sessionId !== "string" || sessionId === "") throw new Error("\u8FD9\u4E2A\u5DE5\u5177\u9700\u8981\u4E00\u4E2A\u4F1A\u8BDD");
-  if (!deps.isPresetSession(sessionId)) throw new Error("\u8FD9\u4E2A\u5DE5\u5177\u53EA\u5BF9\u300C\u5DE5\u4F5C\u6D41\u6A21\u5F0F\u300D\u9884\u8BBE\u7684\u4F1A\u8BDD\u53EF\u7528");
+  if (!deps.isPresetSession(sessionId)) throw new Error("\u8FD9\u4E2A\u5DE5\u5177\u53EA\u5BF9\u300C\u95E8\u7981\u5DE5\u4F5C\u6D41\u6A21\u5F0F\u300D\u9884\u8BBE\u7684\u4F1A\u8BDD\u53EF\u7528");
   return sessionId;
 }
 async function requireVerifyingNode(deps, sessionId) {

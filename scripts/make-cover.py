@@ -72,7 +72,7 @@ def panel_box(d):
 # ------------------------------------------------------------------ 左：会话
 def build_sessions():
     layer, d = new_column()
-    header(d, "工作区 = 项目，会话 = 单元", "选工作流模式的会话，打开即成为节点")
+    header(d, "工作区 = 项目，会话 = 单元", "选门禁工作流模式的会话，打开即成为节点")
     panel_box(d)
 
     small = ImageFont.truetype(FONT_REG, 12)

@@ -189,7 +189,7 @@ export function apply(ctx: any) {
   };
 
   /**
-   * 本插件接管的会话集合 = 选了「工作流模式」预设的会话。
+   * 本插件接管的会话集合 = 选了「门禁工作流模式」预设的会话。
    *
    * 插件作为全局 bundle 挂载（这样客户端半才加载），但只对预设 id 为 workflow 的 Agent 生效：
    * 预设 id 从 agent-preset-registry 读（composedPreset），读不到就当作不接管。

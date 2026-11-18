@@ -1001,7 +1001,7 @@ async function invokeVerifyCheck(deps: WorkflowToolsDeps, sessionId: string, arg
 function requireSession(deps: WorkflowToolsDeps, exec: any): string {
   const sessionId = exec?.agent?.session?.id;
   if (typeof sessionId !== 'string' || sessionId === '') throw new Error('这个工具需要一个会话');
-  if (!deps.isPresetSession(sessionId)) throw new Error('这个工具只对「工作流模式」预设的会话可用');
+  if (!deps.isPresetSession(sessionId)) throw new Error('这个工具只对「门禁工作流模式」预设的会话可用');
   return sessionId;
 }
 

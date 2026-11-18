@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
     /**
      * 空会话（还没对话过）的轮询间隔。
      *
-     * 为什么只对空会话轮询：新建会话可以在任何时候被切成「工作流模式」，而这次切换
+     * 为什么只对空会话轮询：新建会话可以在任何时候被切成「门禁工作流模式」，而这次切换
      * 宿主不会发任何事件——只有主动问才能知道。会话一旦聊过，就完全交给 SSE 推送，
      * 恢复零轮询；这样「每个会话每 3 秒问一次」不会回来。
      */
@@ -1238,7 +1238,7 @@ window.__ModuleLoader__.load({
             name: 'settings.section',
             id: sectionId,
             order: 50,
-            label: 'Agent 工作流',
+            label: '门禁工作流',
         }, WorkflowGlobalSettingsSection));
         ctx.slots.inject('settings.section.icon', () => ctx.slots.register({ name: 'settings.section.icon', id: sectionId }, WorkflowSectionIcon));
     }
@@ -1439,7 +1439,7 @@ window.__ModuleLoader__.load({
                                         cursor: 'pointer',
                                         fontSize: 12,
                                         fontWeight: activeTab === tab.id ? 600 : 400,
-                                    }, children: tab.label }, tab.id))) }) }), activeTab === 'detail' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }, children: "\u5168\u5C40\u7684\u64CD\u4F5C\u7EC6\u8282\u5728\u300C\u8BBE\u7F6E \u2192 Agent \u5DE5\u4F5C\u6D41\u300D\u91CC\uFF1B\u8FD9\u91CC\u53EA\u5199\u8FD9\u4E2A\u8282\u70B9\u989D\u5916\u8981\u6CE8\u610F\u7684\uFF0C\u4F1A\u63A5\u5728\u5168\u5C40\u540E\u9762\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
+                                    }, children: tab.label }, tab.id))) }) }), activeTab === 'detail' ? ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }, children: "\u5168\u5C40\u7684\u64CD\u4F5C\u7EC6\u8282\u5728\u300C\u8BBE\u7F6E \u2192 \u95E8\u7981\u5DE5\u4F5C\u6D41\u300D\u91CC\uFF1B\u8FD9\u91CC\u53EA\u5199\u8FD9\u4E2A\u8282\u70B9\u989D\u5916\u8981\u6CE8\u610F\u7684\uFF0C\u4F1A\u63A5\u5728\u5168\u5C40\u540E\u9762\u3002" }), (0, jsx_runtime_1.jsxs)("div", { style: {
                                         border: '1px solid var(--dsw-alias-border-l1)',
                                         borderRadius: 8,
                                         padding: 10,

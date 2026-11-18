@@ -1056,7 +1056,7 @@ export function applyWorkflowSettingsSection(ctx: any) {
         name: 'settings.section',
         id: sectionId,
         order: 50,
-        label: 'Agent 工作流',
+        label: '门禁工作流',
       },
       WorkflowGlobalSettingsSection,
     ),
@@ -1326,7 +1326,7 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
           {activeTab === 'detail' ? (
             <>
               <div style={{ color: 'var(--dsw-alias-label-secondary)', fontSize: 12, marginBottom: 10 }}>
-                全局的操作细节在「设置 → Agent 工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
+                全局的操作细节在「设置 → 门禁工作流」里；这里只写这个节点额外要注意的，会接在全局后面。
               </div>
               <div style={{
                 border: '1px solid var(--dsw-alias-border-l1)',
