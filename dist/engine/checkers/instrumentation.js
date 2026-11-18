@@ -36,11 +36,11 @@ export const instrumentationChecker = {
             };
         }
         const result = validateInstrumentation(evidence_json);
-        // 没有计划：把「草稿 + 格式 + 规则」一起带回去，模型不用从零手写整棵树。
+        // 没有计划：把「草稿 + 格式 + 规则 + 插入语义」一起带回去，模型不用从零手写整棵树。
         if (result.stats.config_missing === 1) {
             return {
                 ...result,
-                note: `${result.note ?? ''}　工具已按代码里的函数生成草稿 instrumentation-skeleton.json：改 label / event 整理成排查路径，存成 instrumentation.json 再跑。格式：${PLAN_FORMAT_HINT}`,
+                note: `${result.note ?? ''}　工具已按代码里的函数生成草稿 instrumentation-skeleton.json：改 label / event 整理成排查路径，存成 instrumentation.json 再跑。工具会按计划把缺失埋点插进源码（没埋点的项目靠这一步建树，属正常交付）；已有同事件会跳过、不重复插。格式：${PLAN_FORMAT_HINT}`,
             };
         }
         return result;
