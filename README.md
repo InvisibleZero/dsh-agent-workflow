@@ -9,7 +9,7 @@
 - **验证环境**：DSH `0.2.2-rc.1`（Windows 桌面版）
 - **开发手册**：[DEVELOPMENT.md](./DEVELOPMENT.md)（构建命令、宿主契约速查、踩坑清单 D-01 起）
 - **项目历程**：[JOURNEY.md](./JOURNEY.md)（从加法到减法：为什么先做树、又为什么拆掉）
-- **许可证**：[Apache-2.0](./LICENSE)（含显式专利授权，署名见 [NOTICE](./NOTICE)）
+- **许可证**：[MIT](./LICENSE)
 
 ---
 
