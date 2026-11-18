@@ -4237,6 +4237,11 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
   if (typeof stack === "string" && stack !== "" && typeof checker.buildCommands?.[stack] === "function") {
     return checker.buildCommands[stack](target, tools);
   }
+  if (checker.buildCommands !== void 0) {
+    throw new Error(
+      `\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u9700\u8981\u6280\u672F\u6808\uFF08${Object.keys(checker.buildCommands).join(" / ")}\uFF09\uFF0C\u4F46\u5DE5\u4F5C\u76EE\u5F55\u63A2\u6D4B\u4E0D\u5230\uFF1B\u5148\u628A\u5DE5\u4F5C\u76EE\u5F55\u6307\u5230\u9879\u76EE\u6839\uFF08pyproject.toml / package.json\uFF09`
+    );
+  }
   if (typeof checker.buildCommand !== "function") {
     throw new Error(`\u68C0\u67E5\u5668\u300C${checker.id}\u300D\u65E2\u6CA1\u6709 script \u4E5F\u6CA1\u6709 buildCommand`);
   }
@@ -4325,11 +4330,24 @@ async function invokeChecker(deps, entry, args, sessionId) {
     const code = error?.code;
     if (code !== "ENOENT") parseError = String(error?.message ?? error);
   }
-  const result = parseError === "" ? checker.check(evidenceJson) : {
+  let result = parseError === "" ? checker.check(evidenceJson) : {
     ok: false,
     findings: [{ location: checker.evidence, problem: `\u8BC1\u636E\u6587\u4EF6\u89E3\u6790\u5931\u8D25\uFF1A${parseError}` }],
     stats: {}
   };
+  if (commandResult !== null && commandResult.ok !== true && result.ok === true) {
+    result = {
+      ok: false,
+      findings: [
+        ...result.findings,
+        {
+          location: checker.evidence,
+          problem: `\u53D6\u8BC1\u547D\u4EE4\u5931\u8D25\uFF08exit=${commandResult.exit_code ?? "?"}\uFF09\u4E14\u6CA1\u5224\u51FA\u4E0D\u5408\u683C\u9879\uFF1A\u8BC1\u636E\u53EF\u80FD\u6CA1\u751F\u6210\uFF0C\u4E0D\u80FD\u5F53\u300C\u96F6\u8FDD\u89C4\u300D`
+        }
+      ],
+      stats: result.stats
+    };
+  }
   try {
     await deps.repository.recordCheckerRun?.({
       workflowId: found.workflowId,

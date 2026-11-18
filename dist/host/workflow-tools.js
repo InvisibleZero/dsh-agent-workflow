@@ -347,6 +347,11 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
     if (typeof stack === 'string' && stack !== '' && typeof checker.buildCommands?.[stack] === 'function') {
         return checker.buildCommands[stack](target, tools);
     }
+    if (checker.buildCommands !== undefined) {
+        // 检查器按栈分派命令，但探测不到技术栈：不能静默退回 JS（会拿 depcruise 去跑 Python 项目）。
+        throw new Error(`检查器「${checker.id}」需要技术栈（${Object.keys(checker.buildCommands).join(' / ')}），`
+            + '但工作目录探测不到；先把工作目录指到项目根（pyproject.toml / package.json）');
+    }
     if (typeof checker.buildCommand !== 'function') {
         throw new Error(`检查器「${checker.id}」既没有 script 也没有 buildCommand`);
     }
@@ -459,13 +464,28 @@ async function invokeChecker(deps, entry, args, sessionId) {
         if (code !== 'ENOENT')
             parseError = String(error?.message ?? error);
     }
-    const result = parseError === ''
+    let result = parseError === ''
         ? checker.check(evidenceJson)
         : {
             ok: false,
             findings: [{ location: checker.evidence, problem: `证据文件解析失败：${parseError}` }],
             stats: {},
         };
+    // 命令失败 + 判据说「没违规」= 工具没产出有效证据（不是真的零违规），判不合格。
+    // 典型：lint-imports / vulture 崩溃留下空文件 → 归一化成「零违规 / 零问题」→ 假绿。
+    if (commandResult !== null && commandResult.ok !== true && result.ok === true) {
+        result = {
+            ok: false,
+            findings: [
+                ...result.findings,
+                {
+                    location: checker.evidence,
+                    problem: `取证命令失败（exit=${commandResult.exit_code ?? '?'}）且没判出不合格项：证据可能没生成，不能当「零违规」`,
+                },
+            ],
+            stats: result.stats,
+        };
+    }
     // 把这次真实运行落进快照，让报备门禁能核对「真跑没跑、结果对不对」。落盘失败只记 warn，
     // 不把检查器本身打挂——门禁后续会按「没跑过」拒绝，那是对的方向（fail-closed）。
     try {
