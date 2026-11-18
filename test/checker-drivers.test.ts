@@ -28,6 +28,12 @@ describe('驱动表：各检查器按栈选取证命令（用定位到的工具�
     expect(cmdOf(deadcodeChecker, 'python')).toContain('vulture');
   });
 
+  it('死代码 python 命令带 --exclude（不扫 .venv，避免爆栈/噪音）', () => {
+    const cmd = cmdOf(deadcodeChecker, 'python');
+    expect(cmd).toContain('--exclude');
+    expect(cmd).toContain('.venv');
+  });
+
   it('边界测试：js vitest / python pytest', () => {
     expect(cmdOf(boundaryChecker, 'js')).toContain('vitest');
     expect(cmdOf(boundaryChecker, 'python')).toContain('pytest');

@@ -162,3 +162,24 @@ describe('领域层：diffNodes 回填对比', () => {
     expect(diff.alreadyPresent).toEqual([]);
   });
 });
+
+describe('领域层：缺计划（config_missing）与结构不合格要分开', () => {
+  it('缺计划（null / 空对象 / 字符串）：config_missing，findings 为空', () => {
+    for (const raw of [null, {}, 'nope']) {
+      const result = validateInstrumentation(raw);
+      expect(result.ok).toBe(false);
+      expect(result.findings).toHaveLength(0);
+      expect(result.stats.config_missing).toBe(1);
+      expect(result.note).toContain('埋点计划');
+    }
+  });
+
+  it('有计划但根 id 不是 none：有 findings，不是 config_missing', () => {
+    const plan = makePlan();
+    plan.root.id = 'root';
+    const result = validateInstrumentation(plan);
+    expect(result.ok).toBe(false);
+    expect(result.findings.length).toBeGreaterThan(0);
+    expect(result.stats.config_missing ?? 0).toBe(0);
+  });
+});

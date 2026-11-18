@@ -3347,9 +3347,10 @@ var buildChecker = {
 
 // src/engine/checkers/deadcode.ts
 var EVIDENCE4 = "deadcode.json";
+var VULTURE_EXCLUDE = ".venv,venv,.git,node_modules,.tox,.pixi,.mypy_cache,.pytest_cache,.ruff_cache";
 var DEADCODE_COMMANDS = {
   js: () => `knip --reporter json > .workflow/evidence/${EVIDENCE4}`,
-  python: (_target, tools) => `"${tools.python ?? "python"}" -m vulture . > .workflow/evidence/${EVIDENCE4}`
+  python: (_target, tools) => `"${tools.python ?? "python"}" -m vulture . --exclude ${VULTURE_EXCLUDE} > .workflow/evidence/${EVIDENCE4}`
 };
 function buildCommand3(_target) {
   return DEADCODE_COMMANDS.js(_target, {});
@@ -3478,16 +3479,22 @@ function validateInstrumentation(raw, limits = INSTRUMENTATION_LIMITS) {
   const root = isRecord(raw) ? raw.root : void 0;
   const nodes = isRecord(raw) ? raw.nodes : void 0;
   const planVersion = isRecord(raw) ? raw.tree_version : void 0;
-  if (typeof planVersion !== "number" || !Number.isInteger(planVersion) || planVersion < 1) {
-    findings.push({ location: "instrumentation.json", problem: "\u7F3A tree_version\uFF08\u6B63\u6574\u6570\uFF09" });
-  }
-  if (!isTreeNode(root)) {
-    findings.push({ location: "instrumentation.json", problem: "\u7F3A\u5408\u6CD5\u7684 tree.root\uFF08id / label / children\uFF09" });
-    return { ok: false, findings, stats };
+  const hasPlan = typeof planVersion === "number" && Number.isInteger(planVersion) && planVersion >= 1 && isTreeNode(root);
+  if (!hasPlan) {
+    return {
+      ok: false,
+      findings: [],
+      stats: { config_missing: 1 },
+      note: "\u7F3A\u57CB\u70B9\u8BA1\u5212\uFF08.workflow/evidence/instrumentation.json \u7684 tree_version + tree.root\uFF09\uFF1A\u8FD9\u4E00\u5C42\u8FD8\u6CA1\u505A\uFF0C\u4E0D\u7B97\u7ED3\u6784\u4E0D\u5408\u683C\uFF1B\u5148\u6309\u683C\u5F0F\u5199 tree + \u8282\u70B9 KV \u518D\u8DD1"
+    };
   }
   if (!isRecord(nodes)) {
-    findings.push({ location: "instrumentation.json", problem: "\u7F3A\u5408\u6CD5\u7684 nodes\uFF08\u8282\u70B9 KV\uFF09" });
-    return { ok: false, findings, stats };
+    return {
+      ok: false,
+      findings: [],
+      stats: { config_missing: 1 },
+      note: "\u7F3A\u8282\u70B9 KV\uFF08nodes\uFF09\uFF1A\u57CB\u70B9\u8BA1\u5212\u4E0D\u5B8C\u6574\uFF0C\u5148\u8865\u9F50\u518D\u8DD1"
+    };
   }
   const expectedVersion = typeof planVersion === "number" ? planVersion : root.instrument?.tree_version ?? 1;
   if (root.id !== "none") {

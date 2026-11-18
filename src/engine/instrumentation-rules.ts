@@ -91,16 +91,24 @@ export function validateInstrumentation(
   const nodes = isRecord(raw) ? raw.nodes : undefined;
   const planVersion = isRecord(raw) ? raw.tree_version : undefined;
 
-  if (typeof planVersion !== 'number' || !Number.isInteger(planVersion) || planVersion < 1) {
-    findings.push({ location: 'instrumentation.json', problem: '缺 tree_version（正整数）' });
-  }
-  if (!isTreeNode(root)) {
-    findings.push({ location: 'instrumentation.json', problem: '缺合法的 tree.root（id / label / children）' });
-    return { ok: false, findings, stats };
+  // 没建埋点计划（缺文件 / 缺 tree_version / 缺 root）：这不是「结构不合格」，是「这一层还没做」。
+  // 返回 config_missing + note，避免验收时把它误判成「配置错了」。
+  const hasPlan = typeof planVersion === 'number' && Number.isInteger(planVersion) && planVersion >= 1 && isTreeNode(root);
+  if (!hasPlan) {
+    return {
+      ok: false,
+      findings: [],
+      stats: { config_missing: 1 },
+      note: '缺埋点计划（.workflow/evidence/instrumentation.json 的 tree_version + tree.root）：这一层还没做，不算结构不合格；先按格式写 tree + 节点 KV 再跑',
+    };
   }
   if (!isRecord(nodes)) {
-    findings.push({ location: 'instrumentation.json', problem: '缺合法的 nodes（节点 KV）' });
-    return { ok: false, findings, stats };
+    return {
+      ok: false,
+      findings: [],
+      stats: { config_missing: 1 },
+      note: '缺节点 KV（nodes）：埋点计划不完整，先补齐再跑',
+    };
   }
   const expectedVersion = typeof planVersion === 'number' ? planVersion : root.instrument?.tree_version ?? 1;
 

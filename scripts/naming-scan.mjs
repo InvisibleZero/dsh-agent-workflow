@@ -12,11 +12,20 @@ import { pathToFileURL } from 'node:url';
 
 const EVIDENCE_DIR = join('.workflow', 'evidence');
 const EVIDENCE = join(EVIDENCE_DIR, 'naming.json');
-const SCAN_ROOT = 'src';
+// 扫项目根（不是写死 src/）：根目录的入口文件（panel.py 等）与 src/ 都覆盖。
+// 写死 src/ 时，改动落在根目录的项目会「扫了 333 条全是上游、本轮改动一条没扫到」。
+const SCAN_ROOT = '.';
 const BANNED = ['system', 'data', 'info', 'manager', 'util', 'utils', 'common', 'helper'];
 const BANNED_RE = new RegExp(`\\b(${BANNED.join('|')})\\b`, 'g');
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go']);
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'build', '.workflow']);
+const SKIP_DIRS = new Set([
+  // 工具产物 / 依赖
+  'node_modules', '.git', 'dist', 'coverage', 'build', '.workflow',
+  // Python 虚拟环境与缓存
+  '.venv', 'venv', '.pixi', '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '__pycache__',
+  // 数据 / 模型 / 日志（不是源码）
+  'models', 'cache', 'assets', 'logs', 'chat_history', 'live2d-models', 'live_profiles_archive', 'z_Temp',
+]);
 const MAX_FILES = 2000;
 
 async function walk(dir, files) {
