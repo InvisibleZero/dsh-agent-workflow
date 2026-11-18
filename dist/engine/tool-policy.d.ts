@@ -1,8 +1,6 @@
 import { type ToolEntry, type ToolKind } from '../schema/tool-catalog';
 /** 每类工具的条数上限：只卡「验收中」这一档，两类各自独立计数。 */
 export declare const TOOL_LIMIT_BY_KIND: Record<ToolKind, number>;
-/** 出厂工具名（基础 + 扩展）：登记工具不能重名（挡住"覆盖出厂工具"这条路）。 */
-export declare const FACTORY_TOOL_NAMES: string[];
 /** 完整出厂目录：5 个基础工具 + 5 个扩展工具，不读盘。 */
 export declare const FACTORY_TOOLS: ToolEntry[];
 export type DenyCode = 'unknown-tool' | 'stage-denied' | 'arguments-invalid' | 'name-invalid' | 'name-duplicate' | 'description-invalid' | 'sample-args-invalid' | 'states-invalid' | 'run-invalid' | 'effect-invalid' | 'script-invalid' | 'quota-exceeded';

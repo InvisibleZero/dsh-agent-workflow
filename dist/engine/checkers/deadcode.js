@@ -11,10 +11,17 @@
  * 致谢：knip（ISC）—— https://github.com/webpro-nl/knip
  */
 import { asArray, asRecord, asString, missingEvidence, } from './types';
+import { normalizeStaticcheck, normalizeVulture } from './normalize';
 const EVIDENCE = 'deadcode.json';
-/** knip 自己读 package.json / tsconfig，不需要目标参数；占位保留给统一接口。 */
+/** 各技术栈的死代码取证命令：都用宿主定位到的绝对路径，不靠 PATH。 */
+const DEADCODE_COMMANDS = {
+    js: () => `knip --reporter json > .workflow/evidence/${EVIDENCE}`,
+    python: (_target, tools) => `"${tools.python ?? 'python'}" -m vulture . > .workflow/evidence/${EVIDENCE}`,
+    go: (_target, tools) => `"${tools.staticcheck ?? 'staticcheck'}" ./... > .workflow/evidence/${EVIDENCE}`,
+};
+/** 命令模板：默认 JS（knip 自己读 package.json / tsconfig，不需要目标参数）。 */
 function buildCommand(_target) {
-    return `knip --reporter json > .workflow/evidence/${EVIDENCE}`;
+    return DEADCODE_COMMANDS.js(_target, {});
 }
 /** knip 的可删项：导出 / 类型 / 依赖 / 开发依赖 / 未声明的依赖。 */
 const UNUSED_KEYS = ['exports', 'types', 'dependencies', 'devDependencies', 'unlisted'];
@@ -24,6 +31,8 @@ export const deadcodeChecker = {
     evidence: EVIDENCE,
     defaultTarget: '',
     autoRun: true,
+    buildCommands: DEADCODE_COMMANDS,
+    normalizers: { python: normalizeVulture, go: normalizeStaticcheck },
     buildCommand: buildCommand,
     check(evidence_json) {
         if (evidence_json === null)

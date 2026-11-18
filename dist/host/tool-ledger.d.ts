@@ -32,6 +32,5 @@ export interface ToolLedgerEntry {
 }
 export type ToolLedgerInput = Omit<ToolLedgerEntry, 'at'>;
 export declare function recordToolEvent(input: ToolLedgerInput): void;
-export declare function recentToolEvents(limit?: number): ToolLedgerEntry[];
 export declare function clearToolEvents(): void;
 //# sourceMappingURL=tool-ledger.d.ts.map

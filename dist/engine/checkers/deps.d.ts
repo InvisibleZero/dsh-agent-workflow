@@ -8,5 +8,8 @@
  * https://github.com/sverweij/dependency-cruiser
  */
 import { type Checker } from './types';
+import type { Stack } from './stack';
+/** 按技术栈选依赖取证命令。 */
+export declare function depsCommandFor(stack: Stack, target: string): string;
 export declare const depsChecker: Checker;
 //# sourceMappingURL=deps.d.ts.map

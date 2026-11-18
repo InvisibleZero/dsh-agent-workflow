@@ -9,6 +9,17 @@
  * 不碰项目源码，只判接口层喂进来的 JSON。
  */
 
+import type { Stack } from './stack';
+
+/** 检查器跑命令时用到的工具绝对路径（非 JS 栈）。缺省 = 该工具没找到。 */
+export interface CheckerTools {
+  python?: string;
+  /** import-linter 没有 __main__，只能用 console script `lint-imports`。 */
+  lintImports?: string;
+  go?: string;
+  staticcheck?: string;
+}
+
 export interface CheckerFinding {
   /** 违规位置：`文件:行` 或模块名；缺产物时写证据文件路径。 */
   location: string;
@@ -42,6 +53,16 @@ export interface Checker {
    * 适合「读证据 + 改项目源码 + 重扫」这类多步动作（埋点检测）。
    */
   script?: string;
+  /**
+   * 各技术栈的取证命令（栈 → 命令模板）。缺省栈或未提供时退回 buildCommand。
+   * tools 是宿主定位到的工具绝对路径（Python / go），命令用绝对路径不靠 PATH。
+   */
+  buildCommands?: Partial<Record<Stack, (target: string, tools: CheckerTools) => string>>;
+  /**
+   * 各技术栈的证据归一化：工具原生产物（原始文本）→ 判据认识的统一 JSON。
+   * 缺省栈、或没有对应归一化时，原样喂给 check()（JS 产物直接是判据形状）。
+   */
+  normalizers?: Partial<Record<Stack, (raw: string) => unknown>>;
   /**
    * 拼命令：只把 target 填进模板，不做别的拼接。
    * 命令模板是代码里的常量，调用方不能传命令本身——这是执行边界。

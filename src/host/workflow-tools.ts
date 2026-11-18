@@ -21,16 +21,15 @@ import { describePendingItems, resolveVerifyCheckId, summarizeVerification, vali
 import { logEvent, newTraceId } from './event-log';
 import { BASE_TOOLS, LAYER_GATES, TOOL_KIND, type ToolEntry } from '../schema/tool-catalog';
 import {
-  FACTORY_TOOL_NAMES,
   FACTORY_TOOLS,
-  countVisibleByKind,
   decideToolCall,
-  mergeCatalog,
   summarizeArgs,
-  validateToolRegistration,
 } from '../engine/tool-policy';
 import { findChecker } from '../engine/checkers';
+import { hasMachineDriver } from '../engine/degrade';
 import { runCommand } from './command-runner';
+import { detectStack } from './stack-detect';
+import { lintImportsPath, resolveGo, resolvePython, vendoredStaticcheck } from './tool-locate';
 import type { ToolLedgerInput } from './tool-ledger';
 
 /** 会被门禁拦的"动手"类工具。 */
@@ -143,6 +142,19 @@ function extractWritePath(exec: any): string | null {
   return null;
 }
 
+/** 从命令型工具（pwsh/bash）入参里取命令串；取不到返回 null。 */
+function extractCommand(exec: any): string | null {
+  const containers = [exec?.args, exec?.arguments, exec?.input, exec?.params];
+  for (const container of containers) {
+    if (typeof container !== 'object' || container === null || Array.isArray(container)) continue;
+    for (const key of ['command', 'cmd', 'script']) {
+      const value = (container as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value.trim() !== '') return value.trim();
+    }
+  }
+  return null;
+}
+
 /** 归一化后判断写入路径是否落在声明范围内（目录前缀匹配或精确匹配，大小写不敏感）。 */
 function isWithinScope(writeAbs: string, scopes: string[]): boolean {
   const target = writeAbs.replace(/\\/g, '/').toLowerCase();
@@ -161,6 +173,11 @@ export function registerWorkflowGuard(ctx: any, deps: WorkflowToolsDeps): void {
       const sessionId = exec?.agent?.session?.id;
       if (!deps.isPresetSession(sessionId)) return undefined;
       const toolName = String(exec?.name ?? '');
+      // 命令型工具调用留痕：验收中 AI 跑命令做 AI 证据，这一跳必须可见可审查（命令原文 + 会话）。
+      if (toolName === 'pwsh' || toolName === 'bash') {
+        const cmd = extractCommand(exec);
+        logEvent(ctx.logger, 'info', `[workflow] command-tool invoked (session=${sessionId}, tool=${toolName}, cmd=${String(cmd ?? '').slice(0, 200)})`);
+      }
       try {
         if (!SIDE_EFFECT_TOOLS.has(toolName)) {
           deps.reportGuardError?.(sessionId, null);
@@ -346,166 +363,6 @@ export function registerWorkflowTools(ctx: any, deps: WorkflowToolsDeps): void {
         });
       },
     }, { when: whenWorkflow }));
-
-    // —— 2. 登记 / 更新一个工具（先校验，再过宿主审批） ——
-    toolCtx.effect(() => toolCtx.tools.register({
-      name: 'workflow_tool_add',
-      description:
-        '登记一个扩展工具，或更新一个已登记的扩展工具（mode=update）。这是**开发期登记入口**，'
-        + '不是给 AI 在运行时动态加能力的：登记结果写进工具表随代码进 git，别人 clone 下来直接可用。'
-        + '模型只有申请权：静态校验通过后还要走宿主审批，只有 allowed-once 才写入。'
-        + '扩展工具 = 名字 + 描述 + 指向哪个内置检查器（run.checker）+ 可用阶段；'
-        + '检查器会跑插件自带的工具（vitest / dependency-cruiser / knip / autocannon）检查项目；回归压测需要调用方传 target（压测目标地址）。'
-        + '只能在讨论中 / 实现中登记；「验收中」可见的扩展工具上限 8 条（基础工具另有独立的 6 条上限）。',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'description', 'run', 'effect', 'allowed_states', 'sample_args'],
-        properties: {
-          mode: { type: 'string', enum: ['create', 'update'], description: 'create（默认）= 新增；update = 整条替换已有工具（会重新审批）。' },
-          name: { type: 'string', description: '工具名：3~41 位小写字母/数字/下划线，以字母开头（例：check_deps）。' },
-          description: { type: 'string', description: '说明：做什么、什么时候用（≤400 字）；第一句会被注入系统提示，要能独立说明用途。' },
-          run: {
-            type: 'object',
-            description: '{kind:"checker",checker:"deps"}；checker 必须是内置检查器 id：contract / deps / deadcode / boundary / regression / instrumentation。',
-            additionalProperties: true,
-          },
-          effect: { type: 'string', enum: ['read-state', 'write-state', 'exec'], description: '副作用分级；跑外部进程用 exec。' },
-          allowed_states: {
-            type: 'array',
-            items: { type: 'string', enum: ['discussing', 'implementing', 'verifying', 'completed'] },
-            description: '这个工具在哪些状态可用（非空）。',
-          },
-          parameters: { type: 'object', description: '可选：给模型看的参数 JSON Schema；不传 = 接受任意参数。', additionalProperties: true },
-          sample_args: { type: 'object', description: '必填：一个能跑通的示例参数，登记时用它校验参数形状。', additionalProperties: true },
-        },
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['ok', 'entry', 'message'],
-          properties: {
-            ok: { type: 'boolean' },
-            entry: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['name', 'run', 'allowed_states', 'version'],
-              properties: {
-                name: { type: 'string' },
-                run: { type: 'string' },
-                allowed_states: { type: 'array', items: { type: 'string' } },
-                version: { type: 'number' },
-              },
-            },
-            message: { type: 'string' },
-          },
-        },
-        render: (_args: any, value: any) => [{
-          type: 'text',
-          text: `已登记「${value.entry?.name ?? '?'}」（${value.entry?.run ?? '?'}，v${value.entry?.version ?? '?'}），现在可以通过 workflow_tool_call 调用。`,
-        }],
-      },
-      execute: async (args: any, exec: any) => {
-        const sessionId = requireSession(deps, exec);
-        const trace = newTraceId();
-        const startedAt = Date.now();
-        return instrument('workflow_tool_add', sessionId, trace, async () => {
-          const found = await deps.repository.findBySession(sessionId);
-          if (found === null) throw new Error('当前会话还没有 workflow 节点');
-          const state = await currentStateOf(deps, sessionId);
-          if (state !== 'discussing' && state !== 'implementing') {
-            const message = `当前状态「${labelOf(state)}」不能登记工具：工具变更会污染验收结论，等回到讨论中 / 实现中再登记。`;
-            record({
-              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: String(args?.name ?? ''), trace,
-              decision: 'deny', code: 'stage-denied', state, message,
-            });
-            throw new Error(message);
-          }
-          const mode: 'create' | 'update' = args?.mode === 'update' ? 'update' : 'create';
-          const requestedName = String(args?.name ?? '').trim();
-          const listing = await deps.registryStore.list();
-          if (listing.corrupt) {
-            logEvent(deps.logger, 'warn', `[workflow] tool registry corrupt (workflow=${found.workflowId})：扩展工具暂时不可用，基础工具不受影响`);
-          }
-          // 更新时不把自己算进「重名」里。
-          const others = mode === 'update'
-            ? listing.entries.filter((entry) => entry.name !== requestedName)
-            : listing.entries;
-          const validation = validateToolRegistration({
-            name: args?.name,
-            description: args?.description,
-            run: args?.run,
-            effect: args?.effect,
-            allowedStates: args?.allowed_states,
-            parameters: args?.parameters,
-            parametersGiven: args?.parameters !== undefined && args?.parameters !== null,
-            sampleArgs: args?.sample_args,
-            existingNames: [...FACTORY_TOOL_NAMES, ...others.map((entry) => entry.name)],
-            verifyingCounts: countVisibleByKind(listing.entries, 'verifying'),
-            mode,
-          });
-          if (!validation.ok) {
-            record({
-              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
-              decision: 'deny', code: validation.code, state, message: validation.message,
-            });
-            throw new Error(validation.message);
-          }
-          if (mode === 'update' && !listing.entries.some((entry) => entry.name === requestedName)) {
-            const message = `没有叫「${requestedName}」的已登记工具：新建请用 mode=create。`;
-            record({
-              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
-              decision: 'deny', code: 'unknown-tool', state, message,
-            });
-            throw new Error(message);
-          }
-
-          // 宿主审批：登记与更新都要问题主；没有审批通道就是拒绝（fail-closed）。
-          const runText = describeRun(validation.entry);
-          const approval = await (deps.requestApproval?.({
-            sessionId,
-            agent: exec?.agent,
-            toolName: 'workflow_tool_add',
-            reason: `${mode === 'update' ? '更新' : '登记'}工具「${requestedName}」：${runText}`,
-          }) ?? Promise.resolve('unavailable'));
-          if (approval !== 'allowed-once') {
-            const message = approval === 'unavailable'
-              ? '登记工具需要审批，但当前没有可用的审批人（fail-closed）：这次没有写入。'
-              : `登记工具没有通过审批（${approval}）：这次没有写入。`;
-            record({
-              kind: 'add', session: sessionId, workflow_id: found.workflowId, name: requestedName, trace,
-              run: runText, decision: 'deny', code: 'approval-denied', state, approval, message,
-            });
-            throw new Error(message);
-          }
-
-          const nextVersion = mode === 'update'
-            ? (listing.entries.find((entry) => entry.name === requestedName)?.version ?? 0) + 1
-            : 1;
-          const entry: ToolEntry = {
-            ...validation.entry,
-            version: nextVersion,
-            created_at: new Date().toISOString(),
-          };
-          if (mode === 'update') await deps.registryStore.update(entry);
-          else await deps.registryStore.save(entry);
-          record({
-            kind: 'add', session: sessionId, workflow_id: found.workflowId, name: entry.name, trace,
-            run: runText, version: entry.version, decision: 'allow', state, approval,
-            args: summarizeArgs(args?.sample_args ?? {}), ms: Date.now() - startedAt,
-          });
-          // 目录变了：下一轮系统提示要立刻带上新工具。
-          await deps.stateContext?.refreshNow?.(sessionId);
-          const required = entry.parameters.required ?? [];
-          return {
-            ok: true,
-            entry: { name: entry.name, run: runText, allowed_states: entry.allowed_states, version: entry.version },
-            message: `已${mode === 'update' ? '更新' : '登记'}「${entry.name}」（${runText}，v${entry.version}）；调用时必填：${required.length > 0 ? required.join(',') : '无'}。`,
-          };
-        });
-      },
-    }, { when: whenWorkflow }));
   });
 }
 
@@ -513,13 +370,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** 目录 = 基础工具 + 全局扩展工具；文件坏时只丢扩展工具，基础工具照常。 */
-async function loadCatalog(deps: WorkflowToolsDeps): Promise<ToolEntry[]> {
-  const listing = await deps.registryStore.list();
-  if (listing.corrupt) {
-    logEvent(deps.logger, 'warn', '[workflow] tool registry corrupt：扩展工具暂时不可用，基础工具不受影响');
-  }
-  return mergeCatalog(FACTORY_TOOLS, listing.entries);
+/** 目录 = 固定 13 工具（5 基础 + 8 检查器），无登记表。 */
+async function loadCatalog(_deps: WorkflowToolsDeps): Promise<ToolEntry[]> {
+  return FACTORY_TOOLS;
 }
 
 /** 把执行方式压成一行：审计账与审批理由共用，避免两处各写一套。 */
@@ -559,18 +412,40 @@ async function invokeBaseTool(deps: WorkflowToolsDeps, name: string, args: any, 
   }
 }
 
-/** 检查器命令：脚本型走 `node <packageRoot>/scripts/<script>`，其余拼检查器自带模板（调用方不能传命令）。 */
-function commandForChecker(checker: any, target: string, packageRoot?: string): string {
+/**
+ * 检查器命令：脚本型走 `node <packageRoot>/scripts/<script>`；否则按技术栈选命令
+ * （有对应栈的 buildCommands 就用它，没有退回 buildCommand 默认模板）。调用方不能传命令。
+ */
+function commandForChecker(checker: any, target: string, stack: string | null, tools: any, packageRoot?: string): string {
   if (checker.script !== undefined) {
     if (typeof packageRoot !== 'string' || packageRoot === '') {
       throw new Error(`检查器「${checker.id}」用脚本执行，但宿主没给出 packageRoot：先修宿主注入`);
     }
     return `node "${join(packageRoot, 'scripts', checker.script)}"`;
   }
+  if (typeof stack === 'string' && stack !== '' && typeof checker.buildCommands?.[stack] === 'function') {
+    return checker.buildCommands[stack](target, tools);
+  }
   if (typeof checker.buildCommand !== 'function') {
     throw new Error(`检查器「${checker.id}」既没有 script 也没有 buildCommand`);
   }
   return checker.buildCommand(target);
+}
+
+/**
+ * 按技术栈定位取证工具：python → DSH 自带 Python；go → 探测到的 go + vendor 的 staticcheck。
+ * 返回 null = 关键工具没找到（调用方报「工具缺失」并降级）。
+ */
+async function resolveToolsFor(stack: string | null, packageRoot?: string): Promise<any | null> {
+  if (stack === 'python') {
+    const python = await resolvePython();
+    return python === null ? null : { python, lintImports: lintImportsPath(python) };
+  }
+  if (stack === 'go') {
+    const go = await resolveGo();
+    return go === null ? null : { go, staticcheck: vendoredStaticcheck(packageRoot ?? '') };
+  }
+  return {};
 }
 
 /**
@@ -595,7 +470,37 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
   }
 
   const target = resolveCheckerTarget(args?.target, checker);
-  const command = commandForChecker(checker, target, deps.packageRoot);
+  const stack = await detectStack(workingDirectory);
+  const tools = await resolveToolsFor(stack, deps.packageRoot);
+  if (tools === null) {
+    // 工具缺失：明确报「工具缺失」，让上层降级 AI 证据（不跑命令、不产生假证据）。
+    const missing = stack === 'python' ? 'DSH Python' : 'go';
+    const findings = [{
+      location: checker.evidence,
+      problem: `工具缺失：${missing} 没找到（先装/配置好再重试；这一项可降级为 AI 证据）`,
+    }];
+    await deps.repository.recordCheckerRun?.({
+      workflowId: found.workflowId,
+      nodeId: found.nodeId,
+      checkerId: checker.id,
+      ok: false,
+      findings: 1,
+      exit_code: null,
+      evidence: `.workflow/evidence/${checker.evidence}`,
+    });
+    logEvent(deps.logger, 'warn', `[workflow] checker tool missing (session=${sessionId}, checker=${checker.id}, stack=${stack}, tool=${missing})`);
+    return {
+      ok: false,
+      checker: checker.id,
+      tool_missing: missing,
+      command: null,
+      exit_code: null,
+      timed_out: false,
+      findings,
+      stats: {},
+    };
+  }
+  const command = commandForChecker(checker, target, stack, tools, deps.packageRoot);
   const evidencePath = join(workingDirectory, '.workflow', 'evidence', checker.evidence);
   await mkdir(dirname(evidencePath), { recursive: true });
 
@@ -605,10 +510,16 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     commandResult = await execute({ cwd: workingDirectory, command, binDir: deps.nodeModulesBin });
   }
 
+  const normalizer = typeof stack === 'string' && stack !== ''
+    && typeof checker.normalizers?.[stack] === 'function'
+    ? checker.normalizers[stack]
+    : null;
   let evidenceJson: unknown = null;
   let parseError = '';
   try {
-    evidenceJson = JSON.parse(await readFile(evidencePath, 'utf8'));
+    const rawText = await readFile(evidencePath, 'utf8');
+    // 有归一化就喂原始文本（工具原生产物可能是 JSONL / 纯文本）；否则按 JSON 解析。
+    evidenceJson = normalizer !== null ? normalizer(rawText) : JSON.parse(rawText);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code !== 'ENOENT') parseError = String((error as Error)?.message ?? error);
@@ -646,7 +557,7 @@ async function invokeChecker(deps: WorkflowToolsDeps, entry: ToolEntry, args: an
     deps.logger,
     'info',
     `[workflow] checker run (session=${sessionId}, tool=${entry.name}, checker=${checker.id}, `
-    + `auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? 'n/a')}, `
+    + `stack=${String(stack ?? 'none')}, auto=${String(checker.autoRun)}, exit=${String(commandResult?.exit_code ?? 'n/a')}, `
     + `ok=${String(result.ok)}, findings=${result.findings.length}, ${commandResult?.ms ?? 0}ms)`,
   );
   return {
@@ -899,7 +810,12 @@ async function invokeVerifyReport(deps: WorkflowToolsDeps, sessionId: string, ar
     }
   }
   // 强制使用门禁 + 强制提交工具输出：required 型检查器报 pass 前，必须真跑过对应 check_* 且提交真实输出。
-  if (checkerMeta?.enforcement === 'required' && report.result === 'pass') {
+  // 无机器驱动（非 JS/Python/Go 或该栈无对应命令）时降级为 AI 证据，跳过这条强制。
+  const requiredChecker = checkerMeta?.enforcement === 'required' ? findChecker(checkerMeta.id) : undefined;
+  const requiredSnapshot = requiredChecker !== undefined ? await deps.repository.get(found.workflowId) : null;
+  const requiredStack = requiredChecker !== undefined ? await detectStack(requiredSnapshot?.working_directory) : null;
+  if (checkerMeta?.enforcement === 'required' && report.result === 'pass'
+    && requiredChecker !== undefined && hasMachineDriver(requiredChecker, requiredStack)) {
     const verification = await deps.repository.getVerification(found.workflowId, found.nodeId);
     const toolName = `check_${checkerMeta.id}`;
     const runs = verification.checker_runs.filter((run) => run.checker_id === checkerMeta.id);

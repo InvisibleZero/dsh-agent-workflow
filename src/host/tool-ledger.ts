@@ -43,11 +43,6 @@ export function recordToolEvent(input: ToolLedgerInput): void {
   if (entries.length > MAX_EVENTS) entries.splice(0, entries.length - MAX_EVENTS);
 }
 
-export function recentToolEvents(limit = 50): ToolLedgerEntry[] {
-  const n = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), MAX_EVENTS) : 50;
-  return entries.slice(-n);
-}
-
 export function clearToolEvents(): void {
   entries.length = 0;
 }

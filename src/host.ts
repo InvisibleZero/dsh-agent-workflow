@@ -18,10 +18,7 @@ import { registerWorkflowStateContext } from './host/workflow-state-context';
 import { assertAdvanceAllowed, registerWorkflowGuard, registerWorkflowTools } from './host/workflow-tools';
 import { ensureClaimedSessionNode, resolveSessionWorkingDirectory } from './host/session-claim';
 import { configureEventLog, logEvent, newTraceId, recentEvents } from './host/event-log';
-import { ToolRegistryStore } from './host/tool-registry';
-import { recordToolEvent, recentToolEvents } from './host/tool-ledger';
-import { BASE_TOOLS, EXTENSION_TOOLS } from './schema/tool-catalog';
-import { FACTORY_TOOLS, mergeCatalog, renderCatalogText, summarizeDescription } from './engine/tool-policy';
+import { FACTORY_TOOLS, renderCatalogText } from './engine/tool-policy';
 import { DEFAULT_GLOBAL_OPERATION_DETAIL } from './schema/workflow';
 import { VERIFY_CHECKS } from './schema/verify-checks';
 import { resolveVerifyCheckId, validateVerifyReportInput } from './engine/verify-rules';
@@ -356,15 +353,10 @@ export function apply(ctx: any) {
     return presetSessions.has(sessionId);
   };
 
-  // 工具表：基础工具 5 条在代码里，扩展工具全局一份落 tools/tool-registry.json（随插件进 git）。
-  const registryStore = new ToolRegistryStore(toolsDir);
-
   // 按状态注入操作细节（系统提示里的动态上下文，不写会话记录）；只对本预设接管的会话生效。
+  // 工具目录固定 13 个（5 基础 + 8 检查器），无登记表。
   const stateContext = registerWorkflowStateContext(ctx, repository, isPresetSession, {
-    catalogTextOf: async (state: string) => {
-      const listing = await registryStore.list();
-      return renderCatalogText(mergeCatalog(FACTORY_TOOLS, listing.entries), state);
-    },
+    catalogTextOf: async (state: string) => renderCatalogText(FACTORY_TOOLS, state),
   });
 
   /** 读会话「此刻」的预设：true=工作流，false=明确是别的预设，null=读不到（别据此隐藏 UI）。 */
@@ -443,10 +435,8 @@ export function apply(ctx: any) {
   const toolsDeps = {
     repository,
     stateContext,
-    registryStore,
     nodeModulesBin,
     packageRoot,
-    recordToolEvent,
     isPresetSession,
     /**
      * 登记 / 更新工具前的宿主审批。
@@ -839,42 +829,6 @@ export function apply(ctx: any) {
       handler: makeHandler(ctx, repository, 'GET', async (_body, query) => {
         const rawLimit = Number(query.get('limit') ?? '100');
         return { events: recentEvents(Number.isFinite(rawLimit) ? rawLimit : 100) };
-      }),
-    }));
-    // 工具目录 + 审计账：设置页「工具」页签只读展示，写操作全走网关。
-    webCtx.effect(() => webCtx.webServer.register({
-      kind: 'exact',
-      path: '/dsh-gated-workflow/tools',
-      handler: makeHandler(ctx, repository, 'GET', async (_body, _query, traceId) => {
-        const startedAt = Date.now();
-        const snapshot = await registryStore.snapshot();
-        // 扩展工具 = 出厂 6 个（代码里）+ 开发期额外登记的（tool-registry.json）。
-        const extensionTools = [...EXTENSION_TOOLS, ...snapshot.entries];
-        const extensionCount = extensionTools.length;
-        logEvent(
-          ctx.logger,
-          'info',
-          `[workflow] tools ok (base=${BASE_TOOLS.length}, extension=${extensionCount}, corrupt=${String(snapshot.corrupt)}, ${Date.now() - startedAt}ms)`,
-          traceId,
-        );
-        // 设置页只要一句「干什么」；完整 description 是给模型看的「怎么做」，留在体内不展示。
-        const withSummary = (entry: any) => ({
-          name: entry.name,
-          kind: entry.kind,
-          summary: summarizeDescription(String(entry.description ?? '')),
-          description: entry.description,
-          run: entry.run,
-          allowed_states: entry.allowed_states,
-          effect: entry.effect,
-          parameters: entry.parameters,
-          version: entry.version,
-        });
-        return {
-          base: BASE_TOOLS.map(withSummary),
-          extension: extensionTools.map(withSummary),
-          corrupt: snapshot.corrupt,
-          events: recentToolEvents(50),
-        };
       }),
     }));
     // 浏览器半的埋点入口：落在同一个事件环里，才能和宿主日志对时间。

@@ -15,8 +15,6 @@ export const TOOL_LIMIT_BY_KIND = {
     base: 6,
     extension: 8,
 };
-/** 出厂工具名（基础 + 扩展）：登记工具不能重名（挡住"覆盖出厂工具"这条路）。 */
-export const FACTORY_TOOL_NAMES = [...BASE_TOOLS, ...EXTENSION_TOOLS].map((entry) => entry.name);
 /** 完整出厂目录：5 个基础工具 + 5 个扩展工具，不读盘。 */
 export const FACTORY_TOOLS = [...BASE_TOOLS, ...EXTENSION_TOOLS];
 const EFFECTS = ['read-state', 'write-state', 'exec'];

@@ -125,9 +125,6 @@ const NODE_DETAIL_TABS = [
 /** 设置页页签行右侧的只读「附表」：故意不放进 STATE_TABS——那圈代码按状态 id 读写 detail，附表没有可编辑字段。 */
 const APPENDIX_TAB = { id: 'appendix', label: '附表' };
 
-/** 只读「工具」页签：目录与最近调用/拒绝。 */
-const TOOLS_TAB = { id: 'tools', label: '工具' };
-
 interface ToolsCatalogItem {
   name: string;
   /** 基础工具 / 扩展工具：分组标题读 TOOL_KIND_LABEL，不在这里写死文案。 */
@@ -930,7 +927,7 @@ function WorkflowGlobalSettingsSection() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--dsw-alias-border-l1)', marginBottom: 12 }}>
-        {[...STATE_TABS, APPENDIX_TAB, TOOLS_TAB].map((tab) => (
+        {[...STATE_TABS, APPENDIX_TAB].map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -957,8 +954,6 @@ function WorkflowGlobalSettingsSection() {
       }}>
         {activeTab === 'appendix' ? (
           <AppendixPanel />
-        ) : activeTab === 'tools' ? (
-          <ToolsPanel />
         ) : activeTab === 'shared' ? (
           <>
             <label style={LABEL_STYLE}>公共操作细节 · 三态通用</label>
@@ -1410,6 +1405,11 @@ export function WorkflowNodeDetailDialog(props: { workflowId: string; nodeId: st
                     <div key={item.id} style={{ border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>
                         {verifyMarkSymbol(item.mark)} {item.id} {item.name}
+                        {item.latestRun !== null ? (
+                          <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-brand-primary)' }}>机器验</span>
+                        ) : item.mark !== 'pending' ? (
+                          <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)' }}>AI 证据</span>
+                        ) : null}
                       </div>
                       {item.summary !== '' ? (
                         <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' }}>摘要：{item.summary}</div>

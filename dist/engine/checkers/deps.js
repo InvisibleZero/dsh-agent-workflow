@@ -8,11 +8,22 @@
  * https://github.com/sverweij/dependency-cruiser
  */
 import { asArray, asNumber, asRecord, asString, missingEvidence, } from './types';
+import { normalizeGoBuild, normalizeImportLinter } from './normalize';
 const EVIDENCE = 'deps.json';
 const DEFAULT_TARGET = 'src';
-/** 命令模板：只把 target 填进去。 */
+/** 各技术栈的依赖取证命令：都用宿主定位到的绝对路径，不靠 PATH。 */
+const DEPS_COMMANDS = {
+    js: (target) => `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE}`,
+    python: (_target, tools) => `"${tools.lintImports ?? 'lint-imports'}" > .workflow/evidence/${EVIDENCE}`,
+    go: (_target, tools) => `"${tools.go ?? 'go'}" build ./... > .workflow/evidence/${EVIDENCE}`,
+};
+/** 按技术栈选依赖取证命令。 */
+export function depsCommandFor(stack, target) {
+    return DEPS_COMMANDS[stack](target, {});
+}
+/** 命令模板：默认 JS，只把 target 填进去。 */
 function buildCommand(target) {
-    return `depcruise ${target} --output-type json --output-to .workflow/evidence/${EVIDENCE}`;
+    return DEPS_COMMANDS.js(target, {});
 }
 export const depsChecker = {
     id: 'deps',
@@ -20,6 +31,8 @@ export const depsChecker = {
     evidence: EVIDENCE,
     defaultTarget: DEFAULT_TARGET,
     autoRun: true,
+    buildCommands: DEPS_COMMANDS,
+    normalizers: { python: normalizeImportLinter, go: normalizeGoBuild },
     buildCommand: buildCommand,
     check(evidence_json) {
         if (evidence_json === null)

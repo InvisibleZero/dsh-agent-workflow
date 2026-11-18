@@ -69,6 +69,7 @@ describe('验收八项：规则与门禁', () => {
     repo = new WorkflowRepository(dir);
     stateRef = { value: 'verifying' };
     await writeFile(join(workDir, 'evidence.md'), 'first\nsecond\nthird\n', 'utf8');
+    await writeFile(join(workDir, 'package.json'), '{}', 'utf8');
   });
 
   afterEach(async () => {

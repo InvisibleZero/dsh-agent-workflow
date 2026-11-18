@@ -15,7 +15,7 @@ const EVIDENCE = join(EVIDENCE_DIR, 'naming.json');
 const SCAN_ROOT = 'src';
 const BANNED = ['system', 'data', 'info', 'manager', 'util', 'utils', 'common', 'helper'];
 const BANNED_RE = new RegExp(`\\b(${BANNED.join('|')})\\b`, 'g');
-const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go']);
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'build', '.workflow']);
 const MAX_FILES = 2000;
 
@@ -45,12 +45,29 @@ export function stripCommentsAndStrings(text) {
       while (i < n && text[i] !== '\n') { out += blank(text[i]); i += 1; }
       continue;
     }
+    // Python 行注释：#（JS 的 #private 字段极少，误判可接受）
+    if (c === '#') {
+      while (i < n && text[i] !== '\n') { out += blank(text[i]); i += 1; }
+      continue;
+    }
     if (c === '/' && text[i + 1] === '*') {
       out += '  ';
       i += 2;
       while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { out += blank(text[i]); i += 1; }
       out += '  ';
       i += 2;
+      continue;
+    }
+    // Python 三引号字符串（docstring）："""...""" 或 '''...'''
+    if ((c === '"' && text[i + 1] === '"' && text[i + 2] === '"') || (c === "'" && text[i + 1] === "'" && text[i + 2] === "'")) {
+      const q = c;
+      out += '   ';
+      i += 3;
+      while (i < n) {
+        if (text[i] === q && text[i + 1] === q && text[i + 2] === q) { out += '   '; i += 3; break; }
+        out += blank(text[i]);
+        i += 1;
+      }
       continue;
     }
     if (c === "'" || c === '"' || c === '`') {
