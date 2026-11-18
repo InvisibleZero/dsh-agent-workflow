@@ -10,6 +10,12 @@
  */
 import { validateInstrumentation } from '../instrumentation-rules';
 const EVIDENCE = 'instrumentation.json';
+/**
+ * 没写计划时返回的格式引导。
+ * 工具目录只渲染描述第一句（≤90 字），完整格式放不进目录，所以放在「没计划」的说明里带回去——
+ * 模型跑一次 check_instrumentation 就能拿到格式，不用猜。
+ */
+const PLAN_FORMAT_HINT = '{"tree_version":1,"root":{"id":"none","label":"none","children":[{"id":"bug-1","label":"现象","children":[{"id":"p-1","label":"环节","instrument":{"function":"函数名","event":"事件名","tree_version":1,"kind":"path"},"children":[]}]}]},"nodes":{"函数名::事件名":{"function":"函数名","event":"事件名","tree_version":1,"kind":"path"}}}。规则：根 id 固定 none 且不带埋点；根的直接子节点是 bug 标签、不带埋点；深度≥2 的路径节点必须带 instrument；树上的每个 instrument 要在 nodes 里有同 key 且一致；深度≤4、每节点子≤5、树≤50 节点、KV≤200。';
 export const instrumentationChecker = {
     id: 'instrumentation',
     name: '埋点检测',
@@ -29,7 +35,12 @@ export const instrumentationChecker = {
                 unsupported: `埋点检测只支持 js / python，当前栈是 ${stack}`,
             };
         }
-        return validateInstrumentation(evidence_json);
+        const result = validateInstrumentation(evidence_json);
+        // 没有计划：把「格式 + 规则」带回去，否则模型不知道要写什么、写成什么样。
+        if (result.stats.config_missing === 1) {
+            return { ...result, note: `${result.note ?? ''}　格式：${PLAN_FORMAT_HINT}` };
+        }
+        return result;
     },
 };
 //# sourceMappingURL=instrumentation.js.map

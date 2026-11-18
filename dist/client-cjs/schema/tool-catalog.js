@@ -237,7 +237,7 @@ exports.EXTENSION_TOOLS = [
     },
     {
         name: 'check_instrumentation',
-        description: '协助型埋点检测（会改项目源码）：扫已有埋点、按树节点锚点补插、重扫并校验计划结构（去重 / 深度 / 孤儿）。先按格式把 tree + 节点 KV 写到 .workflow/evidence/instrumentation.json，再调本工具；工具读它、补插缺失埋点、落 instrumentation-existing.json 与 instrumentation-apply.json。跑完读 instrumentation-apply.json 的 scanned / existing / inserted，把「扫到 N、新增 M」写进第 6 项报备 summary。',
+        description: '协助型埋点检测：先写埋点计划（.workflow/evidence/instrumentation.json）再调本工具；没计划时只扫描、不插入，并把计划格式带回来。工具会扫已有埋点（JS logEvent(/clientLog(；Python logger.*/log(），按函数名锚点补插缺失项后重扫，落 instrumentation-existing.json 与 instrumentation-apply.json；跑完读 instrumentation-apply.json 的 scanned / existing / inserted / skipped 写进第 6 项 summary。',
         kind: tool_kind_2.TOOL_KIND.extension,
         run: { kind: 'checker', checker: 'instrumentation' },
         allowed_states: ['verifying'],

@@ -3096,7 +3096,7 @@ var EXTENSION_TOOLS = [
   },
   {
     name: "check_instrumentation",
-    description: "\u534F\u52A9\u578B\u57CB\u70B9\u68C0\u6D4B\uFF08\u4F1A\u6539\u9879\u76EE\u6E90\u7801\uFF09\uFF1A\u626B\u5DF2\u6709\u57CB\u70B9\u3001\u6309\u6811\u8282\u70B9\u951A\u70B9\u8865\u63D2\u3001\u91CD\u626B\u5E76\u6821\u9A8C\u8BA1\u5212\u7ED3\u6784\uFF08\u53BB\u91CD / \u6DF1\u5EA6 / \u5B64\u513F\uFF09\u3002\u5148\u6309\u683C\u5F0F\u628A tree + \u8282\u70B9 KV \u5199\u5230 .workflow/evidence/instrumentation.json\uFF0C\u518D\u8C03\u672C\u5DE5\u5177\uFF1B\u5DE5\u5177\u8BFB\u5B83\u3001\u8865\u63D2\u7F3A\u5931\u57CB\u70B9\u3001\u843D instrumentation-existing.json \u4E0E instrumentation-apply.json\u3002\u8DD1\u5B8C\u8BFB instrumentation-apply.json \u7684 scanned / existing / inserted\uFF0C\u628A\u300C\u626B\u5230 N\u3001\u65B0\u589E M\u300D\u5199\u8FDB\u7B2C 6 \u9879\u62A5\u5907 summary\u3002",
+    description: "\u534F\u52A9\u578B\u57CB\u70B9\u68C0\u6D4B\uFF1A\u5148\u5199\u57CB\u70B9\u8BA1\u5212\uFF08.workflow/evidence/instrumentation.json\uFF09\u518D\u8C03\u672C\u5DE5\u5177\uFF1B\u6CA1\u8BA1\u5212\u65F6\u53EA\u626B\u63CF\u3001\u4E0D\u63D2\u5165\uFF0C\u5E76\u628A\u8BA1\u5212\u683C\u5F0F\u5E26\u56DE\u6765\u3002\u5DE5\u5177\u4F1A\u626B\u5DF2\u6709\u57CB\u70B9\uFF08JS logEvent(/clientLog(\uFF1BPython logger.*/log(\uFF09\uFF0C\u6309\u51FD\u6570\u540D\u951A\u70B9\u8865\u63D2\u7F3A\u5931\u9879\u540E\u91CD\u626B\uFF0C\u843D instrumentation-existing.json \u4E0E instrumentation-apply.json\uFF1B\u8DD1\u5B8C\u8BFB instrumentation-apply.json \u7684 scanned / existing / inserted / skipped \u5199\u8FDB\u7B2C 6 \u9879 summary\u3002",
     kind: TOOL_KIND.extension,
     run: { kind: "checker", checker: "instrumentation" },
     allowed_states: ["verifying"],
@@ -3591,6 +3591,7 @@ function validateInstrumentation(raw, limits = INSTRUMENTATION_LIMITS) {
 
 // src/engine/checkers/instrumentation.ts
 var EVIDENCE6 = "instrumentation.json";
+var PLAN_FORMAT_HINT = '{"tree_version":1,"root":{"id":"none","label":"none","children":[{"id":"bug-1","label":"\u73B0\u8C61","children":[{"id":"p-1","label":"\u73AF\u8282","instrument":{"function":"\u51FD\u6570\u540D","event":"\u4E8B\u4EF6\u540D","tree_version":1,"kind":"path"},"children":[]}]}]},"nodes":{"\u51FD\u6570\u540D::\u4E8B\u4EF6\u540D":{"function":"\u51FD\u6570\u540D","event":"\u4E8B\u4EF6\u540D","tree_version":1,"kind":"path"}}}\u3002\u89C4\u5219\uFF1A\u6839 id \u56FA\u5B9A none \u4E14\u4E0D\u5E26\u57CB\u70B9\uFF1B\u6839\u7684\u76F4\u63A5\u5B50\u8282\u70B9\u662F bug \u6807\u7B7E\u3001\u4E0D\u5E26\u57CB\u70B9\uFF1B\u6DF1\u5EA6\u22652 \u7684\u8DEF\u5F84\u8282\u70B9\u5FC5\u987B\u5E26 instrument\uFF1B\u6811\u4E0A\u7684\u6BCF\u4E2A instrument \u8981\u5728 nodes \u91CC\u6709\u540C key \u4E14\u4E00\u81F4\uFF1B\u6DF1\u5EA6\u22644\u3001\u6BCF\u8282\u70B9\u5B50\u22645\u3001\u6811\u226450 \u8282\u70B9\u3001KV\u2264200\u3002';
 var instrumentationChecker = {
   id: "instrumentation",
   name: "\u57CB\u70B9\u68C0\u6D4B",
@@ -3608,7 +3609,11 @@ var instrumentationChecker = {
         unsupported: `\u57CB\u70B9\u68C0\u6D4B\u53EA\u652F\u6301 js / python\uFF0C\u5F53\u524D\u6808\u662F ${stack}`
       };
     }
-    return validateInstrumentation(evidence_json);
+    const result = validateInstrumentation(evidence_json);
+    if (result.stats.config_missing === 1) {
+      return { ...result, note: `${result.note ?? ""}\u3000\u683C\u5F0F\uFF1A${PLAN_FORMAT_HINT}` };
+    }
+    return result;
   }
 };
 

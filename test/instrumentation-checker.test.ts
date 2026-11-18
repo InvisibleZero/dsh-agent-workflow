@@ -14,4 +14,11 @@ describe('埋点检查器：不支持的栈 vs 缺计划', () => {
     expect(result.stats.config_missing).toBe(1);
     expect(result.note).toContain('埋点计划');
   });
+
+  it('缺计划时 note 里带出计划格式（模型不用猜怎么写）', () => {
+    const result = instrumentationChecker.check(null, { stack: 'python' });
+    expect(result.note).toContain('tree_version');
+    expect(result.note).toContain('nodes');
+    expect(result.note).toContain('根 id 固定 none');
+  });
 });
