@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Agent workflow",
-    "description": "A sidebar workspace browser plus tree-shaped workflow workspaces whose nodes step through a five-stage state machine."
+    "title": "Gated Workflow",
+    "description": "A gated agent workflow state machine: no writes in discussion, no out-of-scope edits in implementation, no unverified checkmarks in verification — only two interruptions all the way."
   }
 }
