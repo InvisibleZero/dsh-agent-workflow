@@ -2894,6 +2894,8 @@ function pickSessionId(context) {
 }
 
 // src/host/workflow-tools.ts
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir as mkdir2, readFile } from "node:fs/promises";
 import { dirname as dirname4, isAbsolute, join as join6, resolve as resolve2 } from "node:path";
 
@@ -4240,10 +4242,25 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
   }
   return checker.buildCommand(target);
 }
-async function resolveToolsFor(stack) {
+function ensurePythonTools(python, packageRoot) {
+  const probe = spawnSync(python, ["-c", "import pytest, importlinter, vulture"], { stdio: "ignore" });
+  if (probe.status === 0) return true;
+  const wheelsDir = join6(packageRoot, "python-wheels");
+  if (!existsSync(wheelsDir)) return false;
+  const install = spawnSync(
+    python,
+    ["-m", "pip", "install", "--no-index", "--find-links", wheelsDir, "pytest", "pytest-json-report", "import-linter", "vulture"],
+    { stdio: "ignore" }
+  );
+  if (install.status !== 0) return false;
+  return spawnSync(python, ["-c", "import pytest, importlinter, vulture"], { stdio: "ignore" }).status === 0;
+}
+async function resolveToolsFor(stack, packageRoot, ensure = ensurePythonTools) {
   if (stack === "python") {
     const python = await resolvePython();
-    return python === null ? null : { python, lintImports: lintImportsPath(python) };
+    if (python === null) return null;
+    if (!ensure(python, packageRoot ?? "")) return null;
+    return { python, lintImports: lintImportsPath(python) };
   }
   return {};
 }
@@ -4262,7 +4279,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
   }
   const target = resolveCheckerTarget(args?.target, checker);
   const stack = await detectStack(workingDirectory);
-  const tools = await resolveToolsFor(stack);
+  const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
   if (tools === null) {
     const missing = "DSH Python";
     const findings = [{

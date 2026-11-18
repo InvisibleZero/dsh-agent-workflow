@@ -52,6 +52,8 @@ describe('垂直切片：Python 项目上 check_contract 全链路', () => {
         commands.push(input.command);
         return { ok: true, exit_code: 0, timed_out: false, ms: 1, tail: '' };
       },
+      // 跳过真实工具探测 / 离线安装：测试不依赖本机 Python 装了 pytest。
+      ensurePythonTools: () => true,
     };
     registerWorkflowTools(runtime.ctx, deps as any);
     tools = runtime.tools;

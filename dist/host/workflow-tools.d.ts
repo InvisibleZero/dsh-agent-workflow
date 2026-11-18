@@ -33,6 +33,8 @@ export interface WorkflowToolsDeps {
         ms: number;
         tail: string;
     }>;
+    /** 确保 Python 三件套可用（惰性安装）：测试注入用，默认是真探测 + 缺了就离线装。 */
+    ensurePythonTools?: (python: string, packageRoot: string) => boolean;
     /**
      * 宿主审批：登记 / 更新工具前问一次用户。
      *

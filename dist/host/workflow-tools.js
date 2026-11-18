@@ -13,6 +13,8 @@
  *   - 手册与勾选走网关，不经过 write，因此不受门禁影响。
  *   - 「分步绝对」落在推进前置上：方案没写不能进实现中，清单没勾完不能进验收中。
  */
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { NODE_STATE_LABEL } from '../schema/node-state-label';
@@ -351,13 +353,33 @@ function commandForChecker(checker, target, stack, tools, packageRoot) {
     return checker.buildCommand(target);
 }
 /**
+ * 确保 Python 三件套可用：先探测，缺了就离线装一次。
+ * 兜底「官方商店用 --ignore-scripts 装包、postinstall 没跑」的情况。
+ */
+function ensurePythonTools(python, packageRoot) {
+    const probe = spawnSync(python, ['-c', 'import pytest, importlinter, vulture'], { stdio: 'ignore' });
+    if (probe.status === 0)
+        return true;
+    const wheelsDir = join(packageRoot, 'python-wheels');
+    if (!existsSync(wheelsDir))
+        return false;
+    const install = spawnSync(python, ['-m', 'pip', 'install', '--no-index', '--find-links', wheelsDir, 'pytest', 'pytest-json-report', 'import-linter', 'vulture'], { stdio: 'ignore' });
+    if (install.status !== 0)
+        return false;
+    return spawnSync(python, ['-c', 'import pytest, importlinter, vulture'], { stdio: 'ignore' }).status === 0;
+}
+/**
  * 按技术栈定位取证工具：python → DSH 自带 Python + 它的 lint-imports console script。
  * 返回 null = 关键工具没找到（调用方报「工具缺失」并降级）。
  */
-async function resolveToolsFor(stack) {
+async function resolveToolsFor(stack, packageRoot, ensure = ensurePythonTools) {
     if (stack === 'python') {
         const python = await resolvePython();
-        return python === null ? null : { python, lintImports: lintImportsPath(python) };
+        if (python === null)
+            return null;
+        if (!ensure(python, packageRoot ?? ''))
+            return null;
+        return { python, lintImports: lintImportsPath(python) };
     }
     return {};
 }
@@ -384,7 +406,7 @@ async function invokeChecker(deps, entry, args, sessionId) {
     }
     const target = resolveCheckerTarget(args?.target, checker);
     const stack = await detectStack(workingDirectory);
-    const tools = await resolveToolsFor(stack);
+    const tools = await resolveToolsFor(stack, deps.packageRoot, deps.ensurePythonTools ?? ensurePythonTools);
     if (tools === null) {
         // 工具缺失：明确报「工具缺失」，让上层降级 AI 证据（不跑命令、不产生假证据）。
         const missing = 'DSH Python';
